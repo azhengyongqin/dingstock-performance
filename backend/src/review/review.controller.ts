@@ -89,7 +89,7 @@ export class ReviewController {
 
   @Get('self-reviews/current')
   @ApiOperation({
-    summary: '我的自评上下文（参与记录/草稿/可填维度/评分规则）',
+    summary: '我的自评上下文（参与记录/草稿/可填维度/评估规则）',
   })
   @ApiQuery({ name: 'cycle_id', required: false })
   getCurrentSelfReview(
@@ -145,7 +145,7 @@ export class ReviewController {
   @Get('review-tasks/context')
   @ApiOperation({
     summary:
-      '评估填写上下文（自评/维度/评分规则/我的草稿；上级评估含 360° 汇总与历史绩效）',
+      '评估填写上下文（自评/维度/评估规则/我的草稿；上级评估含 360° 汇总与历史绩效）',
   })
   @ApiQuery({ name: 'participant_id', required: true })
   @ApiQuery({
@@ -187,7 +187,7 @@ export class ReviewController {
 
   @Post('manager-reviews/submit')
   @ApiOperation({
-    summary: '提交上级评估（必须给出初评等级；提交后触发 AI 分析任务）',
+    summary: '提交上级评估（必须给出初评评级；提交后触发 AI 分析任务）',
   })
   submitManagerReview(
     @Req() req: AuthenticatedRequest,

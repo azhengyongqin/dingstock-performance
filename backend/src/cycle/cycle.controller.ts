@@ -30,7 +30,7 @@ import {
   UpdateCycleDto,
   UpsertDimensionsDto,
   UpsertNotificationRulesDto,
-  UpsertScoringRuleDto,
+  UpsertEvaluationRuleDto,
   UpsertWindowsDto,
 } from './cycle.dto';
 import { CycleService } from './cycle.service';
@@ -52,13 +52,13 @@ export class CycleController {
   }
 
   @Post()
-  @ApiOperation({ summary: '创建周期（可从模板复制评分规则与维度集）' })
+  @ApiOperation({ summary: '创建周期（可从模板复制评估规则与维度集）' })
   create(@Req() req: AuthenticatedRequest, @Body() dto: CreateCycleDto) {
     return this.cycleService.createCycle(req.user.open_id, dto);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: '周期详情（含评分规则、维度、人数）' })
+  @ApiOperation({ summary: '周期详情（含评估规则、维度、人数）' })
   detail(@Param('id', ParseIntPipe) id: number) {
     return this.cycleService.getCycle(id);
   }
@@ -82,14 +82,14 @@ export class CycleController {
     return this.cycleService.deleteCycle(req.user.open_id, id);
   }
 
-  @Put(':id/scoring-rule')
-  @ApiOperation({ summary: '配置评分规则（启动前）' })
-  upsertScoringRule(
+  @Put(':id/evaluation-rule')
+  @ApiOperation({ summary: '配置评估规则（启动前）' })
+  upsertEvaluationRule(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpsertScoringRuleDto,
+    @Body() dto: UpsertEvaluationRuleDto,
   ) {
-    return this.cycleService.upsertScoringRule(req.user.open_id, id, dto);
+    return this.cycleService.upsertEvaluationRule(req.user.open_id, id, dto);
   }
 
   @Put(':id/dimensions')
@@ -106,7 +106,7 @@ export class CycleController {
 
   @Post(':id/apply-template')
   @ApiOperation({
-    summary: '启动前重新套用模板：整体覆盖评分规则与评估维度',
+    summary: '启动前重新套用模板：整体覆盖评估规则与评估维度',
   })
   applyTemplate(
     @Req() req: AuthenticatedRequest,

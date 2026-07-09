@@ -26,8 +26,8 @@ const SETTING_SECTIONS = [
   {
     icon: SlidersHorizontalIcon,
     title: '评估参数',
-    description: '评分规则与评估维度的默认配置以「配置模板」维护，创建周期时一键复用',
-    items: ['默认模板：标准半年度评估模板', '等级映射：S≥90 / A≥80 / B≥70 / C≥60 / D<60', '建议分布：S 5% · A 25% · B 55% · C 12% · D 3%'],
+    description: '评估规则与评估维度的默认配置以「配置模板」维护，创建周期时一键复用',
+    items: ['默认模板：标准半年度评估模板', '默认评级：S[90,100] / A[80,90) / B[60,80) / C[0,60)', '评语必填评级：S / C'],
     href: '/settings/templates',
     linkLabel: '前往模板管理'
   },

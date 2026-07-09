@@ -346,17 +346,16 @@ enum ReportExportStatus {
   @@schema("performance")
 }
 
-/// 绩效配置模板（产品 §9.5/§9.6「固定模版」）：评分规则 + 维度集的跨周期复用母本。
-/// 创建周期时从模板复制到 perf_scoring_rules / perf_dimensions 生成该周期的快照实例；
+/// 绩效配置模板（产品 §9.5/§9.6「固定模版」）：评估规则 + 维度集的跨周期复用母本。
+/// 创建周期时从模板复制到 perf_evaluation_rules / perf_dimensions 生成该周期的快照实例；
 /// 之后修改模板不影响已创建的周期，周期内微调也不回写模板（复制隔离，保证历史不可变）。
 model PerfTemplate {
   id                   Int       @id @default(autoincrement()) /// 内部自增主键
   name                 String /// 模板名称，如「标准半年度评估模板」；唯一性由 service 层校验（软删除与 @unique 冲突）
   description          String? /// 模板说明
   isDefault            Boolean   @default(false) @map("is_default") /// 是否默认模板；创建周期向导默认选中，至多一个由 service 保证
-  levels               Json /// 评分规则-等级定义，结构同 perf_scoring_rules.levels
-  distribution         Json? /// 评分规则-建议/强制分布，结构同 perf_scoring_rules.distribution
-  commentRequiredRules Json?     @map("comment_required_rules") /// 评分规则-评语必填规则，结构同 perf_scoring_rules.comment_required_rules
+  levels               Json /// 评估规则-评级定义，结构同 perf_evaluation_rules.levels
+  commentRequiredRules Json?     @map("comment_required_rules") /// 评估规则-评语必填规则，如 { requiredRatingSymbols: ["S", "C"] }
   updatedByOpenId      String?   @map("updated_by_open_id") /// 最近修改人 open_id
   createdAt            DateTime  @default(now()) @map("created_at") /// 创建时间
   updatedAt            DateTime  @updatedAt @map("updated_at") /// 最近更新时间
@@ -406,7 +405,7 @@ model PerfCycle {
   startDate         DateTime        @map("start_date") @db.Date /// 周期开始日期
   endDate           DateTime        @map("end_date") @db.Date /// 周期结束日期
   ownerOpenId       String          @map("owner_open_id") /// 周期负责人（HR）飞书 open_id
-  templateId        Int?            @map("template_id") /// 来源配置模板，仅溯源用；周期实际配置以复制到本周期的快照（scoring_rule/dimensions）为准
+  templateId        Int?            @map("template_id") /// 来源配置模板，仅溯源用；周期实际配置以复制到本周期的快照（evaluation_rule/dimensions）为准
   windows           Json? /// 各阶段时间窗口（产品 §9.3）：{ selfReview/review/calibration/confirm/appeal: { startAt, endAt, remindAt[] } }
   notificationRules Json?           @map("notification_rules") /// 催办规则（产品 §9.9）：截止前提醒/逾期频率/接收人/抄送 Leader/HR
   createdAt         DateTime        @default(now()) @map("created_at") /// 创建时间
@@ -414,7 +413,7 @@ model PerfCycle {
   deletedAt         DateTime?       @map("deleted_at") /// 软删除时间；仅 DRAFT 可删，查询默认过滤 null
 
   template            PerfTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  scoringRule         PerfScoringRule?
+  evaluationRule      PerfEvaluationRule?
   dimensions          PerfDimension[]
   participants        PerfParticipant[]
   reviewerAssignments PerfReviewerAssignment[]
@@ -427,20 +426,19 @@ model PerfCycle {
   @@schema("performance")
 }
 
-/// 评分规则：每周期一份（1:1），定义等级、分布与评语要求（产品 §8.9）。
+/// 评估规则：每周期一份（1:1），定义评级与评语必填规则（产品 §8.9）。
 /// 通常在创建周期时由 perf_templates 复制生成（周期快照实例），周期内可微调、不回写模板。
-model PerfScoringRule {
+model PerfEvaluationRule {
   id                   Int      @id @default(autoincrement()) /// 内部自增主键
   cycleId              Int      @unique @map("cycle_id") /// 所属周期，一周期仅一份规则
-  levels               Json /// 等级定义：[{ level: "S", scoreRange: [90,100], description }]，等级集合由此配置决定，业务表等级字段存 String
-  distribution         Json?    @map("distribution") /// 建议/强制分布规则：[{ level, minRatio, maxRatio, enforced }]
-  commentRequiredRules Json?    @map("comment_required_rules") /// 评语必填规则：如最高/最低等级必须填写评语
+  levels               Json /// 评级定义：[{ symbol, name, minScore, maxScore, maxInclusive, remark }]；区间必须完整覆盖 0-100，最高档右闭
+  commentRequiredRules Json?    @map("comment_required_rules") /// 评语必填规则：如 { requiredRatingSymbols: ["S", "C"] }
   createdAt            DateTime @default(now()) @map("created_at") /// 创建时间
   updatedAt            DateTime @updatedAt @map("updated_at") /// 最近更新时间
 
   cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
 
-  @@map("perf_scoring_rules")
+  @@map("perf_evaluation_rules")
   @@schema("performance")
 }
 
@@ -583,7 +581,7 @@ model PerfManagerReview {
   leaderOpenId        String           @map("leader_open_id") /// 填写人（直属 Leader）飞书 open_id
   dimensionScores     Json?            @map("dimension_scores") /// 维度评分明细，结构同 perf_reviews.dimension_scores
   overallComment      String?          @map("overall_comment") /// 综合评语
-  initialLevel        String?          @map("initial_level") /// 初步绩效等级；取值由周期评分规则 levels 配置约束，故存 String
+  initialLevel        String?          @map("initial_level") /// 初步绩效评级；取值由周期评估规则 levels 配置约束，故存 String
   promotionConclusion String?          @map("promotion_conclusion") /// 晋升建议结论（结论型选项）；仅启用晋升评估时存在
   status              PerfReviewStatus @default(DRAFT) /// 评估状态
   submittedAt         DateTime?        @map("submitted_at") /// 提交时间；提交后触发 AI 分析任务
@@ -623,12 +621,12 @@ model PerfAiReport {
   @@schema("performance")
 }
 
-/// 校准记录（产品 §8.15）：append-only，不可更新/删除；每次等级调整新增一条
+/// 校准记录（产品 §8.15）：append-only，不可更新/删除；每次评级调整新增一条
 model PerfCalibration {
   id             Int      @id @default(autoincrement()) /// 内部自增主键
   participantId  Int      @map("participant_id") /// 所属参与者
-  beforeLevel    String?  @map("before_level") /// 调整前等级（首条为上级评估初评等级；可能为空）
-  afterLevel     String   @map("after_level") /// 调整后等级
+  beforeLevel    String?  @map("before_level") /// 调整前评级（首条为上级评估初评评级；可能为空）
+  afterLevel     String   @map("after_level") /// 调整后评级
   reason         String   @map("reason") /// 调整原因，必填（产品 §6.5）
   operatorOpenId String   @map("operator_open_id") /// 操作人（HR/校准会成员）open_id
   createdAt      DateTime @default(now()) @map("created_at") /// 记录时间
@@ -645,7 +643,7 @@ model PerfCalibration {
 model PerfResult {
   id                  Int       @id @default(autoincrement()) /// 内部自增主键
   participantId       Int       @unique @map("participant_id") /// 所属参与者
-  finalLevel          String    @map("final_level") /// 最终绩效等级；取值受周期评分规则约束
+  finalLevel          String    @map("final_level") /// 最终绩效评级；取值受周期评估规则约束
   dimensionResults    Json?     @map("dimension_results") /// 维度结果快照：[{ dimensionId, name, level/score, comment }]
   promotionResult     String?   @map("promotion_result") /// 晋升评估结论；仅启用晋升评估时存在，员工可见性看维度配置
   confirmedByEmployee Boolean   @default(false) @map("confirmed_by_employee") /// 员工是否已确认
@@ -764,7 +762,7 @@ model RoleGrant {
   @@schema("performance")
 }
 
-/// 系统参数（产品 §9.11）：key-value 配置，如 AI 开关、飞书文档默认目录、默认评分等级、导出权限
+/// 系统参数（产品 §9.11）：key-value 配置，如 AI 开关、飞书文档默认目录、默认评级、导出权限
 model SystemConfig {
   id              Int      @id @default(autoincrement()) /// 内部自增主键
   key             String   @unique @map("key") /// 参数键，如 ai.enabled / export.allowed_roles

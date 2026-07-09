@@ -4,6 +4,19 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import { CycleService } from './cycle.service';
 
+const TEST_RATINGS = [
+  { symbol: 'C', name: '不符预期', minScore: 0, maxScore: 60 },
+  { symbol: 'B', name: '良好', minScore: 60, maxScore: 80 },
+  { symbol: 'A', name: '优秀', minScore: 80, maxScore: 90 },
+  {
+    symbol: 'S',
+    name: '卓越',
+    minScore: 90,
+    maxScore: 100,
+    maxInclusive: true,
+  },
+];
+
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
 jest.mock(
   '../generated/prisma/client',
@@ -35,6 +48,9 @@ jest.mock(
 jest.mock('@prisma/adapter-pg', () => ({
   PrismaPg: jest.fn().mockImplementation((options: unknown) => options),
 }));
+jest.mock('../audit/audit.service', () => ({
+  AuditService: class {},
+}));
 
 describe('CycleService', () => {
   const txMock = {
@@ -45,7 +61,7 @@ describe('CycleService', () => {
     perfTemplate: {
       findFirst: jest.fn(),
     },
-    perfScoringRule: {
+    perfEvaluationRule: {
       create: jest.fn(),
       upsert: jest.fn(),
     },
@@ -90,7 +106,6 @@ describe('CycleService', () => {
     txMock.perfTemplate.findFirst.mockResolvedValue({
       id: 10,
       levels: [],
-      distribution: null,
       commentRequiredRules: null,
       dimensions: [{ id: 1, weight: 100, applicableScope: null }],
     });
@@ -105,7 +120,7 @@ describe('CycleService', () => {
     ).rejects.toThrow(BadRequestException);
   });
 
-  it('使用可用配置模板创建绩效周期时复制评分规则与评估维度快照', async () => {
+  it('使用可用配置模板创建绩效周期时复制评估规则与评估维度快照', async () => {
     txMock.perfCycle.create.mockResolvedValue({
       id: 100,
       name: '2026 H1 绩效评估',
@@ -113,9 +128,8 @@ describe('CycleService', () => {
     });
     txMock.perfTemplate.findFirst.mockResolvedValue({
       id: 10,
-      levels: [{ level: 'A' }],
-      distribution: [{ level: 'A', maxRatio: 0.3 }],
-      commentRequiredRules: { lowest: true },
+      levels: TEST_RATINGS,
+      commentRequiredRules: { requiredRatingSymbols: ['S', 'C'] },
       dimensions: [
         {
           id: 1,
@@ -137,7 +151,7 @@ describe('CycleService', () => {
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
       templateId: 10,
-      scoringRule: { levels: [{ level: 'A' }] },
+      evaluationRule: { levels: TEST_RATINGS },
       dimensions: [{ id: 200, name: '业绩' }],
       _count: { participants: 0 },
     });
@@ -149,10 +163,10 @@ describe('CycleService', () => {
       templateId: 10,
     });
 
-    expect(txMock.perfScoringRule.create).toHaveBeenCalledWith({
+    expect(txMock.perfEvaluationRule.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         cycleId: 100,
-        levels: [{ level: 'A' }],
+        levels: TEST_RATINGS,
       }),
     });
     expect(txMock.perfDimension.createMany).toHaveBeenCalledWith({
@@ -177,14 +191,13 @@ describe('CycleService', () => {
       .mockResolvedValueOnce({
         id: 100,
         templateId: 10,
-        scoringRule: { levels: [{ level: 'A' }] },
+        evaluationRule: { levels: TEST_RATINGS },
         dimensions: [{ id: 200, name: '业绩' }],
         _count: { participants: 0 },
       });
     txMock.perfTemplate.findFirst.mockResolvedValue({
       id: 10,
-      levels: [{ level: 'A' }],
-      distribution: null,
+      levels: TEST_RATINGS,
       commentRequiredRules: null,
       dimensions: [
         {
@@ -207,13 +220,13 @@ describe('CycleService', () => {
 
     await service.applyTemplate('ou_hr', 100, { templateId: 10 });
 
-    expect(txMock.perfScoringRule.upsert).toHaveBeenCalledWith({
+    expect(txMock.perfEvaluationRule.upsert).toHaveBeenCalledWith({
       where: { cycleId: 100 },
       create: expect.objectContaining({
         cycleId: 100,
-        levels: [{ level: 'A' }],
+        levels: TEST_RATINGS,
       }),
-      update: expect.objectContaining({ levels: [{ level: 'A' }] }),
+      update: expect.objectContaining({ levels: TEST_RATINGS }),
     });
     expect(txMock.perfDimension.updateMany).toHaveBeenCalledWith({
       where: { cycleId: 100, deletedAt: null },
@@ -233,7 +246,7 @@ describe('CycleService', () => {
         targetId: '100',
         after: expect.objectContaining({
           templateId: 10,
-          coverage: ['scoring_rule', 'dimensions'],
+          coverage: ['evaluation_rule', 'dimensions'],
         }),
       }),
     );

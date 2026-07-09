@@ -114,7 +114,16 @@ export type LarkUserBrief = {
   job_title?: string | null
 }
 
-export type ScoringLevel = { level: string; scoreRange?: [number, number]; description?: string }
+export type EvaluationRating = {
+  symbol: string
+  name: string
+  minScore: number
+  maxScore: number
+  maxInclusive?: boolean
+  remark?: string
+}
+
+export type CommentRequiredRules = { requiredRatingSymbols?: string[] }
 
 export type PerfDimension = {
   id: number
@@ -133,12 +142,11 @@ export type PerfDimension = {
   employeeVisible?: boolean | null
 }
 
-export type PerfScoringRule = {
+export type PerfEvaluationRule = {
   id: number
   cycleId: number
-  levels: ScoringLevel[]
-  distribution?: { level: string; minRatio?: number; maxRatio?: number; enforced?: boolean }[] | null
-  commentRequiredRules?: Record<string, unknown> | null
+  levels: EvaluationRating[]
+  commentRequiredRules?: CommentRequiredRules | null
 }
 
 export type PerfCycle = {
@@ -153,7 +161,7 @@ export type PerfCycle = {
   template?: { id: number; name: string } | null
   windows?: Record<string, { startAt?: string; endAt?: string }> | null
   notificationRules?: Record<string, unknown> | null
-  scoringRule?: PerfScoringRule | null
+  evaluationRule?: PerfEvaluationRule | null
   dimensions?: PerfDimension[]
   _count?: { participants: number; dimensions?: number }
 }
@@ -204,8 +212,8 @@ export type PerfTemplate = {
   isDefault: boolean
   canCreateCycle?: boolean
   unavailableReasons?: string[]
-  levels: ScoringLevel[]
-  distribution?: Record<string, unknown>[] | null
+  levels: EvaluationRating[]
+  commentRequiredRules?: CommentRequiredRules | null
   dimensions?: PerfDimensionTemplateItem[]
   _count?: { dimensions: number; cycles: number }
 }

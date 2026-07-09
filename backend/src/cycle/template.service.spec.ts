@@ -3,6 +3,19 @@ import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import { TemplateService } from './template.service';
 
+const TEST_RATINGS = [
+  { symbol: 'C', name: '不符预期', minScore: 0, maxScore: 60 },
+  { symbol: 'B', name: '良好', minScore: 60, maxScore: 80 },
+  { symbol: 'A', name: '优秀', minScore: 80, maxScore: 90 },
+  {
+    symbol: 'S',
+    name: '卓越',
+    minScore: 90,
+    maxScore: 100,
+    maxInclusive: true,
+  },
+];
+
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
 jest.mock(
   '../generated/prisma/client',
@@ -16,6 +29,9 @@ jest.mock(
 );
 jest.mock('@prisma/adapter-pg', () => ({
   PrismaPg: jest.fn().mockImplementation((options: unknown) => options),
+}));
+jest.mock('../audit/audit.service', () => ({
+  AuditService: class {},
 }));
 
 describe('TemplateService', () => {
@@ -48,7 +64,7 @@ describe('TemplateService', () => {
         id: 1,
         name: '标准半年度评估模板',
         isDefault: true,
-        levels: [{ level: 'A' }],
+        levels: TEST_RATINGS,
         dimensions: [
           {
             id: 10,
@@ -65,7 +81,7 @@ describe('TemplateService', () => {
       },
       {
         id: 2,
-        name: '缺少评分等级',
+        name: '缺少评级',
         isDefault: false,
         levels: [],
         dimensions: [{ id: 20, weight: 100, applicableScope: null }],
@@ -75,7 +91,7 @@ describe('TemplateService', () => {
         id: 3,
         name: '缺少评估维度',
         isDefault: false,
-        levels: [{ level: 'B' }],
+        levels: TEST_RATINGS,
         dimensions: [],
         _count: { dimensions: 0, cycles: 0 },
       },
@@ -83,7 +99,7 @@ describe('TemplateService', () => {
         id: 4,
         name: '权重不完整',
         isDefault: false,
-        levels: [{ level: 'C' }],
+        levels: TEST_RATINGS,
         dimensions: [{ id: 40, weight: 80, applicableScope: null }],
         _count: { dimensions: 1, cycles: 0 },
       },
@@ -101,7 +117,7 @@ describe('TemplateService', () => {
       expect.objectContaining({
         id: 2,
         canCreateCycle: false,
-        unavailableReasons: ['缺少评分等级'],
+        unavailableReasons: ['缺少评级'],
       }),
       expect.objectContaining({
         id: 3,
@@ -122,7 +138,7 @@ describe('TemplateService', () => {
         id: 5,
         name: '标准半年度评估模板',
         isDefault: true,
-        levels: [{ level: 'A' }],
+        levels: TEST_RATINGS,
         dimensions: [
           {
             id: 50,

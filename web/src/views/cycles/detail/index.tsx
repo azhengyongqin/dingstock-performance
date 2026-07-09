@@ -260,7 +260,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
                 <CardTitle>来源模板</CardTitle>
                 <CardDescription>
                   {cycle.template?.name ?? '未记录来源模板'} ·
-                  创建时或最近套用时复制；当前评分规则与评估维度是周期配置快照，可能已被手动修改。
+                  创建时或最近套用时复制；当前评估规则与评估维度是周期配置快照，可能已被手动修改。
                 </CardDescription>
               </CardHeader>
             </Card>

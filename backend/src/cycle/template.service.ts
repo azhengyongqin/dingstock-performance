@@ -7,10 +7,11 @@ import type {
   UpdateTemplateDto,
   UpsertDimensionsDto,
 } from './cycle.dto';
+import { normalizeEvaluationRule } from './evaluation-rule';
 import { getCycleCreationUnavailableReasons } from './template-usability';
 
 /**
- * 绩效配置模板：评分规则 + 维度集的跨周期复用母本。
+ * 绩效配置模板：评估规则 + 维度集的跨周期复用母本。
  * 创建周期时由 CycleService 复制为周期快照；模板本身的增删改不影响已创建周期。
  */
 @Injectable()
@@ -60,16 +61,14 @@ export class TemplateService {
           where: { isDefault: true },
         });
       }
+      const evaluationRule = normalizeEvaluationRule(dto);
       return tx.perfTemplate.create({
         data: {
           name: dto.name,
           description: dto.description,
           isDefault: dto.isDefault ?? false,
-          levels: dto.levels as unknown as Prisma.InputJsonValue,
-          distribution: dto.distribution as unknown as
-            Prisma.InputJsonValue | undefined,
-          commentRequiredRules: dto.commentRequiredRules as unknown as
-            Prisma.InputJsonValue | undefined,
+          levels: evaluationRule.levels,
+          commentRequiredRules: evaluationRule.commentRequiredRules,
           updatedByOpenId: operatorOpenId,
         },
       });
@@ -97,17 +96,32 @@ export class TemplateService {
           where: { isDefault: true },
         });
       }
+      const evaluationRule =
+        dto.levels || dto.commentRequiredRules
+          ? normalizeEvaluationRule({
+              levels:
+                dto.levels ??
+                (before.levels as Record<string, unknown>[] | null) ??
+                [],
+              commentRequiredRules:
+                dto.commentRequiredRules ??
+                (before.commentRequiredRules as Record<
+                  string,
+                  unknown
+                > | null) ??
+                undefined,
+            })
+          : null;
       return tx.perfTemplate.update({
         where: { id },
         data: {
           name: dto.name,
           description: dto.description,
           isDefault: dto.isDefault,
-          levels: dto.levels as unknown as Prisma.InputJsonValue | undefined,
-          distribution: dto.distribution as unknown as
-            Prisma.InputJsonValue | undefined,
-          commentRequiredRules: dto.commentRequiredRules as unknown as
-            Prisma.InputJsonValue | undefined,
+          levels: evaluationRule?.levels,
+          commentRequiredRules: evaluationRule
+            ? (evaluationRule.commentRequiredRules as unknown as Prisma.InputJsonValue)
+            : undefined,
           updatedByOpenId: operatorOpenId,
         },
       });

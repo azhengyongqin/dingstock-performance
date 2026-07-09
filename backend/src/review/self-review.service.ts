@@ -47,7 +47,7 @@ export class SelfReviewService {
     return participant;
   }
 
-  /** 当前自评上下文：参与记录 + 自评草稿 + 员工可见/可填维度 + 评分规则 */
+  /** 当前自评上下文：参与记录 + 自评草稿 + 员工可见/可填维度 + 评估规则 */
   async getCurrent(employeeOpenId: string, cycleId?: number) {
     const participant = await this.findMyParticipant(employeeOpenId, cycleId);
     if (!participant) {
@@ -55,7 +55,7 @@ export class SelfReviewService {
         participant: null,
         selfReview: null,
         dimensions: [],
-        scoringRule: null,
+        evaluationRule: null,
       };
     }
 
@@ -71,14 +71,14 @@ export class SelfReviewService {
       },
       orderBy: { sortOrder: 'asc' },
     });
-    const scoringRule = await this.prisma.perfScoringRule.findUnique({
+    const evaluationRule = await this.prisma.perfEvaluationRule.findUnique({
       where: { cycleId: participant.cycleId },
     });
     return {
       participant,
       selfReview: participant.selfReview,
       dimensions,
-      scoringRule,
+      evaluationRule,
     };
   }
 

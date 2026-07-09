@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertCycleTransition } from './cycle-state';
+import { normalizeEvaluationRule } from './evaluation-rule';
 import { getCycleCreationUnavailableReasons } from './template-usability';
 import type {
   AdvanceCycleDto,
@@ -21,7 +22,7 @@ import type {
   DimensionItemDto,
   UpdateCycleDto,
   UpsertDimensionsDto,
-  UpsertScoringRuleDto,
+  UpsertEvaluationRuleDto,
 } from './cycle.dto';
 
 /** 启动前检查项：返回给前端"启动前检查"步骤逐条展示 */
@@ -55,7 +56,7 @@ export class CycleService {
     const cycle = await this.prisma.perfCycle.findFirst({
       where: { id, deletedAt: null },
       include: {
-        scoringRule: true,
+        evaluationRule: true,
         dimensions: {
           where: { deletedAt: null },
           orderBy: { sortOrder: 'asc' },
@@ -121,13 +122,12 @@ export class CycleService {
         },
       });
 
-      // 选择了模板：复制评分规则 + 维度集为本周期快照（模板 + 创建时复制，改模板不影响已建周期）
+      // 选择了模板：复制评估规则 + 维度集为本周期快照（模板 + 创建时复制，改模板不影响已建周期）
       if (template) {
-        await tx.perfScoringRule.create({
+        await tx.perfEvaluationRule.create({
           data: {
             cycleId: created.id,
             levels: template.levels as Prisma.InputJsonValue,
-            distribution: template.distribution ?? undefined,
             commentRequiredRules: template.commentRequiredRules ?? undefined,
           },
         });
@@ -211,34 +211,29 @@ export class CycleService {
   // 配置子资源
   // ---------------------------------------------------------------------
 
-  async upsertScoringRule(
+  async upsertEvaluationRule(
     operatorOpenId: string,
     cycleId: number,
-    dto: UpsertScoringRuleDto,
+    dto: UpsertEvaluationRuleDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
     this.assertEditable(cycle.status);
-    const rule = await this.prisma.perfScoringRule.upsert({
+    const evaluationRule = normalizeEvaluationRule(dto);
+    const rule = await this.prisma.perfEvaluationRule.upsert({
       where: { cycleId },
       create: {
         cycleId,
-        levels: dto.levels as unknown as Prisma.InputJsonValue,
-        distribution: dto.distribution as unknown as
-          Prisma.InputJsonValue | undefined,
-        commentRequiredRules: dto.commentRequiredRules as unknown as
-          Prisma.InputJsonValue | undefined,
+        levels: evaluationRule.levels,
+        commentRequiredRules: evaluationRule.commentRequiredRules,
       },
       update: {
-        levels: dto.levels as unknown as Prisma.InputJsonValue,
-        distribution: dto.distribution as unknown as
-          Prisma.InputJsonValue | undefined,
-        commentRequiredRules: dto.commentRequiredRules as unknown as
-          Prisma.InputJsonValue | undefined,
+        levels: evaluationRule.levels,
+        commentRequiredRules: evaluationRule.commentRequiredRules,
       },
     });
     await this.auditService.record({
       operatorOpenId,
-      action: 'cycle.scoring_rule.upsert',
+      action: 'cycle.evaluation_rule.upsert',
       targetType: 'perf_cycle',
       targetId: String(cycleId),
       after: rule,
@@ -338,17 +333,15 @@ export class CycleService {
         );
       }
 
-      await tx.perfScoringRule.upsert({
+      await tx.perfEvaluationRule.upsert({
         where: { cycleId },
         create: {
           cycleId,
           levels: found.levels as Prisma.InputJsonValue,
-          distribution: found.distribution ?? undefined,
           commentRequiredRules: found.commentRequiredRules ?? undefined,
         },
         update: {
           levels: found.levels as Prisma.InputJsonValue,
-          distribution: found.distribution ?? undefined,
           commentRequiredRules: found.commentRequiredRules ?? undefined,
         },
       });
@@ -390,7 +383,7 @@ export class CycleService {
       before: { templateId: cycle.templateId },
       after: {
         templateId: template.id,
-        coverage: ['scoring_rule', 'dimensions'],
+        coverage: ['evaluation_rule', 'dimensions'],
         dimensions: template.dimensions.length,
       },
     });
@@ -449,7 +442,7 @@ export class CycleService {
     const cycle = await this.prisma.perfCycle.findFirst({
       where: { id: cycleId, deletedAt: null },
       include: {
-        scoringRule: true,
+        evaluationRule: true,
         dimensions: { where: { deletedAt: null } },
         _count: { select: { participants: true } },
       },
@@ -468,9 +461,9 @@ export class CycleService {
     });
 
     items.push({
-      key: 'scoring_rule',
-      ok: Boolean(cycle.scoringRule),
-      message: cycle.scoringRule ? '评分规则已配置' : '评分规则未配置',
+      key: 'evaluation_rule',
+      ok: Boolean(cycle.evaluationRule),
+      message: cycle.evaluationRule ? '评估规则已配置' : '评估规则未配置',
     });
 
     items.push({

@@ -1,9 +1,6 @@
 // 配置模板共享类型与常量：草稿态类型 + 选项/标签映射 + 权重合计
 import type { PerfRole } from '@/lib/perf-api'
 
-/** 评分等级草稿（编辑器本地态，min/max 用字符串承载输入框值） */
-export type LevelDraft = { level: string; min: string; max: string; description: string }
-
 /** 评估维度草稿（编辑器本地态） */
 export type DimensionDraft = {
   id?: number
@@ -47,9 +44,6 @@ export const SCORING_METHOD_LABEL: Record<string, string> = Object.fromEntries(
 export const ROLE_LABEL: Record<string, string> = Object.fromEntries(
   EDITABLE_ROLES.map(item => [item.value, item.label])
 )
-
-/** 新增等级默认值 */
-export const EMPTY_LEVEL: LevelDraft = { level: '', min: '', max: '', description: '' }
 
 /** 新增维度默认值：常规评估 + 等级计分 + 评审员/上级填写 */
 export const EMPTY_DIMENSION: DimensionDraft = {

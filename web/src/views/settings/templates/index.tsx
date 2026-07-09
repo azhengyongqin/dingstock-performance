@@ -9,6 +9,10 @@ import { toast } from 'sonner'
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
+import {
+  DEFAULT_COMMENT_REQUIRED_RULES,
+  DEFAULT_EVALUATION_RATINGS
+} from '@/components/shared/evaluation-rule-editor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -73,7 +77,7 @@ const TemplateManager = () => {
     return () => clearTimeout(initialLoad)
   }, [fetchTemplates])
 
-  /** 新建模板：默认五级评分骨架，创建后直接打开编辑抽屉完善配置 */
+  /** 新建模板：默认四档评估规则骨架，创建后直接打开编辑抽屉完善配置 */
   const handleCreate = async () => {
     setCreating(true)
 
@@ -82,13 +86,8 @@ const TemplateManager = () => {
         method: 'POST',
         body: JSON.stringify({
           name: `新模板 ${new Date().toLocaleDateString('zh-CN')}`,
-          levels: [
-            { level: 'S', scoreRange: [90, 100], description: '远超预期' },
-            { level: 'A', scoreRange: [80, 89], description: '超出预期' },
-            { level: 'B', scoreRange: [70, 79], description: '符合预期' },
-            { level: 'C', scoreRange: [60, 69], description: '部分符合预期' },
-            { level: 'D', scoreRange: [0, 59], description: '低于预期' }
-          ]
+          levels: DEFAULT_EVALUATION_RATINGS,
+          commentRequiredRules: DEFAULT_COMMENT_REQUIRED_RULES
         })
       })
 
@@ -139,7 +138,7 @@ const TemplateManager = () => {
     <div className='flex flex-col gap-6'>
       <PageHeader
         title='配置模板'
-        description='评分规则 + 评估维度的跨周期复用母本；创建周期时复制为周期快照，改模板不影响已创建的周期'
+        description='评估规则 + 评估维度的跨周期复用母本；创建周期时复制为周期快照，改模板不影响已创建的周期'
         actions={
           <Button disabled={creating} onClick={() => void handleCreate()}>
             {creating ? <Loader2Icon className='size-4 animate-spin' /> : <PlusIcon className='size-4' />}

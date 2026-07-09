@@ -3,12 +3,16 @@ import { Test } from '@nestjs/testing';
 import { PrismaService } from '../shared/database/prisma.service';
 
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
-jest.mock('../generated/prisma/client', () => ({
-  PrismaClient: class {
-    $connect = jest.fn();
-    $disconnect = jest.fn();
-  },
-}));
+jest.mock(
+  '../generated/prisma/client',
+  () => ({
+    PrismaClient: class {
+      $connect = jest.fn();
+      $disconnect = jest.fn();
+    },
+  }),
+  { virtual: true },
+);
 jest.mock('@prisma/adapter-pg', () => ({
   PrismaPg: jest.fn().mockImplementation((options: unknown) => options),
 }));

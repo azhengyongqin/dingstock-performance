@@ -39,7 +39,7 @@ export class TemplateController {
   }
 
   @Post()
-  @ApiOperation({ summary: '创建配置模板（评分规则部分）' })
+  @ApiOperation({ summary: '创建配置模板（评估规则部分）' })
   create(@Req() req: AuthenticatedRequest, @Body() dto: CreateTemplateDto) {
     return this.templateService.createTemplate(req.user.open_id, dto);
   }

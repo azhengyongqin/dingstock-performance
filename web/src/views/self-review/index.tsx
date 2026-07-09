@@ -23,7 +23,7 @@ import type {
   PerfCycleStatus,
   PerfDimension,
   PerfParticipantStatus,
-  PerfScoringRule,
+  PerfEvaluationRule,
   PerfSelfReviewStatus
 } from '@/lib/perf-api'
 import { CYCLE_STATUS_BADGE, CYCLE_STATUS_LABEL, PARTICIPANT_STATUS_LABEL, formatDateTime } from '@/lib/perf-api'
@@ -60,7 +60,7 @@ type CurrentSelfReview = {
   } | null
   selfReview: SelfReviewDetail | null
   dimensions: PerfDimension[]
-  scoringRule: PerfScoringRule | null
+  evaluationRule: PerfEvaluationRule | null
 }
 
 /** 表单本地状态（各分节均为纯文本） */

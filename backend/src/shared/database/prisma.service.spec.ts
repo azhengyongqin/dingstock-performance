@@ -1,14 +1,18 @@
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
 
-jest.mock('../../generated/prisma/client', () => ({
-  PrismaClient: class {
-    constructor(public readonly options: unknown) {}
+jest.mock(
+  '../../generated/prisma/client',
+  () => ({
+    PrismaClient: class {
+      constructor(public readonly options: unknown) {}
 
-    $connect = jest.fn();
-    $disconnect = jest.fn();
-  },
-}));
+      $connect = jest.fn();
+      $disconnect = jest.fn();
+    },
+  }),
+  { virtual: true },
+);
 
 jest.mock('@prisma/adapter-pg', () => ({
   PrismaPg: jest.fn().mockImplementation((options: unknown) => options),

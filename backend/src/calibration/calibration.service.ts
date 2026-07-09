@@ -12,11 +12,12 @@ import {
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
+import { hasRatingSymbol } from '../cycle/evaluation-rule';
 
 /**
  * 校准与最终结果（产品 §5.5/§5.6）：
  * - 校准记录 append-only，每次调整必填原因；
- * - 当前等级 = 最近一条校准记录的 after_level，无校准则取上级初评等级；
+ * - 当前评级 = 最近一条校准记录的 after_level，无校准则取上级初评评级；
  * - 批量确认 = 参与者 → CALIBRATED；推送结果 = 生成 perf_results + RESULT_PUSHED。
  */
 @Injectable()
@@ -27,11 +28,11 @@ export class CalibrationService {
     private readonly participantService: ParticipantService,
   ) {}
 
-  /** 校准工作台列表：各参与者的初评/当前等级 + 等级分布对比 */
+  /** 校准工作台列表：各参与者的初评/当前评级 + 评级分布对比 */
   async listForCycle(cycleId: number) {
     const cycle = await this.prisma.perfCycle.findFirst({
       where: { id: cycleId, deletedAt: null },
-      include: { scoringRule: true },
+      include: { evaluationRule: true },
     });
     if (!cycle) throw new NotFoundException('绩效周期不存在');
 
@@ -78,7 +79,7 @@ export class CalibrationService {
       };
     });
 
-    // 等级分布：当前 vs 建议（评分规则 distribution）
+    // 评级分布：按当前评级聚合，前端按评估规则评级序列展示。
     const distribution: Record<string, number> = {};
     for (const item of items) {
       if (item.currentLevel) {
@@ -91,8 +92,7 @@ export class CalibrationService {
       items,
       total: items.length,
       distribution,
-      suggestedDistribution: cycle.scoringRule?.distribution ?? null,
-      levels: cycle.scoringRule?.levels ?? [],
+      levels: cycle.evaluationRule?.levels ?? [],
     };
   }
 
@@ -106,7 +106,7 @@ export class CalibrationService {
     const participant = await this.prisma.perfParticipant.findUnique({
       where: { id: participantId },
       include: {
-        cycle: { include: { scoringRule: true } },
+        cycle: { include: { evaluationRule: true } },
         managerReview: { select: { initialLevel: true, status: true } },
         calibrations: { orderBy: { id: 'desc' }, take: 1 },
         result: { select: { archivedAt: true } },
@@ -120,14 +120,11 @@ export class CalibrationService {
     if (participant.managerReview?.status !== PerfReviewStatus.SUBMITTED) {
       throw new ConflictException('上级评估未提交，不能校准');
     }
-    const levels = (participant.cycle.scoringRule?.levels ?? []) as {
-      level?: string;
-    }[];
     if (
-      levels.length > 0 &&
-      !levels.some((item) => item.level === afterLevel)
+      Array.isArray(participant.cycle.evaluationRule?.levels) &&
+      !hasRatingSymbol(participant.cycle.evaluationRule?.levels, afterLevel)
     ) {
-      throw new BadRequestException(`等级 ${afterLevel} 不在评分规则定义中`);
+      throw new BadRequestException(`评级 ${afterLevel} 不在评估规则定义中`);
     }
 
     const beforeLevel =
@@ -203,7 +200,7 @@ export class CalibrationService {
 
   /**
    * 推送结果给员工确认（产品 §5.6）：
-   * 生成/更新 perf_results（final = 校准后等级），参与者 → RESULT_PUSHED，落结果通知。
+   * 生成/更新 perf_results（final = 校准后评级），参与者 → RESULT_PUSHED，落结果通知。
    */
   async pushResults(
     operatorOpenId: string,

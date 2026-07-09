@@ -102,7 +102,7 @@ export class SaveManagerReviewDto {
   @IsString()
   overallComment?: string;
 
-  /** 初步等级，取值受周期评分规则 levels 约束（service 校验） */
+  /** 初步评级，取值受周期评估规则 levels 约束（service 校验） */
   @IsOptional()
   @IsString()
   initialLevel?: string;

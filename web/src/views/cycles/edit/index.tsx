@@ -22,6 +22,13 @@ import { toast } from 'sonner'
 
 // Component Imports
 import { DateRangePicker, DateTimeRangePicker } from '@/components/shared/DatePicker'
+import {
+  DEFAULT_COMMENT_REQUIRED_RULES,
+  DEFAULT_EVALUATION_RATINGS,
+  EvaluationRuleEditor,
+  normalizeEvaluationRuleDraft,
+  validateEvaluationRuleDraft
+} from '@/components/shared/evaluation-rule-editor'
 import { LarkMemberSelector, UserAvatar } from '@/components/shared/lark'
 import PageHeader from '@/components/shared/PageHeader'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -51,7 +58,6 @@ import type {
   PerfParticipantItem,
   PerfRole,
   PerfTemplate,
-  ScoringLevel,
   StartCheckItem
 } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
@@ -63,7 +69,7 @@ const STEPS = [
   { key: 'basic', title: '基础信息', description: '周期名称、类型、时间与配置模板' },
   { key: 'members', title: '考核人员', description: '圈定参评部门与员工' },
   { key: 'dimensions', title: '评估维度', description: '维度、权重与填写角色（含晋升维度）' },
-  { key: 'scoring', title: '评分规则', description: '等级定义与分数段' },
+  { key: 'scoring', title: '评估规则', description: '评级定义、分数段与评语要求' },
   { key: 'windows', title: '时间窗口', description: '各阶段起止时间' },
   { key: 'preflight', title: '启动前检查', description: '配置完整性校验与启动' }
 ] as const
@@ -106,8 +112,6 @@ type DimensionDraft = {
   editableRoles: PerfRole[]
   jobCategory: string
 }
-
-type LevelDraft = { level: string; min: string; max: string; description: string }
 
 const dimensionToDraft = (dim: PerfDimension): DimensionDraft => ({
   id: dim.id,
@@ -164,13 +168,10 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   // 第 3/4/5 步
   const [dimensions, setDimensions] = useState<DimensionDraft[]>([])
 
-  const [levels, setLevels] = useState<LevelDraft[]>([
-    { level: 'S', min: '90', max: '100', description: '远超预期' },
-    { level: 'A', min: '80', max: '89', description: '超出预期' },
-    { level: 'B', min: '70', max: '79', description: '符合预期' },
-    { level: 'C', min: '60', max: '69', description: '部分符合预期' },
-    { level: 'D', min: '0', max: '59', description: '低于预期' }
-  ])
+  const [evaluationRule, setEvaluationRule] = useState({
+    levels: DEFAULT_EVALUATION_RATINGS,
+    commentRequiredRules: DEFAULT_COMMENT_REQUIRED_RULES
+  })
 
   const [windows, setWindows] = useState<Record<string, { startAt: string; endAt: string }>>({})
 
@@ -187,9 +188,9 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     setDimensions(updater)
   }
 
-  const updateLevels = (updater: SetStateAction<LevelDraft[]>) => {
+  const updateEvaluationRule = (updater: SetStateAction<typeof evaluationRule>) => {
     markConfigDirty()
-    setLevels(updater)
+    setEvaluationRule(updater)
   }
 
   // ---- 数据加载 ----
@@ -207,15 +208,11 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     setDimensions((cycle.dimensions ?? []).map(dimensionToDraft))
     setConfigDirty(false)
 
-    if (cycle.scoringRule?.levels?.length) {
-      setLevels(
-        cycle.scoringRule.levels.map((item: ScoringLevel) => ({
-          level: item.level,
-          min: String(item.scoreRange?.[0] ?? ''),
-          max: String(item.scoreRange?.[1] ?? ''),
-          description: item.description ?? ''
-        }))
-      )
+    if (cycle.evaluationRule?.levels?.length) {
+      setEvaluationRule({
+        levels: cycle.evaluationRule.levels,
+        commentRequiredRules: cycle.evaluationRule.commentRequiredRules ?? DEFAULT_COMMENT_REQUIRED_RULES
+      })
     }
 
     const windowState: Record<string, { startAt: string; endAt: string }> = {}
@@ -300,7 +297,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
 
         // 更新地址栏，刷新后仍停留在该周期
         window.history.replaceState(null, '', `/cycles/${created.id}/edit`)
-        toast.success(templateId ? '周期已创建，已从模板复制评分规则与维度' : '周期已创建')
+        toast.success(templateId ? '周期已创建，已从模板复制评估规则与维度' : '周期已创建')
       } else {
         await apiFetch(`/cycles/${realCycleId}`, {
           method: 'PATCH',
@@ -354,27 +351,30 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  /** 第 4 步：评分规则 */
-  const saveScoringRule = async (): Promise<boolean> => {
+  /** 第 4 步：评估规则 */
+  const saveEvaluationRule = async (): Promise<boolean> => {
     if (!realCycleId) return false
+
+    const evaluationRuleError = validateEvaluationRuleDraft(evaluationRule)
+
+    if (evaluationRuleError) {
+      toast.error(evaluationRuleError)
+
+      return false
+    }
+
     setSaving(true)
 
     try {
-      await apiFetch(`/cycles/${realCycleId}/scoring-rule`, {
+      await apiFetch(`/cycles/${realCycleId}/evaluation-rule`, {
         method: 'PUT',
-        body: JSON.stringify({
-          levels: levels.map(item => ({
-            level: item.level,
-            scoreRange: [Number(item.min) || 0, Number(item.max) || 0],
-            description: item.description
-          }))
-        })
+        body: JSON.stringify(normalizeEvaluationRuleDraft(evaluationRule))
       })
-      toast.success('评分规则已保存')
+      toast.success('评估规则已保存')
 
       return true
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '保存评分规则失败')
+      toast.error(err instanceof ApiError ? err.message : '保存评估规则失败')
 
       return false
     } finally {
@@ -460,7 +460,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         body: JSON.stringify({ templateId: Number(templateId) })
       })
 
-      toast.success('已重新套用模板，当前评分规则与评估维度已更新')
+      toast.success('已重新套用模板，当前评估规则与评估维度已更新')
       setSourceTemplateName(
         cycle.template?.name ?? templates.find(template => template.id === Number(templateId))?.name ?? ''
       )
@@ -492,7 +492,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     if (editable) {
       if (stepKey === 'basic') ok = await saveBasic()
       else if (stepKey === 'dimensions') ok = await saveDimensions()
-      else if (stepKey === 'scoring') ok = await saveScoringRule()
+      else if (stepKey === 'scoring') ok = await saveEvaluationRule()
       else if (stepKey === 'windows') ok = await saveWindows()
     }
 
@@ -699,7 +699,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
                           </SelectContent>
                         </Select>
                         <span className='text-muted-foreground text-xs'>
-                          选择模板后自动复制评分规则与维度集为本周期快照，创建后可再微调
+                          选择模板后自动复制评估规则与维度集为本周期快照，创建后可再微调
                         </span>
                       </Field>
                     )}
@@ -709,7 +709,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
                         <div className='rounded-md border p-3 text-sm'>
                           <div className='font-medium'>{sourceTemplateName || '未记录来源模板'}</div>
                           <p className='text-muted-foreground mt-1 text-xs'>
-                            来源模板仅表示创建时或最近套用时复制；当前评分规则与评估维度是周期配置快照，可能已被手动修改。
+                            来源模板仅表示创建时或最近套用时复制；当前评估规则与评估维度是周期配置快照，可能已被手动修改。
                           </p>
                         </div>
                         {editable && (
@@ -1003,85 +1003,12 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
                     </span>
                   </div>
                 ) : step.key === 'scoring' ? (
-                  <div className='flex max-w-2xl flex-col gap-3'>
-                    {levels.map((level, index) => (
-                      <div key={index} className='flex items-end gap-2'>
-                        <Field className='w-20 gap-1'>
-                          <FieldLabel className='text-xs'>等级</FieldLabel>
-                          <Input
-                            value={level.level}
-                            disabled={!editable}
-                            onChange={event =>
-                              updateLevels(prev =>
-                                prev.map((item, i) => (i === index ? { ...item, level: event.target.value } : item))
-                              )
-                            }
-                          />
-                        </Field>
-                        <Field className='w-24 gap-1'>
-                          <FieldLabel className='text-xs'>分数下限</FieldLabel>
-                          <Input
-                            type='number'
-                            value={level.min}
-                            disabled={!editable}
-                            onChange={event =>
-                              updateLevels(prev =>
-                                prev.map((item, i) => (i === index ? { ...item, min: event.target.value } : item))
-                              )
-                            }
-                          />
-                        </Field>
-                        <Field className='w-24 gap-1'>
-                          <FieldLabel className='text-xs'>分数上限</FieldLabel>
-                          <Input
-                            type='number'
-                            value={level.max}
-                            disabled={!editable}
-                            onChange={event =>
-                              updateLevels(prev =>
-                                prev.map((item, i) => (i === index ? { ...item, max: event.target.value } : item))
-                              )
-                            }
-                          />
-                        </Field>
-                        <Field className='flex-1 gap-1'>
-                          <FieldLabel className='text-xs'>说明</FieldLabel>
-                          <Input
-                            value={level.description}
-                            disabled={!editable}
-                            onChange={event =>
-                              updateLevels(prev =>
-                                prev.map((item, i) =>
-                                  i === index ? { ...item, description: event.target.value } : item
-                                )
-                              )
-                            }
-                          />
-                        </Field>
-                        {editable && (
-                          <Button
-                            variant='ghost'
-                            size='icon-sm'
-                            className='mb-0.5'
-                            onClick={() => updateLevels(prev => prev.filter((_, i) => i !== index))}
-                          >
-                            <Trash2Icon className='text-destructive size-3.5' />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                    {editable && (
-                      <Button
-                        variant='outline'
-                        className='w-fit'
-                        onClick={() =>
-                          updateLevels(prev => [...prev, { level: '', min: '', max: '', description: '' }])
-                        }
-                      >
-                        <PlusIcon />
-                        添加等级
-                      </Button>
-                    )}
+                  <div className='max-w-5xl'>
+                    <EvaluationRuleEditor
+                      value={evaluationRule}
+                      disabled={!editable}
+                      onChange={updateEvaluationRule}
+                    />
                   </div>
                 ) : step.key === 'windows' ? (
                   <div className='flex max-w-3xl flex-col gap-4'>
@@ -1170,9 +1097,9 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       <Dialog open={applyConfirmOpen} onOpenChange={setApplyConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>覆盖当前评分规则与评估维度？</DialogTitle>
+            <DialogTitle>覆盖当前评估规则与评估维度？</DialogTitle>
             <DialogDescription>
-              重新套用模板会整体覆盖当前周期配置快照中的评分规则与评估维度，不会做字段级合并。
+              重新套用模板会整体覆盖当前周期配置快照中的评估规则与评估维度，不会做字段级合并。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

@@ -6,12 +6,20 @@
  * - 员工岗指标(D)：核心业绩 70%（员工自评）/ 职业素养与潜力 10%（上级评估）/ 价值观 20%（上级评估）
  * - 管理岗指标(M)：核心业绩 50%（员工自评）/ 管理绩效 50%（上级评估）
  * - 晋升评估：结论型特殊维度，按参与者 is_promotion_enabled 展示
- * - 评分规则：S≥90 / A 80-89 / B 70-79 / C 60-69 / D<60；建议分布 S5% A25% B55% C12% D3%
+ * - 评估规则：S[90,100] / A[80,90) / B[60,80) / C[0,60)，最高/最低评级必填评语
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { loadAppConfig } from '../config/configuration';
 import { PrismaClient } from '../generated/prisma/client';
-import { PerfDimensionType, PerfRole, PerfScoringMethod } from '../generated/prisma/enums';
+import {
+  PerfDimensionType,
+  PerfRole,
+  PerfScoringMethod,
+} from '../generated/prisma/enums';
+import {
+  DEFAULT_COMMENT_REQUIRED_RULES,
+  DEFAULT_EVALUATION_RATINGS,
+} from '../cycle/evaluation-rule';
 
 const TEMPLATE_NAME = '标准半年度评估模板';
 
@@ -26,7 +34,9 @@ async function main() {
       where: { name: TEMPLATE_NAME, deletedAt: null },
     });
     if (existing) {
-      console.log(`模板「${TEMPLATE_NAME}」已存在（id=${existing.id}），跳过初始化`);
+      console.log(
+        `模板「${TEMPLATE_NAME}」已存在（id=${existing.id}），跳过初始化`,
+      );
       return;
     }
 
@@ -36,24 +46,8 @@ async function main() {
         description:
           '公司现行绩效评估指标：员工岗(D) 核心业绩70/职业素养与潜力10/价值观20；管理岗(M) 核心业绩50/管理绩效50；含晋升评估结论维度',
         isDefault: true,
-        levels: [
-          { level: 'S', scoreRange: [90, 100], description: '远超预期' },
-          { level: 'A', scoreRange: [80, 89], description: '超出预期' },
-          { level: 'B', scoreRange: [70, 79], description: '符合预期' },
-          { level: 'C', scoreRange: [60, 69], description: '部分符合预期' },
-          { level: 'D', scoreRange: [0, 59], description: '低于预期' },
-        ],
-        distribution: [
-          { level: 'S', maxRatio: 0.05, enforced: false },
-          { level: 'A', maxRatio: 0.25, enforced: false },
-          { level: 'B', maxRatio: 0.55, enforced: false },
-          { level: 'C', maxRatio: 0.12, enforced: false },
-          { level: 'D', maxRatio: 0.03, enforced: false },
-        ],
-        commentRequiredRules: {
-          requiredLevels: ['S', 'D'],
-          message: '最高/最低等级必须填写评语（事实依据/低分原因）',
-        },
+        levels: DEFAULT_EVALUATION_RATINGS,
+        commentRequiredRules: DEFAULT_COMMENT_REQUIRED_RULES,
         dimensions: {
           create: [
             // ---- 员工岗指标（D）----
@@ -64,8 +58,16 @@ async function main() {
               weight: 70,
               sortOrder: 0,
               // （员工自评）：员工填写个人总结，评审员/上级打分
-              editableRoles: [PerfRole.EMPLOYEE, PerfRole.REVIEWER, PerfRole.LEADER],
-              visibleRoles: [PerfRole.EMPLOYEE, PerfRole.REVIEWER, PerfRole.LEADER],
+              editableRoles: [
+                PerfRole.EMPLOYEE,
+                PerfRole.REVIEWER,
+                PerfRole.LEADER,
+              ],
+              visibleRoles: [
+                PerfRole.EMPLOYEE,
+                PerfRole.REVIEWER,
+                PerfRole.LEADER,
+              ],
               applicableScope: { jobCategory: 'D' },
             },
             {
@@ -97,8 +99,16 @@ async function main() {
               scoringMethod: PerfScoringMethod.LEVEL,
               weight: 50,
               sortOrder: 3,
-              editableRoles: [PerfRole.EMPLOYEE, PerfRole.REVIEWER, PerfRole.LEADER],
-              visibleRoles: [PerfRole.EMPLOYEE, PerfRole.REVIEWER, PerfRole.LEADER],
+              editableRoles: [
+                PerfRole.EMPLOYEE,
+                PerfRole.REVIEWER,
+                PerfRole.LEADER,
+              ],
+              visibleRoles: [
+                PerfRole.EMPLOYEE,
+                PerfRole.REVIEWER,
+                PerfRole.LEADER,
+              ],
               applicableScope: { jobCategory: 'M' },
             },
             {
@@ -117,9 +127,18 @@ async function main() {
               type: PerfDimensionType.PROMOTION,
               scoringMethod: PerfScoringMethod.CONCLUSION,
               sortOrder: 5,
-              editableRoles: [PerfRole.EMPLOYEE, PerfRole.REVIEWER, PerfRole.LEADER],
+              editableRoles: [
+                PerfRole.EMPLOYEE,
+                PerfRole.REVIEWER,
+                PerfRole.LEADER,
+              ],
               visibleRoles: [PerfRole.LEADER, PerfRole.HR],
-              conclusionOptions: ['建议晋升', '暂缓晋升', '不建议晋升', '不适用'],
+              conclusionOptions: [
+                '建议晋升',
+                '暂缓晋升',
+                '不建议晋升',
+                '不适用',
+              ],
               employeeVisible: true,
             },
           ],

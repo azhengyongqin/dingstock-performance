@@ -1,6 +1,6 @@
 /**
  * 配置模板可用于创建/套用周期的领域校验：
- * 必须有评分等级、评估维度，并且各适用分组维度权重合计为 100。
+ * 必须有评级、评估维度，并且各适用分组维度权重合计为 100。
  */
 export function getCycleCreationUnavailableReasons(template: {
   levels: unknown;
@@ -14,7 +14,7 @@ export function getCycleCreationUnavailableReasons(template: {
   const levels = Array.isArray(template.levels) ? template.levels : [];
   const dimensions = template.dimensions ?? [];
 
-  if (levels.length === 0) reasons.push('缺少评分等级');
+  if (levels.length === 0) reasons.push('缺少评级');
   if (dimensions.length === 0) reasons.push('缺少评估维度');
 
   reasons.push(...getWeightUnavailableReasons(dimensions));

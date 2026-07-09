@@ -22,7 +22,7 @@ describe('cycle template selection', () => {
           name: '默认但不可用',
           isDefault: true,
           canCreateCycle: false,
-          unavailableReasons: ['缺少评分等级']
+          unavailableReasons: ['缺少评级']
         }),
         template({ id: 2, name: '可用但非默认', canCreateCycle: true }),
         template({ id: 3, name: '默认且可用', isDefault: true, canCreateCycle: true })

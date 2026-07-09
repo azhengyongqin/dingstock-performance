@@ -28,7 +28,7 @@ import type {
   DimensionScore,
   LarkUserBrief,
   PerfDimension,
-  PerfScoringRule,
+  PerfEvaluationRule,
   PerfSelfReviewStatus
 } from '@/lib/perf-api'
 import { avatarUrlOf, formatDateTime } from '@/lib/perf-api'
@@ -47,7 +47,7 @@ type ReviewContext = {
     submittedAt?: string | null
   } | null
   dimensions: PerfDimension[]
-  scoringRule: PerfScoringRule | null
+  evaluationRule: PerfEvaluationRule | null
   myDraft: {
     dimensionScores?: DimensionScore[] | null
     comments?: string | null
@@ -147,14 +147,14 @@ const ReviewFill = () => {
     return () => clearTimeout(initialLoad)
   }, [fetchContext])
 
-  const levels = useMemo(() => context?.scoringRule?.levels ?? [], [context])
+  const levels = useMemo(() => context?.evaluationRule?.levels ?? [], [context])
 
-  // 等级下拉选项（含说明后缀）
+  // 评级下拉选项（含名称后缀）
   const levelOptions = useMemo(
     () =>
       levels.map(item => ({
-        value: item.level,
-        label: `${item.level}${item.description ? ` · ${item.description}` : ''}`
+        value: item.symbol,
+        label: `${item.symbol}${item.name ? ` · ${item.name}` : ''}`
       })),
     [levels]
   )
@@ -228,7 +228,7 @@ const ReviewFill = () => {
     }
 
     if (isManager && !initialLevel) {
-      toast.error('提交前必须给出初步绩效等级')
+      toast.error('提交前必须给出初步绩效评级')
 
       return
     }
@@ -437,7 +437,7 @@ const ReviewFill = () => {
                       onValueChange={value => updateScore(dim.id, { level: (value as string | null) || undefined })}
                     >
                       <SelectTrigger className='w-full'>
-                        <SelectValue placeholder='选择等级…' />
+                        <SelectValue placeholder='选择评级…' />
                       </SelectTrigger>
                       <SelectContent>
                         {levelOptions.map(option => (
@@ -516,7 +516,7 @@ const ReviewFill = () => {
               />
             </Field>
 
-            {/* 360°：晋升反馈；上级：初评等级 + 晋升结论 */}
+            {/* 360°：晋升反馈；上级：初评评级 + 晋升结论 */}
             {!isManager && context.participant.isPromotionEnabled && (
               <Field className='gap-2'>
                 <FieldLabel>晋升反馈</FieldLabel>
@@ -534,7 +534,7 @@ const ReviewFill = () => {
               <div className='grid gap-4 sm:grid-cols-2'>
                 <Field className='gap-2'>
                   <FieldLabel>
-                    初步绩效等级<span className='text-destructive'>*</span>
+                    初步绩效评级<span className='text-destructive'>*</span>
                   </FieldLabel>
                   <Select
                     value={initialLevel || null}
@@ -543,7 +543,7 @@ const ReviewFill = () => {
                     onValueChange={value => setInitialLevel((value as string | null) ?? '')}
                   >
                     <SelectTrigger className='w-full'>
-                      <SelectValue placeholder='选择等级…' />
+                      <SelectValue placeholder='选择评级…' />
                     </SelectTrigger>
                     <SelectContent>
                       {levelOptions.map(option => (

@@ -90,16 +90,11 @@ export class UpsertDimensionsDto {
   items!: DimensionItemDto[];
 }
 
-/** 评分规则：levels/distribution/评语规则均为柔性 JSON，结构见 docs/数据库表结构.md */
-export class UpsertScoringRuleDto {
+/** 评估规则：levels 为评级集合，commentRequiredRules 为评语必填评级配置 */
+export class UpsertEvaluationRuleDto {
   @IsArray()
   @IsObject({ each: true })
   levels!: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  distribution?: Record<string, unknown>[];
 
   @IsOptional()
   @IsObject()
@@ -126,7 +121,7 @@ export class CreateCycleDto {
   @IsString()
   ownerOpenId?: string;
 
-  /** 来源模板：创建时把评分规则与维度集复制为本周期快照 */
+  /** 来源模板：创建时把评估规则与维度集复制为本周期快照 */
   @IsOptional()
   @IsInt()
   templateId?: number;
@@ -156,7 +151,7 @@ export class UpdateCycleDto {
 }
 
 export class ApplyTemplateDto {
-  /** 要重新套用的配置模板；会整体覆盖评分规则与评估维度 */
+  /** 要重新套用的配置模板；会整体覆盖评估规则与评估维度 */
   @IsInt()
   templateId!: number;
 }
@@ -202,11 +197,6 @@ export class CreateTemplateDto {
   levels!: Record<string, unknown>[];
 
   @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  distribution?: Record<string, unknown>[];
-
-  @IsOptional()
   @IsObject()
   commentRequiredRules?: Record<string, unknown>;
 }
@@ -230,11 +220,6 @@ export class UpdateTemplateDto {
   @IsArray()
   @IsObject({ each: true })
   levels?: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  distribution?: Record<string, unknown>[];
 
   @IsOptional()
   @IsObject()

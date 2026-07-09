@@ -4,12 +4,19 @@
 import { useEffect, useMemo, useState } from 'react'
 
 // Third-party Imports
-import { Loader2Icon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  DEFAULT_COMMENT_REQUIRED_RULES,
+  DEFAULT_EVALUATION_RATINGS,
+  EvaluationRuleEditor,
+  normalizeEvaluationRuleDraft,
+  validateEvaluationRuleDraft
+} from '@/components/shared/evaluation-rule-editor'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -24,8 +31,8 @@ import type { PerfRole, PerfTemplate } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
 import DimensionSection from './dimension-section'
-import type { DimensionDraft, LevelDraft } from './types'
-import { EMPTY_LEVEL, summarizeWeights } from './types'
+import type { DimensionDraft } from './types'
+import { summarizeWeights } from './types'
 
 /** 模板详情（GET /templates/:id，含维度项） */
 type TemplateDetail = Omit<PerfTemplate, 'dimensions'> & {
@@ -42,7 +49,7 @@ type TemplateDetail = Omit<PerfTemplate, 'dimensions'> & {
 }
 
 /**
- * 模板编辑侧滑抽屉（HR/ADMIN）：Tabs 分「基本信息 / 评分等级 / 评估维度」，
+ * 模板编辑侧滑抽屉（HR/ADMIN）：Tabs 分「基本信息 / 评估规则 / 评估维度」，
  * 全部行内编辑，「保存」统一 PATCH + PUT 两步提交后关闭；
  * 修改模板不影响已用其创建的周期（创建周期时为复制快照）。
  */
@@ -70,7 +77,12 @@ const TemplateSheet = ({
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [isDefault, setIsDefault] = useState(false)
-  const [levels, setLevels] = useState<LevelDraft[]>([])
+
+  const [evaluationRule, setEvaluationRule] = useState({
+    levels: DEFAULT_EVALUATION_RATINGS,
+    commentRequiredRules: DEFAULT_COMMENT_REQUIRED_RULES
+  })
+
   const [dimensions, setDimensions] = useState<DimensionDraft[]>([])
 
   // ---- 打开时加载详情 ----
@@ -89,14 +101,10 @@ const TemplateSheet = ({
         setName(detail.name)
         setDescription(detail.description ?? '')
         setIsDefault(detail.isDefault)
-        setLevels(
-          (detail.levels ?? []).map(item => ({
-            level: item.level,
-            min: String(item.scoreRange?.[0] ?? ''),
-            max: String(item.scoreRange?.[1] ?? ''),
-            description: item.description ?? ''
-          }))
-        )
+        setEvaluationRule({
+          levels: detail.levels?.length ? detail.levels : DEFAULT_EVALUATION_RATINGS,
+          commentRequiredRules: detail.commentRequiredRules ?? DEFAULT_COMMENT_REQUIRED_RULES
+        })
         setDimensions(
           (detail.dimensions ?? []).map(dim => ({
             id: dim.id,
@@ -145,6 +153,14 @@ const TemplateSheet = ({
       }
     }
 
+    const evaluationRuleError = validateEvaluationRuleDraft(evaluationRule)
+
+    if (evaluationRuleError) {
+      toast.error(evaluationRuleError)
+
+      return
+    }
+
     setSaving(true)
 
     try {
@@ -154,11 +170,7 @@ const TemplateSheet = ({
           name: name.trim(),
           description: description || undefined,
           isDefault,
-          levels: levels.map(item => ({
-            level: item.level,
-            scoreRange: [Number(item.min) || 0, Number(item.max) || 0],
-            description: item.description
-          }))
+          ...normalizeEvaluationRuleDraft(evaluationRule)
         })
       })
       await apiFetch(`/templates/${templateId}/dimensions`, {
@@ -219,9 +231,9 @@ const TemplateSheet = ({
                   <TabsList>
                     <TabsTrigger value='basic'>基本信息</TabsTrigger>
                     <TabsTrigger value='levels'>
-                      评分等级
+                      评估规则
                       <Badge variant='outline' className='ml-1.5'>
-                        {levels.length}
+                        {evaluationRule.levels.length}
                       </Badge>
                     </TabsTrigger>
                     <TabsTrigger value='dimensions'>
@@ -248,65 +260,9 @@ const TemplateSheet = ({
                     </p>
                   </TabsContent>
 
-                  {/* 评分等级：行内编辑，综合评分落入分数区间即得到对应绩效等级 */}
+                  {/* 评估规则：模板与周期共用同一个业务编辑器，避免两处规则口径漂移。 */}
                   <TabsContent value='levels' className='mt-4 flex flex-col gap-2'>
-                    <div className='text-muted-foreground grid grid-cols-[3.5rem_4.5rem_4.5rem_1fr_2rem] gap-2 px-0.5 text-xs'>
-                      <span>等级</span>
-                      <span>下限</span>
-                      <span>上限</span>
-                      <span>说明</span>
-                      <span />
-                    </div>
-                    {levels.map((level, index) => (
-                      <div key={index} className='grid grid-cols-[3.5rem_4.5rem_4.5rem_1fr_2rem] items-center gap-2'>
-                        <Input
-                          value={level.level}
-                          onChange={event =>
-                            setLevels(prev => prev.map((item, i) => (i === index ? { ...item, level: event.target.value } : item)))
-                          }
-                        />
-                        <Input
-                          type='number'
-                          value={level.min}
-                          onChange={event =>
-                            setLevels(prev => prev.map((item, i) => (i === index ? { ...item, min: event.target.value } : item)))
-                          }
-                        />
-                        <Input
-                          type='number'
-                          value={level.max}
-                          onChange={event =>
-                            setLevels(prev => prev.map((item, i) => (i === index ? { ...item, max: event.target.value } : item)))
-                          }
-                        />
-                        <Input
-                          value={level.description}
-                          placeholder='如 远超预期'
-                          onChange={event =>
-                            setLevels(prev =>
-                              prev.map((item, i) => (i === index ? { ...item, description: event.target.value } : item))
-                            )
-                          }
-                        />
-                        <Button
-                          variant='ghost'
-                          size='icon-sm'
-                          onClick={() => setLevels(prev => prev.filter((_, i) => i !== index))}
-                        >
-                          <Trash2Icon className='size-4' />
-                          <span className='sr-only'>删除等级</span>
-                        </Button>
-                      </div>
-                    ))}
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='self-start'
-                      onClick={() => setLevels(prev => [...prev, EMPTY_LEVEL])}
-                    >
-                      <PlusIcon className='size-4' />
-                      添加等级
-                    </Button>
+                    <EvaluationRuleEditor value={evaluationRule} onChange={setEvaluationRule} />
                   </TabsContent>
 
                   {/* 评估维度：按岗位分组 + 行内展开编辑 */}

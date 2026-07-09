@@ -15,6 +15,7 @@ import {
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { hasRatingSymbol } from '../cycle/evaluation-rule';
 import { ParticipantService } from '../participant/participant.service';
 import type { SaveManagerReviewDto, SaveReviewDto } from './review.dto';
 
@@ -132,7 +133,7 @@ export class ReviewService {
     const participant = await this.prisma.perfParticipant.findUnique({
       where: { id: participantId },
       include: {
-        cycle: { include: { scoringRule: true } },
+        cycle: { include: { evaluationRule: true } },
         selfReview: true,
       },
     });
@@ -247,7 +248,7 @@ export class ReviewService {
       employee,
       selfReview,
       dimensions,
-      scoringRule: participant.cycle.scoringRule,
+      evaluationRule: participant.cycle.evaluationRule,
       myDraft,
       peerReviews,
       history,
@@ -343,7 +344,7 @@ export class ReviewService {
   private async requireLeaderOf(participantId: number, leaderOpenId: string) {
     const participant = await this.prisma.perfParticipant.findUnique({
       where: { id: participantId },
-      include: { cycle: { include: { scoringRule: true } } },
+      include: { cycle: { include: { evaluationRule: true } } },
     });
     if (!participant || participant.cycle.deletedAt)
       throw new NotFoundException('参与者不存在');
@@ -367,17 +368,17 @@ export class ReviewService {
     if (existing?.status === PerfReviewStatus.SUBMITTED) {
       throw new ConflictException('上级评估已提交，不可修改');
     }
-    // 初评等级取值受周期评分规则约束
+    // 初评评级取值受周期评估规则约束
     if (dto.initialLevel) {
-      const levels = (participant.cycle.scoringRule?.levels ?? []) as {
-        level?: string;
-      }[];
       if (
-        levels.length > 0 &&
-        !levels.some((item) => item.level === dto.initialLevel)
+        Array.isArray(participant.cycle.evaluationRule?.levels) &&
+        !hasRatingSymbol(
+          participant.cycle.evaluationRule?.levels,
+          dto.initialLevel,
+        )
       ) {
         throw new BadRequestException(
-          `等级 ${dto.initialLevel} 不在评分规则定义中`,
+          `评级 ${dto.initialLevel} 不在评估规则定义中`,
         );
       }
     }
@@ -407,7 +408,7 @@ export class ReviewService {
     if (review.status === PerfReviewStatus.SUBMITTED)
       throw new ConflictException('上级评估已提交');
     if (!review.initialLevel)
-      throw new BadRequestException('提交前必须给出初步绩效等级');
+      throw new BadRequestException('提交前必须给出初步绩效评级');
 
     await this.prisma.perfManagerReview.update({
       where: { id: review.id },

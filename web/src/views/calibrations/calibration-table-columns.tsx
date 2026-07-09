@@ -38,7 +38,7 @@ export type CalibrationColumnsContext = {
   onAdjust: (row: CalibrationRow) => void
 }
 
-/** 员工校准列定义：行选择 + 当前等级筛选（filters + 行选择变体） */
+/** 员工校准列定义：行选择 + 当前评级筛选（filters + 行选择变体） */
 export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsContext): ColumnDef<CalibrationRow>[] => [
   {
     id: 'select',
@@ -87,7 +87,7 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
   },
   {
     id: 'initialLevel',
-    header: '初评等级',
+    header: '初评评级',
     enableSorting: false,
     cell: ({ row }) =>
       row.original.initialLevel ? (
@@ -99,7 +99,7 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
   {
     id: 'currentLevel',
     accessorFn: row => row.currentLevel ?? '',
-    header: '当前等级',
+    header: '当前评级',
     filterFn: 'equalsString',
     enableSorting: false,
     cell: ({ row }) =>
@@ -124,7 +124,7 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
         <Badge className={STATUS_BADGE[row.original.status] ?? 'bg-muted text-muted-foreground'}>
           {PARTICIPANT_STATUS_LABEL[row.original.status]}
         </Badge>
-        {/* 校准中发生过等级调整的行加小徽标提示 */}
+        {/* 校准中发生过评级调整的行加小徽标提示 */}
         {row.original.adjusted && (
           <Badge variant='outline' className='text-yellow-600 dark:text-yellow-400'>
             已调整
