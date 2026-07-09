@@ -1,0 +1,802 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  // Nest 编译产物为 CommonJS，生成的 client 必须同为 CJS，否则生产模式加载报 ESM 冲突。
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+  // 固定 schema 前缀：所有表都建在 performance schema 下（见各 model 的 @@schema）。
+  schemas  = ["performance"]
+}
+
+// ---------------------------------------------------------------------------
+// 飞书通讯录同步表：字段名与 @larksuiteoapi/node-sdk contact.v3 类型定义保持一致
+// （来源：client.contact.v3.user.get / department.get 响应对象，SDK v1.70.0）。
+// 嵌套对象（avatar/status/orders 等）按 SDK 原始结构存 JSONB；标量数组用 PG 数组。
+// ---------------------------------------------------------------------------
+
+/// 飞书员工（contact.v3 user）
+model LarkUser {
+  open_id                     String   @id /// 用户的 open_id（同步时固定 user_id_type=open_id，必然存在，作主键）
+  union_id                    String?  @unique /// 用户的 union_id
+  user_id                     String?  @unique /// 租户内用户 ID
+  name                        String /// 姓名（list/findByDepartment 响应中必返回）
+  en_name                     String? /// 英文名
+  nickname                    String? /// 别名
+  email                       String? /// 邮箱
+  mobile                      String? /// 手机号（依赖应用申请的字段权限，可能不返回）
+  mobile_visible              Boolean? /// 手机号是否对他人可见
+  gender                      Int? /// 性别：0 保密 / 1 男 / 2 女
+  avatar                      Json? /// 头像 AvatarInfo { avatar_72, avatar_240, avatar_640, avatar_origin }
+  status                      Json? /// 状态 UserStatus { is_frozen, is_resigned, is_activated, is_exited, is_unjoin }
+  department_ids              String[] @default([]) /// 所属部门 ID 列表
+  leader_user_id              String? /// 直属上级用户 ID
+  city                        String? /// 城市
+  country                     String? /// 国家/地区
+  work_station                String? /// 工位
+  join_time                   Int? /// 入职时间（秒级时间戳，SDK 为 number）
+  is_tenant_manager           Boolean? /// 是否租户超级管理员
+  employee_no                 String? /// 工号
+  employee_type               Int? /// 员工类型：1 正式 / 2 实习 / 3 外包 / 4 劳务 / 5 顾问
+  positions                   Json? /// 职位列表 Position[] { position_code, position_name, department_id, leader_user_id, leader_position_code, is_major }
+  orders                      Json? /// 部门内排序 UserOrder[] { department_id, user_order, department_order, is_primary_dept }
+  custom_attrs                Json? /// 自定义字段 CustomAttr[] { type, id, value{ text, url, pc_url, option_value, name, picture_url, generic_user } }
+  enterprise_email            String? /// 企业邮箱
+  time_zone                   String? /// 时区
+  description                 String? /// 个人签名/描述
+  job_title                   String? /// 职务
+  geo                         String? /// 数据驻留地
+  job_level_id                String? /// 职级 ID
+  job_family_id               String? /// 序列 ID
+  assign_info                 Json? /// 席位/订阅信息 AssignInfo[] { subscription_id, license_plan_key, product_name, i18n_name, start_time, end_time }
+  department_path             Json? /// 部门路径 DepartmentPath[] { department_id, department_name, department_path }
+  dotted_line_leader_user_ids String[] @default([]) /// 虚线上级用户 ID 列表
+
+  // ---- 以下为本地同步簿记字段（非 SDK 字段）----
+  created_at DateTime @default(now()) /// 首次入库时间
+  synced_at  DateTime @updatedAt /// 最近一次同步时间
+
+  corehr LarkCorehrEmployee? /// CoreHR（飞书人事）员工详情，1:1，可能不存在（未开通/无权限/机器人账号）
+
+  @@map("lark_users")
+  @@schema("performance")
+}
+
+/// 飞书人事员工详情（corehr.v2 employee.batchGet，user_id_type=open_id）。
+/// 字段名与 SDK 响应保持一致；枚举对象（{ enum_name, display[] }）与嵌套结构存 JSONB。
+/// 日期类字段 CoreHR 返回 "YYYY-MM-DD" 字符串，原样存储不做转换。
+model LarkCorehrEmployee {
+  open_id                     String  @id /// = 响应中的 employment_id（请求固定 user_id_type=open_id），关联 lark_users
+  employment_id_v2            String? /// 雇佣 ID（V2 版本）
+  employee_number             String? /// 工号
+  employee_type_id            String? /// 人员类型 ID
+  employee_subtype_id         String? /// 人员子类型 ID
+  employment_type             Json? /// 雇佣类型枚举 { enum_name, display[] }
+  employment_status           Json? /// 雇佣状态枚举（hired/terminated 等）
+  effective_date              String? /// 入职日期
+  expiration_date             String? /// 离职日期
+  reason_for_offboarding      Json? /// 离职原因枚举
+  primary_employment          Boolean? /// 是否主雇佣
+  department_id               String? /// 部门 ID（请求固定 department_id_type=open_department_id，可关联 lark_departments）
+  company_id                  String? /// 所属公司 ID
+  work_location_id            String? /// 工作地点 ID
+  working_hours_type_id       String? /// 工时制度 ID
+  cost_center_list            Json? /// 成本中心分摊 { cost_center_id, rate }[]
+  job_level_id                String? /// 职级 ID
+  job_level                   Json? /// 职级详情 { id, level_order, code, name[], active }
+  job_grade_id                String? /// 职等 ID
+  job_family_id               String? /// 序列 ID
+  job_family                  Json? /// 序列详情 { id, name[], active, code }
+  position_id                 String? /// 岗位 ID
+  position                    Json? /// 岗位详情 { position_id, code, names[] }
+  job_id                      String? /// 职务 ID
+  job                         Json? /// 职务详情 { id, code, name[] }
+  direct_manager_id           String? /// 直属上级（open_id，可关联 lark_users）
+  dotted_line_manager_id      String? /// 虚线上级（open_id）
+  tenure                      String? /// 司龄（年，字符串小数）
+  seniority_date              String? /// 司龄起算日
+  probation_period            Int? /// 试用期时长（月）
+  on_probation                Boolean? /// 是否在试用期中
+  probation_end_date          String? /// 试用期结束日期
+  regular_employee_start_date String? /// 转正日期
+  rehire                      Json? /// 是否离职重聘枚举
+  contract_start_date         String? /// 当前合同开始日期
+  contract_end_date           String? /// 当前合同结束日期
+  contract_expected_end_date  String? /// 当前合同预计结束日期
+  email_address               String? /// 工作邮箱
+  work_email_list             Json? /// 工作邮箱列表 { email, email_usage }[]
+  avatar_url                  String? /// 头像 URL
+  time_zone                   String? /// 时区
+  custom_fields               Json? /// 雇佣自定义字段 { custom_api_name, name, type, value }[]
+  person_info                 Json? /// 个人信息下钻结果（legal_name/gender/date_of_birth/phone_number 等）
+
+  // ---- 以下为本地同步簿记字段（非 SDK 字段）----
+  created_at DateTime @default(now()) /// 首次入库时间
+  synced_at  DateTime @updatedAt /// 最近一次同步时间
+
+  user LarkUser @relation(fields: [open_id], references: [open_id], onDelete: Cascade)
+
+  @@index([department_id])
+  @@index([direct_manager_id])
+  @@map("lark_corehr_employees")
+  @@schema("performance")
+}
+
+/// 飞书部门（contact.v3 department）
+model LarkDepartment {
+  open_department_id        String   @id /// 部门的 open_department_id（同步时固定 department_id_type=open_department_id，作主键）
+  department_id             String? /// 租户内部门 ID
+  name                      String /// 部门名称（SDK 类型中必填）
+  i18n_name                 Json? /// 多语言名称 { zh_cn, ja_jp, en_us }
+  parent_department_id      String /// 父部门 ID（根部门下的一级部门为 "0"；SDK 类型中必填）
+  leader_user_id            String? /// 部门负责人用户 ID
+  chat_id                   String? /// 部门群 ID
+  order                     String? /// 排序权重（SDK 为 string 类型，非 number）
+  unit_ids                  String[] @default([]) /// 单位 ID 列表
+  member_count              Int? /// 成员数量
+  status                    Json? /// 部门状态 { is_deleted }
+  leaders                   Json? /// 负责人列表 { leaderType, leaderID }[]
+  group_chat_employee_types Int[]    @default([]) /// 部门群员工类型限制列表
+  department_hrbps          String[] @default([]) /// 部门 HRBP 用户 ID 列表
+  primary_member_count      Int? /// 主属成员数量
+
+  // ---- 以下为本地同步簿记字段（非 SDK 字段）----
+  created_at DateTime @default(now()) /// 首次入库时间
+  synced_at  DateTime @updatedAt /// 最近一次同步时间
+
+  @@index([parent_department_id])
+  @@map("lark_departments")
+  @@schema("performance")
+}
+
+// ---------------------------------------------------------------------------
+// 绩效业务域（研发说明文档 §7、产品详细设计文档 §8）
+// 约定：
+// - 员工引用统一存飞书 open_id（String），不建到 lark_users 的物理外键——
+//   同步表会全量重建/删除，业务历史必须独立存活；展示层 join lark_users。
+// - 快照字段（部门/职级/Leader）在周期启动时写入，组织变动不影响历史。
+// - 动态表单 schema、评分明细、AI 输出、灵活规则一律 JSONB。
+// - 状态字段使用 Prisma enum，与后端状态机一一对应。
+// - perf_participants 是单人评估过程的聚合根，过程数据全部挂 participant_id。
+// - 校准记录与操作日志 append-only：无 updated_at/deleted_at，禁止 UPDATE。
+// ---------------------------------------------------------------------------
+
+/// 周期类型；首期只用半年度，季度/年度预留
+enum PerfCycleType {
+  SEMI_ANNUAL /// 半年度
+  QUARTERLY /// 季度（预留）
+  ANNUAL /// 年度（预留）
+
+  @@schema("performance")
+}
+
+/// 周期状态机（研发文档 §8.2）：DRAFT → PENDING → SELF_REVIEW → REVIEWING → AI_ANALYZING → CALIBRATING → CONFIRMING → ARCHIVED
+enum PerfCycleStatus {
+  DRAFT /// 草稿：唯一允许删除周期的状态
+  PENDING /// 待启动
+  SELF_REVIEW /// 自评中
+  REVIEWING /// 评审中
+  AI_ANALYZING /// AI 分析中
+  CALIBRATING /// 校准中
+  CONFIRMING /// 结果确认中
+  ARCHIVED /// 已归档
+
+  @@schema("performance")
+}
+
+/// 参与者状态机（研发文档 §8.2），周期整体状态按参与者聚合推进
+enum PerfParticipantStatus {
+  PENDING_SELF_REVIEW /// 待自评
+  SELF_SUBMITTED /// 自评已提交
+  RETURNED /// 自评被退回（回退分支）
+  REVIEWED /// 360°+上级评估完成
+  AI_DONE /// AI 分析完成
+  CALIBRATED /// 已校准
+  RESULT_PUSHED /// 结果已推送员工
+  CONFIRMED /// 员工已确认
+  APPEALING /// 申诉中
+  RE_CONFIRMING /// 申诉处理后再次确认中
+  ARCHIVED /// 已归档
+
+  @@schema("performance")
+}
+
+/// 评估维度类型（产品 §8.7）
+enum PerfDimensionType {
+  REGULAR /// 常规评估
+  PROMOTION /// 晋升评估（特殊维度，不单独成模块）
+  TEXT /// 文本反馈
+  METRIC /// 系统指标
+
+  @@schema("performance")
+}
+
+/// 维度计分方式（产品 §8.7）
+enum PerfScoringMethod {
+  LEVEL /// 等级
+  SCORE /// 分值
+  CONCLUSION /// 结论型选项
+  TEXT /// 纯文本
+
+  @@schema("performance")
+}
+
+/// 系统角色（产品 §3）；EMPLOYEE/REVIEWER/LEADER 为任务关系派生角色，
+/// role_grants 表仅显式授权 HR/ADMIN，枚举全集用于维度可见/可填角色配置
+enum PerfRole {
+  EMPLOYEE /// 员工（被考核人）
+  REVIEWER /// 评审员
+  LEADER /// 直属 Leader
+  HR /// HR
+  ADMIN /// 超级管理员
+
+  @@schema("performance")
+}
+
+/// 评审员与被评人的关系（产品 §6.4.1 推荐来源）
+enum PerfReviewerRelation {
+  LEADER /// 直属上级
+  PEER /// 同部门同事
+  CROSS_DEPT /// 跨部门协作方
+  ORG_OWNER /// 组织负责人
+  PROJECT_OWNER /// 项目负责人
+
+  @@schema("performance")
+}
+
+/// 评审员指派来源
+enum PerfReviewerSource {
+  RECOMMENDED /// 系统推荐
+  LEADER_ASSIGNED /// Leader 指定
+  HR_ASSIGNED /// HR 补充指派
+
+  @@schema("performance")
+}
+
+/// 评审指派状态；更换评审员 = 旧记录置 REPLACED + 新建记录，不做物理删除
+enum PerfAssignmentStatus {
+  PENDING /// 待评审
+  SUBMITTED /// 已提交评估
+  REPLACED /// 已被更换（保留痕迹）
+
+  @@schema("performance")
+}
+
+/// 自评状态（产品 §8.10）
+enum PerfSelfReviewStatus {
+  DRAFT /// 草稿（自动保存）
+  SUBMITTED /// 已提交
+  RETURNED /// 被退回修改
+
+  @@schema("performance")
+}
+
+/// 评估记录状态（360° 与上级评估共用）
+enum PerfReviewStatus {
+  DRAFT /// 草稿
+  SUBMITTED /// 已提交
+
+  @@schema("performance")
+}
+
+/// AI 报告生成任务状态（研发文档 §8.6：DB 任务表 + cron 轮询）
+enum PerfAiReportStatus {
+  PENDING /// 待生成（评审数据齐备后自动创建）
+  GENERATING /// 生成中
+  SUCCESS /// 生成成功
+  FAILED /// 生成失败（支持手动重跑）
+
+  @@schema("performance")
+}
+
+/// Leader/HR 对 AI 报告的处理动作
+enum PerfAiReviewAction {
+  ADOPTED /// 采纳
+  IGNORED /// 忽略
+  EDITED /// 编辑后采纳
+
+  @@schema("performance")
+}
+
+/// 申诉状态（产品 §8.17）
+enum PerfAppealStatus {
+  PENDING /// 待处理
+  IN_INTERVIEW /// 面谈处理中
+  RESOLVED /// 已处理
+
+  @@schema("performance")
+}
+
+/// 面谈类型（产品 §8.18）
+enum PerfInterviewType {
+  APPEAL /// 申诉面谈
+  OPTIONAL /// 选择性面谈
+
+  @@schema("performance")
+}
+
+/// 通知发送通道（产品 §8.19）
+enum PerfNotificationChannel {
+  BOT_DM /// 机器人私聊消息
+  CARD /// 交互卡片
+  GROUP_BOT /// 群机器人
+
+  @@schema("performance")
+}
+
+/// 通知发送状态；PENDING 为入库待发，RETRYING 指数退避重试中
+enum PerfNotificationStatus {
+  PENDING /// 待发送
+  SUCCESS /// 发送成功
+  FAILED /// 重试上限后失败，支持手动补发
+  RETRYING /// 重试中
+
+  @@schema("performance")
+}
+
+/// 报表导出任务状态（研发文档 §8.7 异步任务模型）
+enum ReportExportStatus {
+  PENDING /// 排队中
+  PROCESSING /// 生成中
+  SUCCESS /// 已完成
+  FAILED /// 失败
+
+  @@schema("performance")
+}
+
+/// 绩效配置模板（产品 §9.5/§9.6「固定模版」）：评分规则 + 维度集的跨周期复用母本。
+/// 创建周期时从模板复制到 perf_scoring_rules / perf_dimensions 生成该周期的快照实例；
+/// 之后修改模板不影响已创建的周期，周期内微调也不回写模板（复制隔离，保证历史不可变）。
+model PerfTemplate {
+  id                   Int       @id @default(autoincrement()) /// 内部自增主键
+  name                 String /// 模板名称，如「标准半年度评估模板」；唯一性由 service 层校验（软删除与 @unique 冲突）
+  description          String? /// 模板说明
+  isDefault            Boolean   @default(false) @map("is_default") /// 是否默认模板；创建周期向导默认选中，至多一个由 service 保证
+  levels               Json /// 评分规则-等级定义，结构同 perf_scoring_rules.levels
+  distribution         Json? /// 评分规则-建议/强制分布，结构同 perf_scoring_rules.distribution
+  commentRequiredRules Json?     @map("comment_required_rules") /// 评分规则-评语必填规则，结构同 perf_scoring_rules.comment_required_rules
+  updatedByOpenId      String?   @map("updated_by_open_id") /// 最近修改人 open_id
+  createdAt            DateTime  @default(now()) @map("created_at") /// 创建时间
+  updatedAt            DateTime  @updatedAt @map("updated_at") /// 最近更新时间
+  deletedAt            DateTime? @map("deleted_at") /// 软删除时间；已引用它的周期不受影响（周期持有的是复制快照）
+
+  dimensions PerfTemplateDimension[]
+  cycles     PerfCycle[]
+
+  @@index([deletedAt])
+  @@map("perf_templates")
+  @@schema("performance")
+}
+
+/// 模板维度项：业务字段与 perf_dimensions 一一对应（cycle_id 换成 template_id）。
+/// 创建周期时逐行复制为 perf_dimensions；模板项无历史包袱，允许物理删除。
+model PerfTemplateDimension {
+  id                Int               @id @default(autoincrement()) /// 内部自增主键
+  templateId        Int               @map("template_id") /// 所属模板
+  name              String /// 维度名称
+  type              PerfDimensionType @default(REGULAR) /// 维度类型
+  scoringMethod     PerfScoringMethod @default(LEVEL) @map("scoring_method") /// 计分方式
+  weight            Decimal?          @map("weight") @db.Decimal(5, 2) /// 权重（百分比）；按 applicable_scope 分组合计 = 100，保存模板时即校验
+  required          Boolean           @default(true) /// 是否必填
+  sortOrder         Int               @default(0) @map("sort_order") /// 展示排序
+  visibleRoles      PerfRole[]        @default([]) @map("visible_roles") /// 可见角色
+  editableRoles     PerfRole[]        @default([]) @map("editable_roles") /// 可填写角色
+  formSchema        Json?             @map("form_schema") /// 动态表单 schema，结构同 perf_dimensions.form_schema
+  applicableScope   Json?             @map("applicable_scope") /// 适用员工范围，结构同 perf_dimensions.applicable_scope；如 { "jobCategory": "D" }
+  conclusionOptions Json?             @map("conclusion_options") /// 仅 type=PROMOTION：结论选项
+  employeeVisible   Boolean?          @map("employee_visible") /// 仅 type=PROMOTION：员工结果页是否可见晋升结论
+  createdAt         DateTime          @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime          @updatedAt @map("updated_at") /// 最近更新时间
+
+  template PerfTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@map("perf_template_dimensions")
+  @@schema("performance")
+}
+
+/// 绩效周期：评估流程顶层聚合。仅 DRAFT 状态允许删除（软删除），启动后只能流转状态。
+model PerfCycle {
+  id                Int             @id @default(autoincrement()) /// 内部自增主键
+  name              String /// 周期名称，如「2026 H1 绩效评估」
+  type              PerfCycleType   @default(SEMI_ANNUAL) /// 周期类型
+  status            PerfCycleStatus @default(DRAFT) /// 周期状态机，流转由 service 显式控制并写审计
+  startDate         DateTime        @map("start_date") @db.Date /// 周期开始日期
+  endDate           DateTime        @map("end_date") @db.Date /// 周期结束日期
+  ownerOpenId       String          @map("owner_open_id") /// 周期负责人（HR）飞书 open_id
+  templateId        Int?            @map("template_id") /// 来源配置模板，仅溯源用；周期实际配置以复制到本周期的快照（scoring_rule/dimensions）为准
+  windows           Json? /// 各阶段时间窗口（产品 §9.3）：{ selfReview/review/calibration/confirm/appeal: { startAt, endAt, remindAt[] } }
+  notificationRules Json?           @map("notification_rules") /// 催办规则（产品 §9.9）：截止前提醒/逾期频率/接收人/抄送 Leader/HR
+  createdAt         DateTime        @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime        @updatedAt @map("updated_at") /// 最近更新时间
+  deletedAt         DateTime?       @map("deleted_at") /// 软删除时间；仅 DRAFT 可删，查询默认过滤 null
+
+  template            PerfTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  scoringRule         PerfScoringRule?
+  dimensions          PerfDimension[]
+  participants        PerfParticipant[]
+  reviewerAssignments PerfReviewerAssignment[]
+  exportTasks         ReportExportTask[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@index([templateId])
+  @@map("perf_cycles")
+  @@schema("performance")
+}
+
+/// 评分规则：每周期一份（1:1），定义等级、分布与评语要求（产品 §8.9）。
+/// 通常在创建周期时由 perf_templates 复制生成（周期快照实例），周期内可微调、不回写模板。
+model PerfScoringRule {
+  id                   Int      @id @default(autoincrement()) /// 内部自增主键
+  cycleId              Int      @unique @map("cycle_id") /// 所属周期，一周期仅一份规则
+  levels               Json /// 等级定义：[{ level: "S", scoreRange: [90,100], description }]，等级集合由此配置决定，业务表等级字段存 String
+  distribution         Json?    @map("distribution") /// 建议/强制分布规则：[{ level, minRatio, maxRatio, enforced }]
+  commentRequiredRules Json?    @map("comment_required_rules") /// 评语必填规则：如最高/最低等级必须填写评语
+  createdAt            DateTime @default(now()) @map("created_at") /// 创建时间
+  updatedAt            DateTime @updatedAt @map("updated_at") /// 最近更新时间
+
+  cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@map("perf_scoring_rules")
+  @@schema("performance")
+}
+
+/// 评估维度（含晋升评估特殊维度，产品 §8.7/§8.8）。
+/// 通常在创建周期时由 perf_template_dimensions 复制生成（周期快照实例），周期内可微调、不回写模板。
+/// 周期启动后已产生评估数据的维度仅允许软删除，由 service 层限制。
+/// 同一周期支持按岗位类型配置多套维度集（如员工岗 D：核心业绩 70/职业素养与潜力 10/价值观 20，
+/// 管理岗 M：核心业绩 50/管理绩效 50），通过 applicable_scope 圈定各维度适用人群。
+model PerfDimension {
+  id                Int               @id @default(autoincrement()) /// 内部自增主键
+  cycleId           Int               @map("cycle_id") /// 所属周期
+  name              String /// 维度名称
+  type              PerfDimensionType @default(REGULAR) /// 维度类型
+  scoringMethod     PerfScoringMethod @default(LEVEL) @map("scoring_method") /// 计分方式
+  weight            Decimal?          @map("weight") @db.Decimal(5, 2) /// 权重（百分比）；启动前按 applicable_scope 适用分组分别校验组内合计 = 100，而非全周期合计
+  required          Boolean           @default(true) /// 是否必填
+  sortOrder         Int               @default(0) @map("sort_order") /// 展示排序
+  visibleRoles      PerfRole[]        @default([]) @map("visible_roles") /// 可见角色
+  editableRoles     PerfRole[]        @default([]) @map("editable_roles") /// 可填写角色
+  formSchema        Json?             @map("form_schema") /// 动态表单 schema；晋升维度按角色分节 { employee, reviewer, leader }
+  applicableScope   Json?             @map("applicable_scope") /// 适用员工范围（岗位类别/部门/职级/名单规则），null = 全员适用；如 { "jobCategory": "D" }。常规维度用于岗位差异化维度集，晋升维度用于圈定晋升评估人群
+  conclusionOptions Json?             @map("conclusion_options") /// 仅 type=PROMOTION：结论选项，如 [建议晋升/暂缓/不建议]
+  employeeVisible   Boolean?          @map("employee_visible") /// 仅 type=PROMOTION：员工结果页是否可见晋升结论
+  createdAt         DateTime          @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime          @updatedAt @map("updated_at") /// 最近更新时间
+  deletedAt         DateTime?         @map("deleted_at") /// 软删除时间；启动后删除受限
+
+  cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  @@index([cycleId, type])
+  @@index([deletedAt])
+  @@map("perf_dimensions")
+  @@schema("performance")
+}
+
+/// 考核人员：单人评估过程的聚合根（产品 §8.5）。自评/360°/上级/AI/校准/结果/申诉/面谈全部挂本表。
+/// 快照字段在周期启动时写入，组织变动不影响历史（产品 §6.1.5、§6.6.4）。
+model PerfParticipant {
+  id                   Int                   @id @default(autoincrement()) /// 内部自增主键
+  cycleId              Int                   @map("cycle_id") /// 所属周期
+  employeeOpenId       String                @map("employee_open_id") /// 被考核员工飞书 open_id（逻辑外键 lark_users，展示层 join）
+  leaderOpenIdSnapshot String?               @map("leader_open_id_snapshot") /// 启动时直属 Leader open_id 快照；上级评估/团队看板按此过滤
+  departmentIdSnapshot String?               @map("department_id_snapshot") /// 启动时部门 open_department_id 快照
+  jobLevelSnapshot     Json?                 @map("job_level_snapshot") /// 启动时职级/岗位快照（来自 corehr job_level 等对象，含 jobCategory 岗位类别如 D/M）；用于维度 applicable_scope 匹配与展示
+  isPromotionEnabled   Boolean               @default(false) @map("is_promotion_enabled") /// 是否启用晋升评估维度
+  status               PerfParticipantStatus @default(PENDING_SELF_REVIEW) /// 参与者状态机
+  createdAt            DateTime              @default(now()) @map("created_at") /// 创建时间
+  updatedAt            DateTime              @updatedAt @map("updated_at") /// 最近更新时间
+
+  cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  reviewerAssignments PerfReviewerAssignment[]
+  selfReview          PerfSelfReview?
+  reviews             PerfReview[]
+  managerReview       PerfManagerReview?
+  aiReport            PerfAiReport?
+  calibrations        PerfCalibration[]
+  result              PerfResult?
+  appeals             PerfAppeal[]
+  interviews          PerfInterview[]
+
+  @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
+  @@index([cycleId, status])
+  @@index([cycleId, leaderOpenIdSnapshot])
+  @@index([employeeOpenId])
+  @@map("perf_participants")
+  @@schema("performance")
+}
+
+/// 评审员指派（产品 §6.4.1）：推荐/指定/补充产生的评审任务。
+/// 更换评审员时旧记录置 REPLACED 并新建记录，故 (participant, reviewer, relation) 不设唯一约束。
+model PerfReviewerAssignment {
+  id              Int                  @id @default(autoincrement()) /// 内部自增主键
+  cycleId         Int                  @map("cycle_id") /// 所属周期（冗余自 participant，加速评审员任务列表查询）
+  participantId   Int                  @map("participant_id") /// 被评估的参与者
+  reviewerOpenId  String               @map("reviewer_open_id") /// 评审员飞书 open_id
+  relation        PerfReviewerRelation @map("relation") /// 与被评人关系
+  source          PerfReviewerSource   @map("source") /// 指派来源
+  recommendReason String?              @map("recommend_reason") /// 系统推荐理由（source=RECOMMENDED 时给出）
+  status          PerfAssignmentStatus @default(PENDING) /// 指派状态
+  createdAt       DateTime             @default(now()) @map("created_at") /// 创建时间
+  updatedAt       DateTime             @updatedAt @map("updated_at") /// 最近更新时间
+
+  cycle       PerfCycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([reviewerOpenId, status]) /// 「我的评审任务」列表
+  @@index([participantId])
+  @@index([cycleId])
+  @@map("perf_reviewer_assignments")
+  @@schema("performance")
+}
+
+/// 员工自评 + 工作总结（产品 §8.10/§8.11 合并存储），每参与者一份（1:1）
+model PerfSelfReview {
+  id                  Int                  @id @default(autoincrement()) /// 内部自增主键
+  participantId       Int                  @unique @map("participant_id") /// 所属参与者
+  okrContent          Json?                @map("okr_content") /// OKR 内容或引用（二期可对接 okr.v1 接口）
+  summary             Json?                @map("summary") /// 工作总结，分节 JSONB：{ outputs, results, collaboration, reflection, plan }
+  promotionSelfReview Json?                @map("promotion_self_review") /// 晋升自述；仅 is_promotion_enabled 时存在
+  attachments         Json?                @map("attachments") /// 附件列表：[{ name, url/fileToken, size }]
+  documentToken       String?              @map("document_token") /// 关联飞书文档 token（可选的文档化自评）
+  status              PerfSelfReviewStatus @default(DRAFT) /// 自评状态
+  returnReason        String?              @map("return_reason") /// 退回原因（status=RETURNED 时必填，由 service 保证）
+  submittedAt         DateTime?            @map("submitted_at") /// 最近一次提交时间
+  createdAt           DateTime             @default(now()) @map("created_at") /// 创建时间
+  updatedAt           DateTime             @updatedAt @map("updated_at") /// 最近更新时间（草稿自动保存）
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@map("perf_self_reviews")
+  @@schema("performance")
+}
+
+/// 360° 评估记录（产品 §8.12）：一个评审员对一个参与者一份
+model PerfReview {
+  id                Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId     Int              @map("participant_id") /// 被评估的参与者
+  reviewerOpenId    String           @map("reviewer_open_id") /// 评审员飞书 open_id
+  dimensionScores   Json?            @map("dimension_scores") /// 维度评分明细：[{ dimensionId, score?, level?, conclusion?, comment }]
+  comments          String?          @map("comments") /// 综合评语
+  promotionFeedback Json?            @map("promotion_feedback") /// 晋升反馈；仅被评人启用晋升评估时存在
+  status            PerfReviewStatus @default(DRAFT) /// 评估状态
+  submittedAt       DateTime?        @map("submitted_at") /// 提交时间
+  createdAt         DateTime         @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, reviewerOpenId]) /// 同一评审员对同一参与者仅一份评估
+  @@index([reviewerOpenId])
+  @@map("perf_reviews")
+  @@schema("performance")
+}
+
+/// 上级评估记录（产品 §8.13），每参与者一份（1:1），由 Leader 快照对应人填写
+model PerfManagerReview {
+  id                  Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId       Int              @unique @map("participant_id") /// 所属参与者
+  leaderOpenId        String           @map("leader_open_id") /// 填写人（直属 Leader）飞书 open_id
+  dimensionScores     Json?            @map("dimension_scores") /// 维度评分明细，结构同 perf_reviews.dimension_scores
+  overallComment      String?          @map("overall_comment") /// 综合评语
+  initialLevel        String?          @map("initial_level") /// 初步绩效等级；取值由周期评分规则 levels 配置约束，故存 String
+  promotionConclusion String?          @map("promotion_conclusion") /// 晋升建议结论（结论型选项）；仅启用晋升评估时存在
+  status              PerfReviewStatus @default(DRAFT) /// 评估状态
+  submittedAt         DateTime?        @map("submitted_at") /// 提交时间；提交后触发 AI 分析任务
+  createdAt           DateTime         @default(now()) @map("created_at") /// 创建时间
+  updatedAt           DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([leaderOpenId])
+  @@map("perf_manager_reviews")
+  @@schema("performance")
+}
+
+/// AI 分析报告（产品 §8.14）+ 异步生成任务状态（研发文档 §8.6）。
+/// 每参与者一份，重跑覆盖本记录；仅 Leader/HR 可见，员工可见性按配置。
+model PerfAiReport {
+  id               Int                 @id @default(autoincrement()) /// 内部自增主键
+  participantId    Int                 @unique @map("participant_id") /// 所属参与者
+  status           PerfAiReportStatus  @default(PENDING) /// 生成任务状态；cron 轮询 PENDING/FAILED 可重跑
+  summary          String?             @map("summary") /// 综合摘要
+  highlights       Json?               @map("highlights") /// 亮点：[{ title, evidence }]
+  improvements     Json?               @map("improvements") /// 待改进点：[{ title, evidence }]
+  promotionSummary String?             @map("promotion_summary") /// 晋升证据摘要；仅启用晋升评估时存在
+  riskFlags        Json?               @map("risk_flags") /// 风险/一致性提示：[{ type, description }]
+  inputsDigest     Json?               @map("inputs_digest") /// 输入来源摘要（自评/360°/上级评估的 id 与哈希），保证可追溯
+  errorMessage     String?             @map("error_message") /// 失败原因（status=FAILED）
+  generatedAt      DateTime?           @map("generated_at") /// 生成完成时间
+  reviewedByOpenId String?             @map("reviewed_by_open_id") /// 处理人（Leader/HR）open_id
+  reviewedAction   PerfAiReviewAction? @map("reviewed_action") /// 处理动作；人工结论优先于 AI 输出
+  createdAt        DateTime            @default(now()) @map("created_at") /// 任务创建时间
+  updatedAt        DateTime            @updatedAt @map("updated_at") /// 最近更新时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("perf_ai_reports")
+  @@schema("performance")
+}
+
+/// 校准记录（产品 §8.15）：append-only，不可更新/删除；每次等级调整新增一条
+model PerfCalibration {
+  id             Int      @id @default(autoincrement()) /// 内部自增主键
+  participantId  Int      @map("participant_id") /// 所属参与者
+  beforeLevel    String?  @map("before_level") /// 调整前等级（首条为上级评估初评等级；可能为空）
+  afterLevel     String   @map("after_level") /// 调整后等级
+  reason         String   @map("reason") /// 调整原因，必填（产品 §6.5）
+  operatorOpenId String   @map("operator_open_id") /// 操作人（HR/校准会成员）open_id
+  createdAt      DateTime @default(now()) @map("created_at") /// 记录时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+
+  @@index([participantId])
+  @@map("perf_calibrations")
+  @@schema("performance")
+}
+
+/// 最终绩效结果（产品 §8.16），每参与者一份（1:1）。
+/// archived_at 落定后业务代码禁止 UPDATE；任何调整必须经校准记录/操作日志产生新记录。
+model PerfResult {
+  id                  Int       @id @default(autoincrement()) /// 内部自增主键
+  participantId       Int       @unique @map("participant_id") /// 所属参与者
+  finalLevel          String    @map("final_level") /// 最终绩效等级；取值受周期评分规则约束
+  dimensionResults    Json?     @map("dimension_results") /// 维度结果快照：[{ dimensionId, name, level/score, comment }]
+  promotionResult     String?   @map("promotion_result") /// 晋升评估结论；仅启用晋升评估时存在，员工可见性看维度配置
+  confirmedByEmployee Boolean   @default(false) @map("confirmed_by_employee") /// 员工是否已确认
+  confirmedAt         DateTime? @map("confirmed_at") /// 员工确认时间
+  archivedAt          DateTime? @map("archived_at") /// 归档时间；非空后本行不可变
+  createdAt           DateTime  @default(now()) @map("created_at") /// 创建时间（结果推送时生成）
+  updatedAt           DateTime  @updatedAt @map("updated_at") /// 最近更新时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+
+  @@map("perf_results")
+  @@schema("performance")
+}
+
+/// 申诉记录（产品 §8.17）；与员工确认互斥，处理闭环可能触发再次校准
+model PerfAppeal {
+  id             Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId  Int              @map("participant_id") /// 所属参与者
+  reason         String           @map("reason") /// 申诉理由
+  attachments    Json?            @map("attachments") /// 申诉附件：[{ name, url/fileToken }]
+  status         PerfAppealStatus @default(PENDING) /// 处理状态
+  handlerOpenId  String?          @map("handler_open_id") /// 处理人（HR）open_id
+  conclusion     String?          @map("conclusion") /// 处理结论
+  resultAdjusted Boolean          @default(false) @map("result_adjusted") /// 处理后结果是否调整（调整走校准记录）
+  resolvedAt     DateTime?        @map("resolved_at") /// 处理完成时间
+  createdAt      DateTime         @default(now()) @map("created_at") /// 申诉发起时间
+  updatedAt      DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  interviews  PerfInterview[]
+
+  @@index([participantId])
+  @@index([status]) /// 申诉处理队列
+  @@index([handlerOpenId])
+  @@map("perf_appeals")
+  @@schema("performance")
+}
+
+/// 面谈记录（产品 §8.18）：申诉面谈关联 appeal_id，选择性面谈可独立创建
+model PerfInterview {
+  id                 Int               @id @default(autoincrement()) /// 内部自增主键
+  participantId      Int               @map("participant_id") /// 所属参与者
+  appealId           Int?              @map("appeal_id") /// 关联申诉；仅 type=APPEAL 时存在
+  type               PerfInterviewType @map("type") /// 面谈类型
+  participantOpenIds String[]          @default([]) @map("participant_open_ids") /// 面谈参与人 open_id 列表（Leader/HR 等）
+  content            String?           @map("content") /// 面谈内容纪要
+  employeeFeedback   String?           @map("employee_feedback") /// 员工反馈
+  conclusion         String?           @map("conclusion") /// 面谈结论
+  resultAdjusted     Boolean           @default(false) @map("result_adjusted") /// 面谈后结果是否调整（调整走校准记录）
+  createdAt          DateTime          @default(now()) @map("created_at") /// 创建时间
+  updatedAt          DateTime          @updatedAt @map("updated_at") /// 最近更新时间（纪要可补充完善）
+
+  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  appeal      PerfAppeal?     @relation(fields: [appealId], references: [id], onDelete: Restrict)
+
+  @@index([participantId])
+  @@index([appealId])
+  @@map("perf_interviews")
+  @@schema("performance")
+}
+
+/// 通知发送记录（产品 §8.19）：每次发送落库；重试更新本行 retry_count/status。
+/// 幂等去重键（receiver+template+业务键+日期）走 Redis SETNX，不在库中约束。
+model PerfNotification {
+  id             Int                     @id @default(autoincrement()) /// 内部自增主键
+  receiverOpenId String                  @map("receiver_open_id") /// 接收人飞书 open_id
+  channel        PerfNotificationChannel @map("channel") /// 发送通道
+  template       String                  @map("template") /// 通知模板标识（产品 §9.10：评审启动/自评提醒/催办/结果推送等）
+  payload        Json?                   @map("payload") /// 渲染后的消息/卡片内容与业务上下文
+  status         PerfNotificationStatus  @default(PENDING) /// 发送状态
+  retryCount     Int                     @default(0) @map("retry_count") /// 已重试次数；达上限置 FAILED 支持手动补发
+  errorMessage   String?                 @map("error_message") /// 最近一次失败原因
+  sentAt         DateTime?               @map("sent_at") /// 发送成功时间
+  createdAt      DateTime                @default(now()) @map("created_at") /// 创建时间
+  updatedAt      DateTime                @updatedAt @map("updated_at") /// 最近更新时间（重试簿记）
+
+  @@index([receiverOpenId])
+  @@index([status]) /// 重试队列扫描
+  @@map("perf_notifications")
+  @@schema("performance")
+}
+
+/// 操作日志（产品 §8.20）：append-only 审计流水，禁止 UPDATE/DELETE
+model AuditLog {
+  id             Int      @id @default(autoincrement()) /// 内部自增主键
+  operatorOpenId String   @map("operator_open_id") /// 操作人飞书 open_id
+  action         String   @map("action") /// 操作类型（如 cycle.start / calibration.adjust / report.export）
+  targetType     String   @map("target_type") /// 操作对象类型（表/聚合名）
+  targetId       String   @map("target_id") /// 操作对象 ID（统一存字符串，兼容 open_id 与自增 id）
+  before         Json?    @map("before") /// 变更前快照
+  after          Json?    @map("after") /// 变更后快照
+  reason         String?  @map("reason") /// 操作原因（校准调整、退回等场景必填，由 service 保证）
+  ip             String?  @map("ip") /// 操作来源 IP 或客户端信息
+  createdAt      DateTime @default(now()) @map("created_at") /// 操作时间
+
+  @@index([targetType, targetId])
+  @@index([operatorOpenId])
+  @@index([createdAt])
+  @@map("audit_logs")
+  @@schema("performance")
+}
+
+/// RBAC 显式授权（产品 §3.8）：仅维护 HR 与超级管理员；
+/// EMPLOYEE/REVIEWER/LEADER 由 participant/assignment/leader 快照派生，不入本表
+model RoleGrant {
+  id              Int       @id @default(autoincrement()) /// 内部自增主键
+  userOpenId      String    @map("user_open_id") /// 被授权人飞书 open_id
+  role            PerfRole  @map("role") /// 授予角色（实际使用 HR/ADMIN）
+  orgScope        String[]  @default([]) @map("org_scope") /// 授权部门范围（open_department_id 列表，含子树）；ADMIN 留空表示全局
+  grantedByOpenId String?   @map("granted_by_open_id") /// 授权人 open_id
+  createdAt       DateTime  @default(now()) @map("created_at") /// 授权时间
+  updatedAt       DateTime  @updatedAt @map("updated_at") /// 最近更新时间（调整 org_scope）
+
+  @@unique([userOpenId, role]) /// 同人同角色仅一条授权，撤销为物理删除并写审计
+  @@map("role_grants")
+  @@schema("performance")
+}
+
+/// 系统参数（产品 §9.11）：key-value 配置，如 AI 开关、飞书文档默认目录、默认评分等级、导出权限
+model SystemConfig {
+  id              Int      @id @default(autoincrement()) /// 内部自增主键
+  key             String   @unique @map("key") /// 参数键，如 ai.enabled / export.allowed_roles
+  value           Json     @map("value") /// 参数值，统一 JSON 存储便于结构化配置
+  description     String?  @map("description") /// 参数说明
+  updatedByOpenId String?  @map("updated_by_open_id") /// 最近修改人 open_id
+  createdAt       DateTime @default(now()) @map("created_at") /// 创建时间
+  updatedAt       DateTime @updatedAt @map("updated_at") /// 最近更新时间
+
+  @@map("system_configs")
+  @@schema("performance")
+}
+
+/// 报表导出任务（产品 §7.18，研发文档 §8.7）：异步生成 xlsx，前端任务列表轮询；导出动作同时写 audit_logs
+model ReportExportTask {
+  id             Int                @id @default(autoincrement()) /// 内部自增主键
+  cycleId        Int?               @map("cycle_id") /// 关联周期；周期（软删场景外的物理删除）后置空保留任务历史
+  type           String             @map("type") /// 报表类型标识（结果汇总/维度明细/申诉记录等）
+  params         Json?              @map("params") /// 导出参数：{ orgScope, fields, filters }
+  status         ReportExportStatus @default(PENDING) /// 任务状态；worker 轮询 PENDING
+  filePath       String?            @map("file_path") /// 产物存储路径/下载地址
+  errorMessage   String?            @map("error_message") /// 失败原因
+  operatorOpenId String             @map("operator_open_id") /// 发起人 open_id（导出权限校验对象）
+  finishedAt     DateTime?          @map("finished_at") /// 完成时间
+  createdAt      DateTime           @default(now()) @map("created_at") /// 创建时间
+  updatedAt      DateTime           @updatedAt @map("updated_at") /// 最近更新时间
+
+  cycle PerfCycle? @relation(fields: [cycleId], references: [id], onDelete: SetNull)
+
+  @@index([operatorOpenId])
+  @@index([status]) /// worker 任务队列扫描
+  @@index([cycleId])
+  @@map("report_export_tasks")
+  @@schema("performance")
+}

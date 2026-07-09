@@ -1,0 +1,291 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  PerfNotificationChannel,
+  PerfParticipantStatus,
+  PerfReviewStatus,
+} from '../generated/prisma/enums';
+import { PrismaService } from '../shared/database/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { ParticipantService } from '../participant/participant.service';
+
+/**
+ * 校准与最终结果（产品 §5.5/§5.6）：
+ * - 校准记录 append-only，每次调整必填原因；
+ * - 当前等级 = 最近一条校准记录的 after_level，无校准则取上级初评等级；
+ * - 批量确认 = 参与者 → CALIBRATED；推送结果 = 生成 perf_results + RESULT_PUSHED。
+ */
+@Injectable()
+export class CalibrationService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly participantService: ParticipantService,
+  ) {}
+
+  /** 校准工作台列表：各参与者的初评/当前等级 + 等级分布对比 */
+  async listForCycle(cycleId: number) {
+    const cycle = await this.prisma.perfCycle.findFirst({
+      where: { id: cycleId, deletedAt: null },
+      include: { scoringRule: true },
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: { cycleId },
+      include: {
+        managerReview: {
+          select: {
+            initialLevel: true,
+            promotionConclusion: true,
+            status: true,
+          },
+        },
+        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        aiReport: { select: { status: true, riskFlags: true } },
+        result: { select: { finalLevel: true } },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    const users = await this.prisma.larkUser.findMany({
+      where: { open_id: { in: participants.map((p) => p.employeeOpenId) } },
+      select: { open_id: true, name: true, avatar: true, job_title: true },
+    });
+    const userMap = new Map(users.map((u) => [u.open_id, u]));
+
+    const items = participants.map((participant) => {
+      const initialLevel = participant.managerReview?.initialLevel ?? null;
+      const currentLevel =
+        participant.calibrations[0]?.afterLevel ?? initialLevel;
+      return {
+        id: participant.id,
+        employeeOpenId: participant.employeeOpenId,
+        employee: userMap.get(participant.employeeOpenId) ?? null,
+        status: participant.status,
+        isPromotionEnabled: participant.isPromotionEnabled,
+        initialLevel,
+        currentLevel,
+        promotionConclusion:
+          participant.managerReview?.promotionConclusion ?? null,
+        aiReportStatus: participant.aiReport?.status ?? null,
+        riskFlags: participant.aiReport?.riskFlags ?? null,
+        adjusted: participant.calibrations.length > 0,
+      };
+    });
+
+    // 等级分布：当前 vs 建议（评分规则 distribution）
+    const distribution: Record<string, number> = {};
+    for (const item of items) {
+      if (item.currentLevel) {
+        distribution[item.currentLevel] =
+          (distribution[item.currentLevel] ?? 0) + 1;
+      }
+    }
+
+    return {
+      items,
+      total: items.length,
+      distribution,
+      suggestedDistribution: cycle.scoringRule?.distribution ?? null,
+      levels: cycle.scoringRule?.levels ?? [],
+    };
+  }
+
+  /** 校准调整：append-only 落一条校准记录（调整必填原因） */
+  async adjust(
+    operatorOpenId: string,
+    participantId: number,
+    afterLevel: string,
+    reason: string,
+  ) {
+    const participant = await this.prisma.perfParticipant.findUnique({
+      where: { id: participantId },
+      include: {
+        cycle: { include: { scoringRule: true } },
+        managerReview: { select: { initialLevel: true, status: true } },
+        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        result: { select: { archivedAt: true } },
+      },
+    });
+    if (!participant || participant.cycle.deletedAt)
+      throw new NotFoundException('参与者不存在');
+    if (participant.result?.archivedAt) {
+      throw new ConflictException('结果已归档，任何调整必须经申诉/面谈流程');
+    }
+    if (participant.managerReview?.status !== PerfReviewStatus.SUBMITTED) {
+      throw new ConflictException('上级评估未提交，不能校准');
+    }
+    const levels = (participant.cycle.scoringRule?.levels ?? []) as {
+      level?: string;
+    }[];
+    if (
+      levels.length > 0 &&
+      !levels.some((item) => item.level === afterLevel)
+    ) {
+      throw new BadRequestException(`等级 ${afterLevel} 不在评分规则定义中`);
+    }
+
+    const beforeLevel =
+      participant.calibrations[0]?.afterLevel ??
+      participant.managerReview?.initialLevel ??
+      null;
+    const record = await this.prisma.perfCalibration.create({
+      data: { participantId, beforeLevel, afterLevel, reason, operatorOpenId },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'calibration.adjust',
+      targetType: 'perf_participant',
+      targetId: String(participantId),
+      before: { level: beforeLevel },
+      after: { level: afterLevel },
+      reason,
+    });
+    return record;
+  }
+
+  /** 校准记录历史（申诉处理/审计走查用） */
+  async history(participantId: number) {
+    const items = await this.prisma.perfCalibration.findMany({
+      where: { participantId },
+      orderBy: { id: 'asc' },
+    });
+    const operatorIds = [...new Set(items.map((item) => item.operatorOpenId))];
+    const users = await this.prisma.larkUser.findMany({
+      where: { open_id: { in: operatorIds } },
+      select: { open_id: true, name: true, avatar: true },
+    });
+    const userMap = new Map(users.map((u) => [u.open_id, u]));
+    return {
+      items: items.map((item) => ({
+        ...item,
+        operator: userMap.get(item.operatorOpenId) ?? null,
+      })),
+      total: items.length,
+    };
+  }
+
+  /** 批量确认校准：选中参与者 REVIEWED/AI_DONE → CALIBRATED */
+  async confirm(
+    operatorOpenId: string,
+    cycleId: number,
+    participantIds: number[],
+  ) {
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: { id: { in: participantIds }, cycleId },
+    });
+    if (participants.length === 0) throw new NotFoundException('参与者不存在');
+
+    let confirmed = 0;
+    const skipped: number[] = [];
+    for (const participant of participants) {
+      if (
+        participant.status === PerfParticipantStatus.REVIEWED ||
+        participant.status === PerfParticipantStatus.AI_DONE
+      ) {
+        await this.participantService.transition(
+          operatorOpenId,
+          participant.id,
+          PerfParticipantStatus.CALIBRATED,
+        );
+        confirmed += 1;
+      } else {
+        skipped.push(participant.id);
+      }
+    }
+    return { confirmed, skipped };
+  }
+
+  /**
+   * 推送结果给员工确认（产品 §5.6）：
+   * 生成/更新 perf_results（final = 校准后等级），参与者 → RESULT_PUSHED，落结果通知。
+   */
+  async pushResults(
+    operatorOpenId: string,
+    cycleId: number,
+    participantIds?: number[],
+  ) {
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: {
+        cycleId,
+        status: PerfParticipantStatus.CALIBRATED,
+        ...(participantIds?.length ? { id: { in: participantIds } } : {}),
+      },
+      include: {
+        managerReview: true,
+        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        cycle: { include: { dimensions: { where: { deletedAt: null } } } },
+      },
+    });
+    if (participants.length === 0) {
+      throw new BadRequestException('没有可推送的参与者（需处于已校准状态）');
+    }
+
+    let pushed = 0;
+    for (const participant of participants) {
+      const finalLevel =
+        participant.calibrations[0]?.afterLevel ??
+        participant.managerReview?.initialLevel;
+      if (!finalLevel) continue;
+
+      // 维度结果快照：冗余维度名，归档后不受维度修改影响
+      const scores = (participant.managerReview?.dimensionScores ?? []) as {
+        dimensionId?: number;
+      }[];
+      const dimensionResults = scores.map((score) => ({
+        ...score,
+        name: participant.cycle.dimensions.find(
+          (dim) => dim.id === score.dimensionId,
+        )?.name,
+      }));
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.perfResult.upsert({
+          where: { participantId: participant.id },
+          create: {
+            participantId: participant.id,
+            finalLevel,
+            dimensionResults: dimensionResults,
+            promotionResult: participant.managerReview?.promotionConclusion,
+          },
+          update: {
+            finalLevel,
+            dimensionResults: dimensionResults,
+            promotionResult: participant.managerReview?.promotionConclusion,
+          },
+        });
+        await tx.perfNotification.create({
+          data: {
+            receiverOpenId: participant.employeeOpenId,
+            channel: PerfNotificationChannel.BOT_DM,
+            template: 'result_pushed',
+            payload: {
+              cycleId,
+              participantId: participant.id,
+            },
+          },
+        });
+      });
+      await this.participantService.transition(
+        operatorOpenId,
+        participant.id,
+        PerfParticipantStatus.RESULT_PUSHED,
+      );
+      pushed += 1;
+    }
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'result.push',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: { pushed },
+    });
+    return { pushed };
+  }
+}

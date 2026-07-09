@@ -1,0 +1,9 @@
+packages:
+  - .
+allowBuilds:
+  sharp: true
+  styled-components: true
+  unrs-resolver: true
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver

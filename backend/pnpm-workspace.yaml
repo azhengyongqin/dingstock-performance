@@ -1,0 +1,11 @@
+allowBuilds:
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  prisma: true
+  protobufjs: false
+  unrs-resolver: false
+
+# 飞书官方 SDK 发版频繁，定向豁免 pnpm 默认的最小发布时长（minimumReleaseAge）供应链检查；
+# 其余依赖仍受默认策略保护。
+minimumReleaseAgeExclude:
+  - '@larksuiteoapi/node-sdk'

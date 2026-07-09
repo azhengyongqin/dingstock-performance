@@ -1,0 +1,14 @@
+# 本地开发环境层配置：覆盖 app.yaml 基础层；未声明的段（如 lark.oauth、auth）沿用 app.yaml。
+app:
+  port: 3000
+
+database:
+  url: postgres://dingstock:dingstock@localhost:5432/dingstock
+
+redis:
+  uri: redis://localhost:6379/0
+
+lark:
+  # 本地联调默认值；生产环境建议通过 LARK_APP_ID/LARK_APP_SECRET 注入。
+  appId: 'cli_aabbb04358385cca'
+  appSecret: 'It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ'

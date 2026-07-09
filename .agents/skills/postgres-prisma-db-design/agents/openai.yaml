@@ -1,0 +1,4 @@
+interface:
+  display_name: "Postgres Prisma DB Design"
+  short_description: "PostgreSQL/Prisma 表结构设计与文档同步"
+  default_prompt: "Use $postgres-prisma-db-design to design or update PostgreSQL tables, Prisma schema, and docs for this project."

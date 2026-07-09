@@ -1,0 +1,13 @@
+# 线上环境层配置：覆盖 app.yaml 基础层；密钥和连接串必须在部署平台通过环境变量注入。
+app:
+  port: 3000
+
+database:
+  url: postgres://postgres:postgres@localhost:5432/postgres
+
+redis:
+  uri: redis://localhost:6379/0
+
+lark:
+  appId: ''
+  appSecret: ''

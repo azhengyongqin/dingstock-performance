@@ -1,0 +1,604 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client';
+import {
+  PerfCycleStatus,
+  PerfNotificationChannel,
+  PerfParticipantStatus,
+} from '../generated/prisma/enums';
+import { PrismaService } from '../shared/database/prisma.service';
+import { AuditService } from '../audit/audit.service';
+import { assertCycleTransition } from './cycle-state';
+import type {
+  AdvanceCycleDto,
+  CreateCycleDto,
+  DimensionItemDto,
+  UpdateCycleDto,
+  UpsertDimensionsDto,
+  UpsertScoringRuleDto,
+} from './cycle.dto';
+
+/** 启动前检查项：返回给前端"启动前检查"步骤逐条展示 */
+export type StartCheckItem = { key: string; ok: boolean; message: string };
+
+@Injectable()
+export class CycleService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
+
+  // ---------------------------------------------------------------------
+  // 查询
+  // ---------------------------------------------------------------------
+
+  async listCycles(status?: PerfCycleStatus) {
+    const where: Prisma.PerfCycleWhereInput = {
+      deletedAt: null,
+      status: status || undefined,
+    };
+    const items = await this.prisma.perfCycle.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }],
+      include: { _count: { select: { participants: true, dimensions: true } } },
+    });
+    return { items, total: items.length };
+  }
+
+  async getCycle(id: number) {
+    const cycle = await this.prisma.perfCycle.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        scoringRule: true,
+        dimensions: {
+          where: { deletedAt: null },
+          orderBy: { sortOrder: 'asc' },
+        },
+        _count: { select: { participants: true } },
+      },
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+    return cycle;
+  }
+
+  /** 仅返回裸周期行（内部用） */
+  async requireCycle(id: number) {
+    const cycle = await this.prisma.perfCycle.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+    return cycle;
+  }
+
+  private assertEditable(status: PerfCycleStatus) {
+    if (
+      status !== PerfCycleStatus.DRAFT &&
+      status !== PerfCycleStatus.PENDING
+    ) {
+      throw new ConflictException('周期已启动，配置不可修改');
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 周期 CRUD
+  // ---------------------------------------------------------------------
+
+  async createCycle(operatorOpenId: string, dto: CreateCycleDto) {
+    const cycle = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.perfCycle.create({
+        data: {
+          name: dto.name,
+          type: dto.type,
+          startDate: new Date(dto.startDate),
+          endDate: new Date(dto.endDate),
+          ownerOpenId: dto.ownerOpenId ?? operatorOpenId,
+          templateId: dto.templateId,
+        },
+      });
+
+      // 选择了模板：复制评分规则 + 维度集为本周期快照（模板 + 创建时复制，改模板不影响已建周期）
+      if (dto.templateId) {
+        const template = await tx.perfTemplate.findFirst({
+          where: { id: dto.templateId, deletedAt: null },
+          include: { dimensions: true },
+        });
+        if (!template) throw new NotFoundException('配置模板不存在');
+
+        await tx.perfScoringRule.create({
+          data: {
+            cycleId: created.id,
+            levels: template.levels as Prisma.InputJsonValue,
+            distribution: template.distribution ?? undefined,
+            commentRequiredRules: template.commentRequiredRules ?? undefined,
+          },
+        });
+        if (template.dimensions.length > 0) {
+          await tx.perfDimension.createMany({
+            data: template.dimensions.map((dim) => ({
+              cycleId: created.id,
+              name: dim.name,
+              type: dim.type,
+              scoringMethod: dim.scoringMethod,
+              weight: dim.weight,
+              required: dim.required,
+              sortOrder: dim.sortOrder,
+              visibleRoles: dim.visibleRoles,
+              editableRoles: dim.editableRoles,
+              formSchema: dim.formSchema ?? undefined,
+              applicableScope: dim.applicableScope ?? undefined,
+              conclusionOptions: dim.conclusionOptions ?? undefined,
+              employeeVisible: dim.employeeVisible,
+            })),
+          });
+        }
+      }
+      return created;
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.create',
+      targetType: 'perf_cycle',
+      targetId: String(cycle.id),
+      after: cycle,
+    });
+    return this.getCycle(cycle.id);
+  }
+
+  async updateCycle(operatorOpenId: string, id: number, dto: UpdateCycleDto) {
+    const cycle = await this.requireCycle(id);
+    this.assertEditable(cycle.status);
+    const updated = await this.prisma.perfCycle.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        type: dto.type,
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        ownerOpenId: dto.ownerOpenId,
+      },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.update',
+      targetType: 'perf_cycle',
+      targetId: String(id),
+      before: cycle,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async deleteCycle(operatorOpenId: string, id: number) {
+    const cycle = await this.requireCycle(id);
+    if (cycle.status !== PerfCycleStatus.DRAFT) {
+      throw new ConflictException('仅草稿状态的周期允许删除');
+    }
+    await this.prisma.perfCycle.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.delete',
+      targetType: 'perf_cycle',
+      targetId: String(id),
+      before: cycle,
+    });
+    return { ok: true };
+  }
+
+  // ---------------------------------------------------------------------
+  // 配置子资源
+  // ---------------------------------------------------------------------
+
+  async upsertScoringRule(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: UpsertScoringRuleDto,
+  ) {
+    const cycle = await this.requireCycle(cycleId);
+    this.assertEditable(cycle.status);
+    const rule = await this.prisma.perfScoringRule.upsert({
+      where: { cycleId },
+      create: {
+        cycleId,
+        levels: dto.levels as unknown as Prisma.InputJsonValue,
+        distribution: dto.distribution as unknown as
+          Prisma.InputJsonValue | undefined,
+        commentRequiredRules: dto.commentRequiredRules as unknown as
+          Prisma.InputJsonValue | undefined,
+      },
+      update: {
+        levels: dto.levels as unknown as Prisma.InputJsonValue,
+        distribution: dto.distribution as unknown as
+          Prisma.InputJsonValue | undefined,
+        commentRequiredRules: dto.commentRequiredRules as unknown as
+          Prisma.InputJsonValue | undefined,
+      },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.scoring_rule.upsert',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: rule,
+    });
+    return rule;
+  }
+
+  /**
+   * 整体覆盖式维护维度列表：带 id 更新、不带 id 新增、缺席的软删除。
+   * 周期启动后禁止增删（已产生评估数据），仅允许 DRAFT/PENDING 修改。
+   */
+  async upsertDimensions(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: UpsertDimensionsDto,
+  ) {
+    const cycle = await this.requireCycle(cycleId);
+    this.assertEditable(cycle.status);
+
+    const existing = await this.prisma.perfDimension.findMany({
+      where: { cycleId, deletedAt: null },
+    });
+    const keptIds = new Set(
+      dto.items.filter((item) => item.id).map((item) => item.id!),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      // 缺席的软删除
+      const removed = existing.filter((dim) => !keptIds.has(dim.id));
+      if (removed.length > 0) {
+        await tx.perfDimension.updateMany({
+          where: { id: { in: removed.map((dim) => dim.id) } },
+          data: { deletedAt: new Date() },
+        });
+      }
+      for (const [index, item] of dto.items.entries()) {
+        const data = this.dimensionData(item, index);
+        if (item.id) {
+          if (!existing.some((dim) => dim.id === item.id)) {
+            throw new BadRequestException(`维度 #${item.id} 不属于本周期`);
+          }
+          await tx.perfDimension.update({ where: { id: item.id }, data });
+        } else {
+          await tx.perfDimension.create({ data: { ...data, cycleId } });
+        }
+      }
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.dimensions.upsert',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: { count: dto.items.length },
+    });
+    return this.getCycle(cycleId);
+  }
+
+  private dimensionData(item: DimensionItemDto, index: number) {
+    return {
+      name: item.name,
+      type: item.type,
+      scoringMethod: item.scoringMethod,
+      weight: item.weight,
+      required: item.required ?? true,
+      sortOrder: item.sortOrder ?? index,
+      visibleRoles: item.visibleRoles ?? [],
+      editableRoles: item.editableRoles ?? [],
+      formSchema: item.formSchema as Prisma.InputJsonValue | undefined,
+      applicableScope: item.applicableScope as
+        Prisma.InputJsonValue | undefined,
+      conclusionOptions: item.conclusionOptions as unknown as
+        Prisma.InputJsonValue | undefined,
+      employeeVisible: item.employeeVisible,
+    };
+  }
+
+  async updateWindows(
+    operatorOpenId: string,
+    cycleId: number,
+    windows: Record<string, unknown>,
+  ) {
+    await this.requireCycle(cycleId);
+    // 窗口允许启动后调整（延长窗口是产品定义的异常处理手段，产品 §5.8），必须写审计
+    const updated = await this.prisma.perfCycle.update({
+      where: { id: cycleId },
+      data: { windows: windows as Prisma.InputJsonValue },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.windows.update',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: windows,
+    });
+    return updated;
+  }
+
+  async updateNotificationRules(
+    operatorOpenId: string,
+    cycleId: number,
+    rules: Record<string, unknown>,
+  ) {
+    await this.requireCycle(cycleId);
+    const updated = await this.prisma.perfCycle.update({
+      where: { id: cycleId },
+      data: { notificationRules: rules as Prisma.InputJsonValue },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.notification_rules.update',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: rules,
+    });
+    return updated;
+  }
+
+  // ---------------------------------------------------------------------
+  // 启动校验 + 启动/流转/归档
+  // ---------------------------------------------------------------------
+
+  /** 启动前完整性校验（产品 §5.2）；返回检查项列表供前端展示 */
+  async startCheck(
+    cycleId: number,
+  ): Promise<{ items: StartCheckItem[]; ok: boolean }> {
+    const cycle = await this.prisma.perfCycle.findFirst({
+      where: { id: cycleId, deletedAt: null },
+      include: {
+        scoringRule: true,
+        dimensions: { where: { deletedAt: null } },
+        _count: { select: { participants: true } },
+      },
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+
+    const items: StartCheckItem[] = [];
+
+    items.push({
+      key: 'participants',
+      ok: cycle._count.participants > 0,
+      message:
+        cycle._count.participants > 0
+          ? `已圈定 ${cycle._count.participants} 名考核人员`
+          : '尚未添加考核人员',
+    });
+
+    items.push({
+      key: 'scoring_rule',
+      ok: Boolean(cycle.scoringRule),
+      message: cycle.scoringRule ? '评分规则已配置' : '评分规则未配置',
+    });
+
+    items.push({
+      key: 'dimensions',
+      ok: cycle.dimensions.length > 0,
+      message:
+        cycle.dimensions.length > 0
+          ? `已配置 ${cycle.dimensions.length} 个评估维度`
+          : '尚未配置评估维度',
+    });
+
+    // 权重校验：按 applicable_scope 分组，各组（组内 + 全员维度）合计 = 100
+    const weighted = cycle.dimensions.filter((dim) => dim.weight !== null);
+    if (weighted.length > 0) {
+      const scopeKeys = new Set(
+        weighted.map((dim) =>
+          dim.applicableScope ? JSON.stringify(dim.applicableScope) : '__ALL__',
+        ),
+      );
+      const globalSum = weighted
+        .filter((dim) => !dim.applicableScope)
+        .reduce((sum, dim) => sum + Number(dim.weight), 0);
+      const failures: string[] = [];
+      if (scopeKeys.size === 1 && scopeKeys.has('__ALL__')) {
+        if (Math.abs(globalSum - 100) > 0.001)
+          failures.push(`全员维度权重合计 ${globalSum}`);
+      } else {
+        for (const key of scopeKeys) {
+          if (key === '__ALL__') continue;
+          const groupSum = weighted
+            .filter(
+              (dim) =>
+                dim.applicableScope &&
+                JSON.stringify(dim.applicableScope) === key,
+            )
+            .reduce((sum, dim) => sum + Number(dim.weight), 0);
+          const total = groupSum + globalSum;
+          if (Math.abs(total - 100) > 0.001)
+            failures.push(`分组 ${key} 权重合计 ${total}`);
+        }
+      }
+      items.push({
+        key: 'weights',
+        ok: failures.length === 0,
+        message:
+          failures.length === 0
+            ? '维度权重校验通过（各适用分组合计 = 100）'
+            : failures.join('；'),
+      });
+    } else {
+      items.push({
+        key: 'weights',
+        ok: false,
+        message: '没有任何带权重的维度',
+      });
+    }
+
+    const windows = (cycle.windows ?? {}) as Record<string, unknown>;
+    const requiredWindows = ['selfReview', 'review'];
+    const missingWindows = requiredWindows.filter((key) => !windows[key]);
+    items.push({
+      key: 'windows',
+      ok: missingWindows.length === 0,
+      message:
+        missingWindows.length === 0
+          ? '时间窗口已配置'
+          : `缺少时间窗口配置：${missingWindows.join('、')}`,
+    });
+
+    return { items, ok: items.every((item) => item.ok) };
+  }
+
+  /**
+   * 启动周期：校验通过后写入参与者快照（部门/职级/Leader），
+   * 参与者置 PENDING_SELF_REVIEW，周期直达 SELF_REVIEW，并生成启动通知记录。
+   */
+  async startCycle(operatorOpenId: string, cycleId: number) {
+    const cycle = await this.requireCycle(cycleId);
+    // 启动 = DRAFT/PENDING → SELF_REVIEW（两跳合并为一个动作）
+    if (
+      cycle.status !== PerfCycleStatus.DRAFT &&
+      cycle.status !== PerfCycleStatus.PENDING
+    ) {
+      throw new ConflictException(`周期状态 ${cycle.status} 不允许启动`);
+    }
+    const check = await this.startCheck(cycleId);
+    if (!check.ok) {
+      throw new BadRequestException(
+        `启动前检查未通过：${check.items
+          .filter((i) => !i.ok)
+          .map((i) => i.message)
+          .join('；')}`,
+      );
+    }
+
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: { cycleId },
+    });
+    const openIds = participants.map((p) => p.employeeOpenId);
+    const [users, corehrs] = await Promise.all([
+      this.prisma.larkUser.findMany({
+        where: { open_id: { in: openIds } },
+        select: { open_id: true, leader_user_id: true, department_ids: true },
+      }),
+      this.prisma.larkCorehrEmployee.findMany({
+        where: { open_id: { in: openIds } },
+        select: {
+          open_id: true,
+          direct_manager_id: true,
+          department_id: true,
+          job_level: true,
+        },
+      }),
+    ]);
+    const userMap = new Map(users.map((u) => [u.open_id, u]));
+    const corehrMap = new Map(corehrs.map((c) => [c.open_id, c]));
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const participant of participants) {
+        const user = userMap.get(participant.employeeOpenId);
+        const corehr = corehrMap.get(participant.employeeOpenId);
+        // 快照优先级：CoreHR（人事口径）> 通讯录
+        await tx.perfParticipant.update({
+          where: { id: participant.id },
+          data: {
+            leaderOpenIdSnapshot:
+              corehr?.direct_manager_id ??
+              user?.leader_user_id ??
+              participant.leaderOpenIdSnapshot,
+            departmentIdSnapshot:
+              corehr?.department_id ??
+              user?.department_ids?.[0] ??
+              participant.departmentIdSnapshot,
+            jobLevelSnapshot: corehr?.job_level ?? undefined,
+            status: PerfParticipantStatus.PENDING_SELF_REVIEW,
+          },
+        });
+      }
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { status: PerfCycleStatus.SELF_REVIEW },
+      });
+      // 评审启动通知：先落库 PENDING，由通知调度器异步发送（研发文档 §8.5）
+      if (participants.length > 0) {
+        await tx.perfNotification.createMany({
+          data: participants.map((participant) => ({
+            receiverOpenId: participant.employeeOpenId,
+            channel: PerfNotificationChannel.BOT_DM,
+            template: 'cycle_start',
+            payload: {
+              cycleId,
+              cycleName: cycle.name,
+            },
+          })),
+        });
+      }
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.start',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      before: { status: cycle.status },
+      after: {
+        status: PerfCycleStatus.SELF_REVIEW,
+        participantCount: participants.length,
+      },
+    });
+    return this.getCycle(cycleId);
+  }
+
+  /** HR 手动推进周期阶段（配合时间窗口调度）；合法性由状态机映射表校验 */
+  async advanceCycle(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: AdvanceCycleDto,
+  ) {
+    const cycle = await this.requireCycle(cycleId);
+    assertCycleTransition(cycle.status, dto.to);
+    const updated = await this.prisma.perfCycle.update({
+      where: { id: cycleId },
+      data: { status: dto.to },
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.advance',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      before: { status: cycle.status },
+      after: { status: dto.to },
+      reason: dto.reason,
+    });
+    return updated;
+  }
+
+  /** 归档周期：参与者全部置 ARCHIVED，结果表落 archived_at（此后结果不可变） */
+  async closeCycle(operatorOpenId: string, cycleId: number) {
+    const cycle = await this.requireCycle(cycleId);
+    assertCycleTransition(cycle.status, PerfCycleStatus.ARCHIVED);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { status: PerfCycleStatus.ARCHIVED },
+      });
+      await tx.perfParticipant.updateMany({
+        where: { cycleId },
+        data: { status: PerfParticipantStatus.ARCHIVED },
+      });
+      await tx.perfResult.updateMany({
+        where: { participant: { cycleId }, archivedAt: null },
+        data: { archivedAt: new Date() },
+      });
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.close',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      before: { status: cycle.status },
+      after: { status: PerfCycleStatus.ARCHIVED },
+    });
+    return this.getCycle(cycleId);
+  }
+}
