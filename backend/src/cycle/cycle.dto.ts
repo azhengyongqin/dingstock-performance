@@ -155,6 +155,12 @@ export class UpdateCycleDto {
   ownerOpenId?: string;
 }
 
+export class ApplyTemplateDto {
+  /** 要重新套用的配置模板；会整体覆盖评分规则与评估维度 */
+  @IsInt()
+  templateId!: number;
+}
+
 export class UpsertWindowsDto {
   /** { selfReview/review/calibration/confirm/appeal: { startAt, endAt, remindAt[] } } */
   @IsObject()

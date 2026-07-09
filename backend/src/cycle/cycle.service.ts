@@ -13,8 +13,10 @@ import {
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { assertCycleTransition } from './cycle-state';
+import { getCycleCreationUnavailableReasons } from './template-usability';
 import type {
   AdvanceCycleDto,
+  ApplyTemplateDto,
   CreateCycleDto,
   DimensionItemDto,
   UpdateCycleDto,
@@ -58,6 +60,7 @@ export class CycleService {
           where: { deletedAt: null },
           orderBy: { sortOrder: 'asc' },
         },
+        template: { select: { id: true, name: true } },
         _count: { select: { participants: true } },
       },
     });
@@ -89,6 +92,24 @@ export class CycleService {
 
   async createCycle(operatorOpenId: string, dto: CreateCycleDto) {
     const cycle = await this.prisma.$transaction(async (tx) => {
+      const template = dto.templateId
+        ? await tx.perfTemplate.findFirst({
+            where: { id: dto.templateId, deletedAt: null },
+            include: { dimensions: true },
+          })
+        : null;
+      if (dto.templateId && !template) {
+        throw new NotFoundException('配置模板不存在');
+      }
+      if (template) {
+        const unavailableReasons = getCycleCreationUnavailableReasons(template);
+        if (unavailableReasons.length > 0) {
+          throw new BadRequestException(
+            `配置模板不可用于创建周期：${unavailableReasons.join('；')}`,
+          );
+        }
+      }
+
       const created = await tx.perfCycle.create({
         data: {
           name: dto.name,
@@ -101,13 +122,7 @@ export class CycleService {
       });
 
       // 选择了模板：复制评分规则 + 维度集为本周期快照（模板 + 创建时复制，改模板不影响已建周期）
-      if (dto.templateId) {
-        const template = await tx.perfTemplate.findFirst({
-          where: { id: dto.templateId, deletedAt: null },
-          include: { dimensions: true },
-        });
-        if (!template) throw new NotFoundException('配置模板不存在');
-
+      if (template) {
         await tx.perfScoringRule.create({
           data: {
             cycleId: created.id,
@@ -299,6 +314,87 @@ export class CycleService {
         Prisma.InputJsonValue | undefined,
       employeeVisible: item.employeeVisible,
     };
+  }
+
+  async applyTemplate(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: ApplyTemplateDto,
+  ) {
+    const cycle = await this.requireCycle(cycleId);
+    this.assertEditable(cycle.status);
+
+    const template = await this.prisma.$transaction(async (tx) => {
+      const found = await tx.perfTemplate.findFirst({
+        where: { id: dto.templateId, deletedAt: null },
+        include: { dimensions: true },
+      });
+      if (!found) throw new NotFoundException('配置模板不存在');
+
+      const unavailableReasons = getCycleCreationUnavailableReasons(found);
+      if (unavailableReasons.length > 0) {
+        throw new BadRequestException(
+          `配置模板不可用于创建周期：${unavailableReasons.join('；')}`,
+        );
+      }
+
+      await tx.perfScoringRule.upsert({
+        where: { cycleId },
+        create: {
+          cycleId,
+          levels: found.levels as Prisma.InputJsonValue,
+          distribution: found.distribution ?? undefined,
+          commentRequiredRules: found.commentRequiredRules ?? undefined,
+        },
+        update: {
+          levels: found.levels as Prisma.InputJsonValue,
+          distribution: found.distribution ?? undefined,
+          commentRequiredRules: found.commentRequiredRules ?? undefined,
+        },
+      });
+      // 重新套用模板是整套覆盖动作：旧维度软删，新维度按模板重新复制。
+      await tx.perfDimension.updateMany({
+        where: { cycleId, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+      await tx.perfDimension.createMany({
+        data: found.dimensions.map((dim) => ({
+          cycleId,
+          name: dim.name,
+          type: dim.type,
+          scoringMethod: dim.scoringMethod,
+          weight: dim.weight,
+          required: dim.required,
+          sortOrder: dim.sortOrder,
+          visibleRoles: dim.visibleRoles,
+          editableRoles: dim.editableRoles,
+          formSchema: dim.formSchema ?? undefined,
+          applicableScope: dim.applicableScope ?? undefined,
+          conclusionOptions: dim.conclusionOptions ?? undefined,
+          employeeVisible: dim.employeeVisible,
+        })),
+      });
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { templateId: found.id },
+      });
+
+      return found;
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.template.apply',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      before: { templateId: cycle.templateId },
+      after: {
+        templateId: template.id,
+        coverage: ['scoring_rule', 'dimensions'],
+        dimensions: template.dimensions.length,
+      },
+    });
+    return this.getCycle(cycleId);
   }
 
   async updateWindows(

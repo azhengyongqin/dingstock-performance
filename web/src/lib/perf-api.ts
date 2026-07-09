@@ -150,6 +150,7 @@ export type PerfCycle = {
   endDate: string
   ownerOpenId: string
   templateId?: number | null
+  template?: { id: number; name: string } | null
   windows?: Record<string, { startAt?: string; endAt?: string }> | null
   notificationRules?: Record<string, unknown> | null
   scoringRule?: PerfScoringRule | null
@@ -201,6 +202,8 @@ export type PerfTemplate = {
   name: string
   description?: string | null
   isDefault: boolean
+  canCreateCycle?: boolean
+  unavailableReasons?: string[]
   levels: ScoringLevel[]
   distribution?: Record<string, unknown>[] | null
   dimensions?: PerfDimensionTemplateItem[]

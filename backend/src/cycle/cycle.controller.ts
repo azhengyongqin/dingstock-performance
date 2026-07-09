@@ -25,6 +25,7 @@ import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
   AdvanceCycleDto,
+  ApplyTemplateDto,
   CreateCycleDto,
   UpdateCycleDto,
   UpsertDimensionsDto,
@@ -101,6 +102,18 @@ export class CycleController {
     @Body() dto: UpsertDimensionsDto,
   ) {
     return this.cycleService.upsertDimensions(req.user.open_id, id, dto);
+  }
+
+  @Post(':id/apply-template')
+  @ApiOperation({
+    summary: '启动前重新套用模板：整体覆盖评分规则与评估维度',
+  })
+  applyTemplate(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ApplyTemplateDto,
+  ) {
+    return this.cycleService.applyTemplate(req.user.open_id, id, dto);
   }
 
   @Put(':id/windows')

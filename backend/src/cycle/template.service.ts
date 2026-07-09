@@ -7,6 +7,7 @@ import type {
   UpdateTemplateDto,
   UpsertDimensionsDto,
 } from './cycle.dto';
+import { getCycleCreationUnavailableReasons } from './template-usability';
 
 /**
  * 绩效配置模板：评分规则 + 维度集的跨周期复用母本。
@@ -23,9 +24,22 @@ export class TemplateService {
     const items = await this.prisma.perfTemplate.findMany({
       where: { deletedAt: null },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
-      include: { _count: { select: { dimensions: true, cycles: true } } },
+      include: {
+        dimensions: { orderBy: { sortOrder: 'asc' } },
+        _count: { select: { dimensions: true, cycles: true } },
+      },
     });
-    return { items, total: items.length };
+    return {
+      items: items.map((template) => {
+        const unavailableReasons = getCycleCreationUnavailableReasons(template);
+        return {
+          ...template,
+          canCreateCycle: unavailableReasons.length === 0,
+          unavailableReasons,
+        };
+      }),
+      total: items.length,
+    };
   }
 
   async getTemplate(id: number) {

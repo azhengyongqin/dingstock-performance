@@ -34,12 +34,7 @@ import { ApiError, apiFetch } from '@/lib/api'
 import type { ListResponse, PerfCycle, PerfParticipantItem, StartCheckItem } from '@/lib/perf-api'
 import { CYCLE_STATUS_BADGE, CYCLE_STATUS_LABEL, CYCLE_TYPE_LABEL, formatDate } from '@/lib/perf-api'
 
-import {
-  WINDOW_STAGE_LABEL,
-  dimensionColumns,
-  participantColumns,
-  stageWindowColumns
-} from './cycle-detail-columns'
+import { WINDOW_STAGE_LABEL, dimensionColumns, participantColumns, stageWindowColumns } from './cycle-detail-columns'
 import type { StageWindowRow } from './cycle-detail-columns'
 
 /** 基础 Data Table（basic 变体）：只做 useReactTable 渲染，无分页/筛选 */
@@ -258,7 +253,18 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
 
         {/* 概览 */}
         <TabsContent value='overview' className='mt-4'>
-          <StatsCards items={overviewStats} />
+          <div className='flex flex-col gap-4'>
+            <StatsCards items={overviewStats} />
+            <Card>
+              <CardHeader>
+                <CardTitle>来源模板</CardTitle>
+                <CardDescription>
+                  {cycle.template?.name ?? '未记录来源模板'} ·
+                  创建时或最近套用时复制；当前评分规则与评估维度是周期配置快照，可能已被手动修改。
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* 考核人员：列显隐 + 分页 */}
@@ -279,14 +285,10 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
           <Card>
             <CardHeader>
               <CardTitle>评估维度与权重</CardTitle>
-              <CardDescription>各维度得分按权重加权得出综合评分；按适用分组分别合计 100%</CardDescription>
+              <CardDescription>维度权重仅用于展示重要性；按适用分组分别合计 100%</CardDescription>
             </CardHeader>
             <CardContent>
-              <BasicDataTable
-                data={cycle.dimensions ?? []}
-                columns={dimensionColumns}
-                emptyText='尚未配置评估维度'
-              />
+              <BasicDataTable data={cycle.dimensions ?? []} columns={dimensionColumns} emptyText='尚未配置评估维度' />
             </CardContent>
           </Card>
         </TabsContent>
