@@ -11,3 +11,8 @@ redis:
 lark:
   appId: ''
   appSecret: ''
+
+auth:
+  # 生产环境显式关闭开发快速登录（双保险，防止误开）。
+  devLogin:
+    enabled: false

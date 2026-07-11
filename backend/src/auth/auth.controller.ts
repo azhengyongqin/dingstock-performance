@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -7,6 +7,7 @@ import {
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
+import { DevLoginDto } from './dto/dev-login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import type { AuthenticatedRequest } from './jwt-auth.guard';
 
@@ -62,5 +63,23 @@ export class AuthController {
   @ApiOperation({ summary: '获取当前登录用户（校验会话 JWT）' })
   getProfile(@Req() req: AuthenticatedRequest) {
     return req.user;
+  }
+
+  // ---- 开发环境快速登录（免鉴权，dev 开关关闭时统一 404；生产必须关闭） ----
+
+  @Get('dev/users')
+  @ApiOperation({
+    summary: '【仅开发】列出可快速登录的员工及角色标记（选人用）',
+  })
+  listDevUsers() {
+    return this.authService.listDevUsers();
+  }
+
+  @Post('dev/login')
+  @ApiOperation({
+    summary: '【仅开发】按 open_id 直接登录（免飞书 OAuth），返回会话 token',
+  })
+  devLogin(@Body() body: DevLoginDto) {
+    return this.authService.devLogin(body.open_id);
   }
 }

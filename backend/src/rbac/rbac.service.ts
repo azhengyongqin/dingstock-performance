@@ -57,6 +57,12 @@ export class RbacService {
     return required.some((role) => roles.includes(role));
   }
 
+  /** 是否为 ADMIN（含租户超管兜底）；管理员可编辑进行中周期的每个步骤 */
+  async isAdmin(openId: string): Promise<boolean> {
+    const roles = await this.getExplicitRoles(openId);
+    return roles.includes(PerfRole.ADMIN);
+  }
+
   /**
    * HR 的组织范围（授权部门子树展开后的部门 id 集合）。
    * 返回 null 表示不受限（ADMIN 或 org_scope 为空的全局授权）。

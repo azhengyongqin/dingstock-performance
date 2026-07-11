@@ -7,10 +7,11 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ArrayNotEmpty, IsArray, IsBoolean, IsString } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -99,16 +100,21 @@ export class ParticipantController {
   }
 
   @Delete(':participantId')
-  @ApiOperation({ summary: '移除考核人员（启动前）' })
+  @ApiOperation({
+    summary: '移除考核人员（启动前；ADMIN 进行中移除需 confirm=true 二次确认）',
+  })
+  @ApiQuery({ name: 'confirm', required: false, type: Boolean })
   remove(
     @Req() req: AuthenticatedRequest,
     @Param('cycleId', ParseIntPipe) cycleId: number,
     @Param('participantId', ParseIntPipe) participantId: number,
+    @Query('confirm') confirm?: string,
   ) {
     return this.participantService.remove(
       req.user.open_id,
       cycleId,
       participantId,
+      confirm === 'true',
     );
   }
 }

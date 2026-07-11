@@ -10,6 +10,7 @@ import { LoaderCircleIcon } from 'lucide-react'
 import Logo from '@/components/shared/Logo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import DevQuickLogin from './dev-quick-login'
 
 // SVG Imports
 import AuthBackgroundShape from '@/assets/svg/auth-background-shape'
@@ -71,6 +72,9 @@ const Login = () => {
           </Button>
 
           {error && <p className='text-destructive text-sm'>{error}</p>}
+
+          {/* 开发环境快速登录：生产构建下该分支不生效 */}
+          {process.env.NODE_ENV !== 'production' && <DevQuickLogin />}
 
           <p className='text-muted-foreground text-center text-sm'>登录即表示同意公司绩效管理相关制度与数据使用规范</p>
         </CardContent>

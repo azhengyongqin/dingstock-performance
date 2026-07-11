@@ -12,6 +12,7 @@ import {
 } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RbacService } from '../rbac/rbac.service';
 import { assertCycleTransition } from './cycle-state';
 import { normalizeEvaluationRule } from './evaluation-rule';
 import { getCycleCreationUnavailableReasons } from './template-usability';
@@ -33,6 +34,7 @@ export class CycleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly rbacService: RbacService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -78,13 +80,108 @@ export class CycleService {
     return cycle;
   }
 
-  private assertEditable(status: PerfCycleStatus) {
+  /**
+   * 配置可编辑校验（角色感知）：
+   * - ADMIN：除已归档外的任何状态都可编辑进行中周期的每个步骤；
+   * - 其余（HR）：仅 DRAFT/PENDING 可编辑（保持原限制）。
+   */
+  private async assertEditable(
+    status: PerfCycleStatus,
+    operatorOpenId: string,
+  ) {
+    if (await this.rbacService.isAdmin(operatorOpenId)) {
+      if (status === PerfCycleStatus.ARCHIVED) {
+        throw new ConflictException('周期已归档，配置不可修改');
+      }
+      return;
+    }
     if (
       status !== PerfCycleStatus.DRAFT &&
       status !== PerfCycleStatus.PENDING
     ) {
       throw new ConflictException('周期已启动，配置不可修改');
     }
+  }
+
+  /** 进行中（可能已产生评估数据）：非 DRAFT/PENDING/ARCHIVED */
+  private isInProgress(status: PerfCycleStatus) {
+    return (
+      status !== PerfCycleStatus.DRAFT &&
+      status !== PerfCycleStatus.PENDING &&
+      status !== PerfCycleStatus.ARCHIVED
+    );
+  }
+
+  /**
+   * 周期级「已产生评估数据」统计（用于破坏性修改二次确认的 impact）。
+   * 维度与评分是 JSON 逻辑引用、无外键，故按周期整体计数，宁可多提示。
+   */
+  private async collectDataImpact(cycleId: number) {
+    const [selfReviews, reviews, managerReviews, calibrations, results] =
+      await Promise.all([
+        this.prisma.perfSelfReview.count({ where: { participant: { cycleId } } }),
+        this.prisma.perfReview.count({ where: { participant: { cycleId } } }),
+        this.prisma.perfManagerReview.count({
+          where: { participant: { cycleId } },
+        }),
+        this.prisma.perfCalibration.count({
+          where: { participant: { cycleId } },
+        }),
+        this.prisma.perfResult.count({ where: { participant: { cycleId } } }),
+      ]);
+    return { selfReviews, reviews, managerReviews, calibrations, results };
+  }
+
+  /**
+   * 破坏性修改二次确认：进行中周期、已产生数据、且未确认时，抛结构化 409
+   * （code=DESTRUCTIVE_EDIT_REQUIRES_CONFIRM + impact），前端确认后带 confirm 重放。
+   */
+  private async assertDestructiveConfirmed(
+    cycleId: number,
+    changes: string[],
+    confirm: boolean | undefined,
+  ) {
+    if (changes.length === 0 || confirm) return;
+    const affectedData = await this.collectDataImpact(cycleId);
+    // 尚无任何已产生数据：删除/改权重不会伤害历史，直接放行
+    if (!Object.values(affectedData).some((count) => count > 0)) return;
+    throw new ConflictException({
+      code: 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM',
+      message: '该修改会影响已产生的评估数据，请确认后继续',
+      impact: { changes, affectedData },
+    });
+  }
+
+  /** 比对维度变更，识别破坏性项（删除、改权重/计分方式/类型） */
+  private detectDimensionDestructiveChanges(
+    existing: { id: number; name: string; weight: unknown; scoringMethod: string; type: string }[],
+    items: DimensionItemDto[],
+    keptIds: Set<number>,
+  ): string[] {
+    const changes: string[] = [];
+    for (const dim of existing) {
+      if (!keptIds.has(dim.id)) changes.push(`删除维度「${dim.name}」`);
+    }
+    const byId = new Map(existing.map((dim) => [dim.id, dim]));
+    for (const item of items) {
+      if (!item.id) continue;
+      const prev = byId.get(item.id);
+      if (!prev) continue;
+      const prevWeight = prev.weight == null ? null : Number(prev.weight);
+      const nextWeight = item.weight == null ? null : Number(item.weight);
+      if (prevWeight !== nextWeight) {
+        changes.push(
+          `调整维度「${prev.name}」权重 ${prevWeight ?? '空'}→${nextWeight ?? '空'}`,
+        );
+      }
+      if (prev.scoringMethod !== item.scoringMethod) {
+        changes.push(`调整维度「${prev.name}」计分方式`);
+      }
+      if (prev.type !== item.type) {
+        changes.push(`调整维度「${prev.name}」类型`);
+      }
+    }
+    return changes;
   }
 
   // ---------------------------------------------------------------------
@@ -166,7 +263,7 @@ export class CycleService {
 
   async updateCycle(operatorOpenId: string, id: number, dto: UpdateCycleDto) {
     const cycle = await this.requireCycle(id);
-    this.assertEditable(cycle.status);
+    await this.assertEditable(cycle.status, operatorOpenId);
     const updated = await this.prisma.perfCycle.update({
       where: { id },
       data: {
@@ -184,6 +281,7 @@ export class CycleService {
       targetId: String(id),
       before: cycle,
       after: updated,
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return updated;
   }
@@ -217,8 +315,23 @@ export class CycleService {
     dto: UpsertEvaluationRuleDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertEditable(cycle.status);
+    await this.assertEditable(cycle.status, operatorOpenId);
     const evaluationRule = normalizeEvaluationRule(dto);
+    // 进行中改评级区间会使已提交评分/初评评级口径失效 → 破坏性，需确认
+    if (this.isInProgress(cycle.status)) {
+      const current = await this.prisma.perfEvaluationRule.findUnique({
+        where: { cycleId },
+      });
+      const changed =
+        !!current &&
+        JSON.stringify(current.levels) !==
+          JSON.stringify(evaluationRule.levels);
+      await this.assertDestructiveConfirmed(
+        cycleId,
+        changed ? ['修改评级区间定义'] : [],
+        dto.confirm,
+      );
+    }
     const rule = await this.prisma.perfEvaluationRule.upsert({
       where: { cycleId },
       create: {
@@ -237,6 +350,7 @@ export class CycleService {
       targetType: 'perf_cycle',
       targetId: String(cycleId),
       after: rule,
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return rule;
   }
@@ -251,7 +365,7 @@ export class CycleService {
     dto: UpsertDimensionsDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertEditable(cycle.status);
+    await this.assertEditable(cycle.status, operatorOpenId);
 
     const existing = await this.prisma.perfDimension.findMany({
       where: { cycleId, deletedAt: null },
@@ -259,6 +373,15 @@ export class CycleService {
     const keptIds = new Set(
       dto.items.filter((item) => item.id).map((item) => item.id!),
     );
+
+    // 进行中删除维度或改权重/计分方式/类型 → 破坏性，需确认
+    if (this.isInProgress(cycle.status)) {
+      await this.assertDestructiveConfirmed(
+        cycleId,
+        this.detectDimensionDestructiveChanges(existing, dto.items, keptIds),
+        dto.confirm,
+      );
+    }
 
     await this.prisma.$transaction(async (tx) => {
       // 缺席的软删除
@@ -288,6 +411,7 @@ export class CycleService {
       targetType: 'perf_cycle',
       targetId: String(cycleId),
       after: { count: dto.items.length },
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return this.getCycle(cycleId);
   }
@@ -317,7 +441,15 @@ export class CycleService {
     dto: ApplyTemplateDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertEditable(cycle.status);
+    await this.assertEditable(cycle.status, operatorOpenId);
+    // 重新套用模板整体覆盖评估规则与评估维度，进行中必然破坏性
+    if (this.isInProgress(cycle.status)) {
+      await this.assertDestructiveConfirmed(
+        cycleId,
+        ['重新套用模板将整体覆盖评估规则与评估维度'],
+        dto.confirm,
+      );
+    }
 
     const template = await this.prisma.$transaction(async (tx) => {
       const found = await tx.perfTemplate.findFirst({
@@ -386,6 +518,7 @@ export class CycleService {
         coverage: ['evaluation_rule', 'dimensions'],
         dimensions: template.dimensions.length,
       },
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return this.getCycle(cycleId);
   }

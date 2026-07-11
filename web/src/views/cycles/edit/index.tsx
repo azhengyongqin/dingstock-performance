@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 
 // Third-party Imports
 import {
+  AlertTriangleIcon,
   CheckCircle2Icon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -48,6 +49,9 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+
+// Context Imports
+import { useAuth } from '@/contexts/authContext'
 
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
@@ -134,8 +138,32 @@ const CYCLE_TYPES = [
  * 创建/编辑周期：6 步分步表单，逐步提交后端。
  * 新建时第 1 步创建周期（可选模板复制），随后各步骤 PUT 各子资源。
  */
+/** 破坏性修改二次确认：后端结构化 409 的 impact 载荷 */
+type DestructiveImpact = { changes: string[]; affectedData: Record<string, number> }
+
+/** impact.affectedData 字段中文标签（用于弹窗展示受影响数据量） */
+const IMPACT_LABELS: Record<string, string> = {
+  selfReviews: '员工自评',
+  reviews: '360° 评估',
+  managerReviews: '上级评估',
+  calibrations: '校准记录',
+  results: '绩效结果'
+}
+
+/** 从 ApiError 中识别「破坏性修改需二次确认」的结构化 409，返回 impact 或 null */
+const asDestructiveImpact = (err: unknown): DestructiveImpact | null => {
+  if (!(err instanceof ApiError) || err.status !== 409) return null
+  const body = err.body as { code?: string; impact?: DestructiveImpact } | undefined
+
+  if (body?.code === 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM' && body.impact) return body.impact
+
+  return null
+}
+
 const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const router = useRouter()
+  const { roles } = useAuth()
+  const isAdmin = roles.includes('ADMIN')
   const isNew = cycleId === 'new'
 
   const [currentStep, setCurrentStep] = useState(0)
@@ -179,7 +207,17 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const [checkItems, setCheckItems] = useState<StartCheckItem[]>([])
   const [checkOk, setCheckOk] = useState(false)
 
-  const editable = cycleStatus === 'DRAFT' || cycleStatus === 'PENDING'
+  // 破坏性修改二次确认弹窗：impact + 确认后重放的执行函数
+  const [confirmState, setConfirmState] = useState<{ impact: DestructiveImpact; retry: () => Promise<void> } | null>(
+    null
+  )
+
+  // ADMIN 除已归档外可编辑进行中周期的每个步骤；HR 仍仅 DRAFT/PENDING 可编辑
+  const editable = isAdmin ? cycleStatus !== 'ARCHIVED' : cycleStatus === 'DRAFT' || cycleStatus === 'PENDING'
+
+  // ADMIN 正在编辑「进行中」周期（非草稿/待启动/已归档）：需破坏性确认并留审计
+  const inProgressAdminEdit =
+    isAdmin && cycleStatus !== 'DRAFT' && cycleStatus !== 'PENDING' && cycleStatus !== 'ARCHIVED'
 
   const markConfigDirty = () => setConfigDirty(true)
 
@@ -316,8 +354,8 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  /** 第 3 步：整体提交维度 */
-  const saveDimensions = async (): Promise<boolean> => {
+  /** 第 3 步：整体提交维度（confirm=true 表示已通过破坏性二次确认） */
+  const saveDimensions = async (confirm = false): Promise<boolean> => {
     if (!realCycleId) return false
     setSaving(true)
 
@@ -335,7 +373,8 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
             editableRoles: dim.editableRoles,
             visibleRoles: dim.editableRoles,
             applicableScope: dim.jobCategory ? { jobCategory: dim.jobCategory } : undefined
-          }))
+          })),
+          confirm
         })
       })
       toast.success('评估维度已保存')
@@ -343,6 +382,19 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
 
       return true
     } catch (err) {
+      const impact = asDestructiveImpact(err)
+
+      if (impact) {
+        setConfirmState({
+          impact,
+          retry: async () => {
+            await saveDimensions(true)
+          }
+        })
+
+        return false
+      }
+
       toast.error(err instanceof ApiError ? err.message : '保存维度失败')
 
       return false
@@ -351,8 +403,8 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  /** 第 4 步：评估规则 */
-  const saveEvaluationRule = async (): Promise<boolean> => {
+  /** 第 4 步：评估规则（confirm=true 表示已通过破坏性二次确认） */
+  const saveEvaluationRule = async (confirm = false): Promise<boolean> => {
     if (!realCycleId) return false
 
     const evaluationRuleError = validateEvaluationRuleDraft(evaluationRule)
@@ -368,12 +420,25 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     try {
       await apiFetch(`/cycles/${realCycleId}/evaluation-rule`, {
         method: 'PUT',
-        body: JSON.stringify(normalizeEvaluationRuleDraft(evaluationRule))
+        body: JSON.stringify({ ...normalizeEvaluationRuleDraft(evaluationRule), confirm })
       })
       toast.success('评估规则已保存')
 
       return true
     } catch (err) {
+      const impact = asDestructiveImpact(err)
+
+      if (impact) {
+        setConfirmState({
+          impact,
+          retry: async () => {
+            await saveEvaluationRule(true)
+          }
+        })
+
+        return false
+      }
+
       toast.error(err instanceof ApiError ? err.message : '保存评估规则失败')
 
       return false
@@ -445,7 +510,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  const executeApplyTemplate = async () => {
+  const executeApplyTemplate = async (confirm = false) => {
     if (!realCycleId || !templateId) {
       toast.error('请选择要重新套用的配置模板')
 
@@ -457,7 +522,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     try {
       const cycle = await apiFetch<PerfCycle>(`/cycles/${realCycleId}/apply-template`, {
         method: 'POST',
-        body: JSON.stringify({ templateId: Number(templateId) })
+        body: JSON.stringify({ templateId: Number(templateId), confirm })
       })
 
       toast.success('已重新套用模板，当前评估规则与评估维度已更新')
@@ -468,6 +533,20 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       setConfigDirty(false)
       await loadCycle(realCycleId)
     } catch (err) {
+      const impact = asDestructiveImpact(err)
+
+      if (impact) {
+        setApplyConfirmOpen(false)
+        setConfirmState({
+          impact,
+          retry: async () => {
+            await executeApplyTemplate(true)
+          }
+        })
+
+        return
+      }
+
       toast.error(err instanceof ApiError ? err.message : '重新套用模板失败')
     } finally {
       setSaving(false)
@@ -537,13 +616,28 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  const removeMember = async (participantId: number) => {
+  const removeMember = async (participantId: number, confirm = false) => {
     if (!realCycleId) return
 
     try {
-      await apiFetch(`/cycles/${realCycleId}/participants/${participantId}`, { method: 'DELETE' })
+      await apiFetch(`/cycles/${realCycleId}/participants/${participantId}${confirm ? '?confirm=true' : ''}`, {
+        method: 'DELETE'
+      })
       await loadParticipants(realCycleId)
     } catch (err) {
+      const impact = asDestructiveImpact(err)
+
+      if (impact) {
+        setConfirmState({
+          impact,
+          retry: async () => {
+            await removeMember(participantId, true)
+          }
+        })
+
+        return
+      }
+
       toast.error(err instanceof ApiError ? err.message : '移除失败')
     }
   }
@@ -572,8 +666,23 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       <div className='flex flex-col gap-6'>
         <PageHeader
           title={isNew && !realCycleId ? '新建绩效周期' : `编辑绩效周期${name ? ` · ${name}` : ''}`}
-          description={editable ? '按步骤完成周期配置后即可启动评审' : '周期已启动：仅时间窗口可调整，其余配置只读'}
+          description={
+            inProgressAdminEdit
+              ? '周期进行中 · 管理员编辑模式：可修改各步骤，破坏性修改需二次确认'
+              : editable
+                ? '按步骤完成周期配置后即可启动评审'
+                : '周期已启动：仅时间窗口可调整，其余配置只读'
+          }
         />
+
+        {inProgressAdminEdit && (
+          <div className='flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'>
+            <AlertTriangleIcon className='mt-0.5 size-4 shrink-0' />
+            <span>
+              周期已进入进行中阶段。管理员可编辑每个步骤；删除维度、调整权重/评级区间、移除已产生数据的人员等破坏性修改会先弹窗提示受影响的数据量，确认后才执行，所有改动均记录审计日志。
+            </span>
+          </div>
+        )}
 
         {/* 编号步骤布局对齐模板 Numbered Steps：单卡片、左侧步骤列、右侧当前步骤内容。 */}
         <Card className='gap-0 p-0 md:grid md:max-lg:grid-cols-5 lg:grid-cols-4'>
@@ -1109,6 +1218,54 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
             <Button onClick={() => void executeApplyTemplate()} disabled={saving}>
               {saving && <Loader2Icon className='size-4 animate-spin' />}
               确认覆盖
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!confirmState} onOpenChange={open => !open && setConfirmState(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认破坏性修改？</DialogTitle>
+            <DialogDescription>该周期已进入进行中阶段，以下修改会影响已产生的评估数据：</DialogDescription>
+          </DialogHeader>
+          {confirmState && (
+            <div className='flex flex-col gap-3 text-sm'>
+              <ul className='list-disc space-y-1 pl-5'>
+                {confirmState.impact.changes.map((change, index) => (
+                  <li key={index}>{change}</li>
+                ))}
+              </ul>
+              <div className='rounded-md border bg-muted/40 p-3'>
+                <div className='text-muted-foreground mb-1 text-xs'>周期内已产生的数据（将受影响）：</div>
+                <div className='flex flex-wrap gap-x-4 gap-y-1'>
+                  {Object.entries(confirmState.impact.affectedData)
+                    .filter(([, count]) => count > 0)
+                    .map(([key, count]) => (
+                      <span key={key}>
+                        {IMPACT_LABELS[key] ?? key}：<span className='font-medium'>{count}</span>
+                      </span>
+                    ))}
+                </div>
+              </div>
+              <p className='text-muted-foreground text-xs'>确认后将执行修改并记录审计日志；此操作不会自动重算已提交的历史评分。</p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setConfirmState(null)}>
+              取消
+            </Button>
+            <Button
+              variant='destructive'
+              disabled={saving}
+              onClick={() => {
+                const retry = confirmState?.retry
+
+                setConfirmState(null)
+                void retry?.()
+              }}
+            >
+              {saving && <Loader2Icon className='size-4 animate-spin' />}
+              确认修改
             </Button>
           </DialogFooter>
         </DialogContent>

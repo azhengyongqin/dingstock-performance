@@ -88,6 +88,11 @@ export class UpsertDimensionsDto {
   @ValidateNested({ each: true })
   @Type(() => DimensionItemDto)
   items!: DimensionItemDto[];
+
+  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
+  @IsOptional()
+  @IsBoolean()
+  confirm?: boolean;
 }
 
 /** 评估规则：levels 为评级集合，commentRequiredRules 为评语必填评级配置 */
@@ -99,6 +104,11 @@ export class UpsertEvaluationRuleDto {
   @IsOptional()
   @IsObject()
   commentRequiredRules?: Record<string, unknown>;
+
+  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
+  @IsOptional()
+  @IsBoolean()
+  confirm?: boolean;
 }
 
 export class CreateCycleDto {
@@ -154,6 +164,11 @@ export class ApplyTemplateDto {
   /** 要重新套用的配置模板；会整体覆盖评估规则与评估维度 */
   @IsInt()
   templateId!: number;
+
+  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
+  @IsOptional()
+  @IsBoolean()
+  confirm?: boolean;
 }
 
 export class UpsertWindowsDto {

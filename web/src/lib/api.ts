@@ -59,14 +59,18 @@ export const clearAuth = () => {
   window.localStorage.removeItem(USER_STORAGE_KEY)
 }
 
-/** API 请求错误：携带 HTTP 状态码，便于调用方区分处理 */
+/** API 请求错误：携带 HTTP 状态码与解析后的响应体，便于调用方区分处理 */
 export class ApiError extends Error {
   status: number
 
-  constructor(status: number, message: string) {
+  /** 后端返回的原始响应体（JSON），用于读取业务错误码/附带数据（如破坏性修改的 impact） */
+  body?: unknown
+
+  constructor(status: number, message: string, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.body = body
   }
 }
 
@@ -97,12 +101,14 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
   if (!response.ok) {
     // 尽量读取后端返回的错误信息
     let message = `请求失败（HTTP ${response.status}）`
+    let body: unknown
 
     try {
-      const body = (await response.json()) as { message?: string | string[] }
+      body = await response.json()
+      const parsed = body as { message?: string | string[] }
 
-      if (body?.message) {
-        message = Array.isArray(body.message) ? body.message.join('；') : body.message
+      if (parsed?.message) {
+        message = Array.isArray(parsed.message) ? parsed.message.join('；') : parsed.message
       }
     } catch {
       // 忽略非 JSON 响应体
@@ -114,7 +120,7 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
       window.location.href = '/auth/login'
     }
 
-    throw new ApiError(response.status, message)
+    throw new ApiError(response.status, message, body)
   }
 
   // 兼容无响应体的接口
@@ -122,3 +128,37 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
 
   return (await response.json()) as T
 }
+
+// ---- 开发环境快速登录（仅 dev；生产后端返回 404，前端也不渲染入口） ----
+
+/** 开发快速登录候选员工（后端 GET /auth/dev/users 返回项） */
+export type DevLoginUser = {
+  open_id: string
+  name: string
+  en_name?: string
+  avatar_url?: string
+  job_title?: string
+
+  /** 末级部门名，仅用于展示 */
+  department?: string
+
+  /** 显式授权角色（HR/ADMIN 等），含租户超管兜底的 ADMIN */
+  roles: string[]
+
+  /** 是否派生 Leader（有直属下属或周期 Leader 快照命中） */
+  is_leader: boolean
+
+  /** 是否飞书租户超级管理员 */
+  is_tenant_manager: boolean
+}
+
+/** 【仅开发】拉取可快速登录的员工列表 */
+export const fetchDevLoginUsers = () =>
+  apiFetch<{ items: DevLoginUser[]; total: number }>('/auth/dev/users')
+
+/** 【仅开发】按 open_id 直接登录，返回会话 token 与用户信息 */
+export const devLogin = (openId: string) =>
+  apiFetch<{ token: string; user: { open_id: string; name?: string; avatar_url?: string } }>('/auth/dev/login', {
+    method: 'POST',
+    body: JSON.stringify({ open_id: openId })
+  })

@@ -3,11 +3,14 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type Redis from 'ioredis';
+import { PerfRole } from '../generated/prisma/enums';
+import { PrismaService } from '../shared/database/prisma.service';
 import { LarkService } from '../shared/lark/lark.service';
 import { REDIS_CLIENT } from '../shared/redis/redis.constants';
 
@@ -55,12 +58,30 @@ type LarkUserTokenPayload = {
   refresh_expires_in?: number;
 };
 
+/** 开发环境快速登录候选员工（含角色标记，供前端选人展示） */
+export type DevLoginUser = {
+  open_id: string;
+  name: string;
+  en_name?: string;
+  avatar_url?: string;
+  job_title?: string;
+  /** 末级部门名（取 department_path 最后一段），仅用于展示 */
+  department?: string;
+  /** 显式授权角色（role_grants + 租户超管兜底 ADMIN） */
+  roles: PerfRole[];
+  /** 派生 Leader（有直属下属或任一周期 Leader 快照命中） */
+  is_leader: boolean;
+  /** 是否飞书租户超级管理员 */
+  is_tenant_manager: boolean;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
     private readonly configService: ConfigService,
     private readonly larkService: LarkService,
     private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -148,13 +169,163 @@ export class AuthService {
       });
     }
 
-    // sub 使用 open_id；应用侧会话与飞书 user_access_token 解耦，后者不落库。
-    const token = await this.jwtService.signAsync({
-      ...user,
-      sub: user.open_id,
-    });
+    const token = await this.signSession(user);
 
     return { token, user };
+  }
+
+  /** 签发应用会话 JWT：sub 使用 open_id；应用会话与飞书 user_access_token 解耦，后者不落库。 */
+  private signSession(user: LarkSessionUser): Promise<string> {
+    return this.jwtService.signAsync({ ...user, sub: user.open_id });
+  }
+
+  /**
+   * 校验开发快速登录是否开启；关闭时抛 404（不暴露接口存在）。
+   * 开关来自 auth.devLogin.enabled（非生产默认开启，生产显式关闭）。
+   */
+  private assertDevLoginEnabled(): void {
+    if (!this.configService.get<boolean>('auth.devLogin.enabled')) {
+      throw new NotFoundException();
+    }
+  }
+
+  /**
+   * 开发快速登录：列出已同步员工（`lark_users`）及其角色标记，供登录页选人。
+   * 角色标记批量聚合，避免逐人查询：
+   * - roles：role_grants 授权 + 租户超管兜底 ADMIN；
+   * - is_leader：出现在他人 leader_user_id（有直属下属）或任一周期 Leader 快照（与派生逻辑一致）。
+   */
+  async listDevUsers(): Promise<{ items: DevLoginUser[]; total: number }> {
+    this.assertDevLoginEnabled();
+
+    const [users, grants, participantLeaders] = await Promise.all([
+      this.prisma.larkUser.findMany({
+        select: {
+          open_id: true,
+          name: true,
+          en_name: true,
+          avatar: true,
+          job_title: true,
+          department_path: true,
+          leader_user_id: true,
+          is_tenant_manager: true,
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.roleGrant.findMany({
+        select: { userOpenId: true, role: true },
+      }),
+      this.prisma.perfParticipant.findMany({
+        select: { leaderOpenIdSnapshot: true },
+        distinct: ['leaderOpenIdSnapshot'],
+      }),
+    ]);
+
+    // open_id -> 授权角色集合
+    const grantsByUser = new Map<string, Set<PerfRole>>();
+    for (const grant of grants) {
+      const set = grantsByUser.get(grant.userOpenId) ?? new Set<PerfRole>();
+      set.add(grant.role);
+      grantsByUser.set(grant.userOpenId, set);
+    }
+
+    // Leader 判定集合：有下属（他人 leader_user_id 指向自己）或周期 Leader 快照命中
+    const leaderOpenIds = new Set<string>();
+    for (const user of users) {
+      if (user.leader_user_id) leaderOpenIds.add(user.leader_user_id);
+    }
+    for (const participant of participantLeaders) {
+      if (participant.leaderOpenIdSnapshot) {
+        leaderOpenIds.add(participant.leaderOpenIdSnapshot);
+      }
+    }
+
+    const items = users.map<DevLoginUser>((user) => {
+      const roles = new Set<PerfRole>(grantsByUser.get(user.open_id) ?? []);
+      if (user.is_tenant_manager) roles.add(PerfRole.ADMIN);
+
+      return {
+        open_id: user.open_id,
+        name: user.name,
+        en_name: user.en_name ?? undefined,
+        avatar_url: this.pickAvatarUrl(user.avatar, 'avatar_240'),
+        job_title: user.job_title ?? undefined,
+        department: this.pickLastDepartmentName(user.department_path),
+        roles: [...roles],
+        is_leader: leaderOpenIds.has(user.open_id),
+        is_tenant_manager: Boolean(user.is_tenant_manager),
+      };
+    });
+
+    return { items, total: items.length };
+  }
+
+  /**
+   * 开发快速登录：按 open_id 直接为选定员工签发会话 JWT（不经飞书 OAuth）。
+   * 不写入飞书 user_access_token，故 jsapi 网页组件在此会话下会退化——仅用于本地角色功能测试。
+   */
+  async devLogin(openId: string) {
+    this.assertDevLoginEnabled();
+
+    if (!openId) {
+      throw new BadRequestException('open_id 不能为空');
+    }
+
+    const larkUser = await this.prisma.larkUser.findUnique({
+      where: { open_id: openId },
+      select: {
+        open_id: true,
+        union_id: true,
+        user_id: true,
+        name: true,
+        en_name: true,
+        avatar: true,
+        email: true,
+        enterprise_email: true,
+      },
+    });
+
+    if (!larkUser) {
+      throw new BadRequestException(
+        '员工不存在，请先用 HR 账号触发组织架构同步后再试',
+      );
+    }
+
+    const user: LarkSessionUser = {
+      open_id: larkUser.open_id,
+      union_id: larkUser.union_id ?? undefined,
+      user_id: larkUser.user_id ?? undefined,
+      name: larkUser.name,
+      en_name: larkUser.en_name ?? undefined,
+      avatar_url: this.pickAvatarUrl(larkUser.avatar, 'avatar_640'),
+      email: larkUser.email ?? undefined,
+      enterprise_email: larkUser.enterprise_email ?? undefined,
+    };
+
+    const token = await this.signSession(user);
+
+    return { token, user };
+  }
+
+  /** 从 lark_users.avatar（AvatarInfo JSON）中取指定尺寸头像 URL。 */
+  private pickAvatarUrl(avatar: unknown, key: string): string | undefined {
+    if (avatar && typeof avatar === 'object' && !Array.isArray(avatar)) {
+      const value = (avatar as Record<string, unknown>)[key];
+      if (typeof value === 'string' && value) return value;
+    }
+    return undefined;
+  }
+
+  /** 从 department_path（DepartmentPath[] JSON）取末级部门名，仅用于展示。 */
+  private pickLastDepartmentName(path: unknown): string | undefined {
+    if (Array.isArray(path) && path.length > 0) {
+      const last = path[path.length - 1];
+      if (last && typeof last === 'object') {
+        const name = (last as Record<string, unknown>).department_name;
+        if (typeof name === 'string' && name) return name;
+      }
+    }
+    return undefined;
   }
 
   /** 校验应用会话 JWT，返回其中的用户身份。 */

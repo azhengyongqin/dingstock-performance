@@ -98,12 +98,115 @@ export class ParticipantService {
     };
   }
 
-  private assertMutable(cycleStatus: PerfCycleStatus) {
+  /**
+   * 名单可增删校验（角色感知）：
+   * - ADMIN：除已归档外的任何状态都可增删考核人员；
+   * - 其余（HR）：仅 DRAFT/PENDING 可增删（保持原限制）。
+   */
+  private async assertMutable(
+    cycleStatus: PerfCycleStatus,
+    operatorOpenId: string,
+  ) {
+    if (await this.rbacService.isAdmin(operatorOpenId)) {
+      if (cycleStatus === PerfCycleStatus.ARCHIVED) {
+        throw new ConflictException('周期已归档，考核人员名单不可增删');
+      }
+      return;
+    }
     if (
       cycleStatus !== PerfCycleStatus.DRAFT &&
       cycleStatus !== PerfCycleStatus.PENDING
     ) {
       throw new ConflictException('周期已启动，考核人员名单不可增删');
+    }
+  }
+
+  /** 进行中（可能已产生评估数据）：非 DRAFT/PENDING/ARCHIVED */
+  private isInProgress(status: PerfCycleStatus) {
+    return (
+      status !== PerfCycleStatus.DRAFT &&
+      status !== PerfCycleStatus.PENDING &&
+      status !== PerfCycleStatus.ARCHIVED
+    );
+  }
+
+  /**
+   * 进行中新增考核人员：为新参与者回填 Leader/部门/职级快照并置 PENDING_SELF_REVIEW，
+   * 使其与启动时圈定的人一致地并入评估流程。快照口径同 CycleService.startCycle：CoreHR > 通讯录。
+   */
+  private async snapshotNewParticipants(cycleId: number, openIds: string[]) {
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: { cycleId, employeeOpenId: { in: openIds } },
+    });
+    if (participants.length === 0) return;
+    const [users, corehrs] = await Promise.all([
+      this.prisma.larkUser.findMany({
+        where: { open_id: { in: openIds } },
+        select: { open_id: true, leader_user_id: true, department_ids: true },
+      }),
+      this.prisma.larkCorehrEmployee.findMany({
+        where: { open_id: { in: openIds } },
+        select: {
+          open_id: true,
+          direct_manager_id: true,
+          department_id: true,
+          job_level: true,
+        },
+      }),
+    ]);
+    const userMap = new Map(users.map((u) => [u.open_id, u]));
+    const corehrMap = new Map(corehrs.map((c) => [c.open_id, c]));
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const participant of participants) {
+        const user = userMap.get(participant.employeeOpenId);
+        const corehr = corehrMap.get(participant.employeeOpenId);
+        await tx.perfParticipant.update({
+          where: { id: participant.id },
+          data: {
+            leaderOpenIdSnapshot:
+              corehr?.direct_manager_id ?? user?.leader_user_id ?? null,
+            departmentIdSnapshot:
+              corehr?.department_id ?? user?.department_ids?.[0] ?? null,
+            jobLevelSnapshot: corehr?.job_level ?? undefined,
+            status: PerfParticipantStatus.PENDING_SELF_REVIEW,
+          },
+        });
+      }
+    });
+  }
+
+  /**
+   * 进行中移除考核人员的守卫：
+   * - 已产生结果/校准/AI/申诉/面谈（Restrict 外键）→ 直接拒绝，无法移除；
+   * - 仅有自评/评审等 Cascade 数据 → 需二次确认（confirm）。
+   */
+  private async assertRemovable(participantId: number, confirm?: boolean) {
+    const [results, calibrations, aiReports, appeals, interviews] =
+      await Promise.all([
+        this.prisma.perfResult.count({ where: { participantId } }),
+        this.prisma.perfCalibration.count({ where: { participantId } }),
+        this.prisma.perfAiReport.count({ where: { participantId } }),
+        this.prisma.perfAppeal.count({ where: { participantId } }),
+        this.prisma.perfInterview.count({ where: { participantId } }),
+      ]);
+    if (results + calibrations + aiReports + appeals + interviews > 0) {
+      throw new ConflictException(
+        '该员工已产生结果/校准/AI分析/申诉/面谈等数据，无法移除',
+      );
+    }
+    const [selfReviews, reviews, managerReviews] = await Promise.all([
+      this.prisma.perfSelfReview.count({ where: { participantId } }),
+      this.prisma.perfReview.count({ where: { participantId } }),
+      this.prisma.perfManagerReview.count({ where: { participantId } }),
+    ]);
+    const affectedData = { selfReviews, reviews, managerReviews };
+    if (Object.values(affectedData).some((count) => count > 0) && !confirm) {
+      throw new ConflictException({
+        code: 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM',
+        message: '移除该考核人员会删除其已提交的自评/评审数据，请确认后继续',
+        impact: { changes: ['移除考核人员'], affectedData },
+      });
     }
   }
 
@@ -114,7 +217,7 @@ export class ParticipantService {
     openIds: string[],
   ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertMutable(cycle.status);
+    await this.assertMutable(cycle.status, operatorOpenId);
     if (openIds.length === 0) throw new BadRequestException('人员名单为空');
 
     const users = await this.prisma.larkUser.findMany({
@@ -123,13 +226,27 @@ export class ParticipantService {
     });
     const validIds = new Set(users.map((u) => u.open_id));
     const missing = openIds.filter((id) => !validIds.has(id));
+    const toAdd = openIds.filter((id) => validIds.has(id));
+
+    // 记录新增前已在名单中的人，用于识别真正新增者（进行中需回填快照，避免误重置已进入流程的参与者）
+    const existing = await this.prisma.perfParticipant.findMany({
+      where: { cycleId, employeeOpenId: { in: toAdd } },
+      select: { employeeOpenId: true },
+    });
+    const existingSet = new Set(existing.map((p) => p.employeeOpenId));
 
     const result = await this.prisma.perfParticipant.createMany({
-      data: openIds
-        .filter((id) => validIds.has(id))
-        .map((employeeOpenId) => ({ cycleId, employeeOpenId })),
+      data: toAdd.map((employeeOpenId) => ({ cycleId, employeeOpenId })),
       skipDuplicates: true,
     });
+
+    // 进行中新增：为新参与者回填快照并置 PENDING_SELF_REVIEW，正确并入流程
+    if (this.isInProgress(cycle.status)) {
+      const freshOpenIds = toAdd.filter((id) => !existingSet.has(id));
+      if (freshOpenIds.length > 0) {
+        await this.snapshotNewParticipants(cycleId, freshOpenIds);
+      }
+    }
 
     await this.auditService.record({
       operatorOpenId,
@@ -137,6 +254,7 @@ export class ParticipantService {
       targetType: 'perf_cycle',
       targetId: String(cycleId),
       after: { added: result.count, requested: openIds.length, missing },
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return { added: result.count, missing };
   }
@@ -148,7 +266,7 @@ export class ParticipantService {
     departmentIds: string[],
   ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertMutable(cycle.status);
+    await this.assertMutable(cycle.status, operatorOpenId);
     if (departmentIds.length === 0)
       throw new BadRequestException('部门列表为空');
 
@@ -166,21 +284,42 @@ export class ParticipantService {
     );
   }
 
-  async remove(operatorOpenId: string, cycleId: number, participantId: number) {
+  async remove(
+    operatorOpenId: string,
+    cycleId: number,
+    participantId: number,
+    confirm?: boolean,
+  ) {
     const cycle = await this.requireCycle(cycleId);
-    this.assertMutable(cycle.status);
+    await this.assertMutable(cycle.status, operatorOpenId);
     const participant = await this.prisma.perfParticipant.findFirst({
       where: { id: participantId, cycleId },
     });
     if (!participant) throw new NotFoundException('参与者不存在');
-    // 启动前删除：过程数据为空，Cascade 清理不会伤害历史
-    await this.prisma.perfParticipant.delete({ where: { id: participantId } });
+    // 进行中删除：Restrict 数据直接拒绝，Cascade 数据需二次确认；启动前过程数据为空可直接删
+    if (this.isInProgress(cycle.status)) {
+      await this.assertRemovable(participantId, confirm);
+    }
+    try {
+      await this.prisma.perfParticipant.delete({
+        where: { id: participantId },
+      });
+    } catch (error) {
+      // 外键约束兜底（P2003）：仍有 Restrict 关系数据时给出友好提示
+      if ((error as { code?: string })?.code === 'P2003') {
+        throw new ConflictException(
+          '该员工已产生结果/校准/申诉等数据，无法移除',
+        );
+      }
+      throw error;
+    }
     await this.auditService.record({
       operatorOpenId,
       action: 'participant.remove',
       targetType: 'perf_participant',
       targetId: String(participantId),
       before: participant,
+      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return { ok: true };
   }

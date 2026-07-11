@@ -20,6 +20,9 @@ export type RawConfig = {
   };
   auth?: {
     jwt?: Record<string, unknown>;
+    devLogin?: {
+      enabled?: boolean;
+    };
   };
 };
 
@@ -54,7 +57,18 @@ export type AppConfig = {
       secret: string;
       expiresIn: string;
     };
+    /** 开发环境快速登录（免飞书 OAuth 直接选人登录）：生产必须关闭 */
+    devLogin: {
+      enabled: boolean;
+    };
   };
+};
+
+// 解析布尔型环境变量：'1'/'true'/'yes'/'on'（大小写不敏感）视为 true，其余为 false。
+const parseBoolEnv = (value: string | undefined): boolean | undefined => {
+  if (value === undefined) return undefined;
+
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 };
 
 const getDefaultConfigFileName = () =>
@@ -116,6 +130,12 @@ export const loadAppConfig = (): AppConfig => {
     Record<'secret' | 'expiresIn', string>
   >;
 
+  // 开发登录开关优先级：环境变量 > YAML > 默认（非生产环境默认开启）。
+  const devLoginEnabled =
+    parseBoolEnv(process.env.AUTH_DEV_LOGIN_ENABLED) ??
+    yamlConfig.auth?.devLogin?.enabled ??
+    process.env.NODE_ENV !== 'production';
+
   return {
     app: {
       port: Number(process.env.PORT ?? yamlConfig.app?.port ?? 3000),
@@ -162,6 +182,9 @@ export const loadAppConfig = (): AppConfig => {
           yamlJwt.secret ??
           'dingstock-performance-dev-secret',
         expiresIn: process.env.AUTH_JWT_EXPIRES_IN ?? yamlJwt.expiresIn ?? '7d',
+      },
+      devLogin: {
+        enabled: devLoginEnabled,
       },
     },
   };

@@ -22,4 +22,6 @@ export const validationSchema = Joi.object({
   }),
   AUTH_JWT_SECRET: Joi.string(),
   AUTH_JWT_EXPIRES_IN: Joi.string(),
+  // 开发环境快速登录开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时非生产默认开启。
+  AUTH_DEV_LOGIN_ENABLED: Joi.string(),
 });
