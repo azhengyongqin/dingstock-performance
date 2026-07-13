@@ -1,13 +1,47 @@
 'use client'
 
+// React Imports
+import { useEffect, useState } from 'react'
+
 // Component Imports
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 // Util Imports
+import { apiFetch } from '@/lib/api'
+import { avatarUrlOf, type LarkUserBrief } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
 import LarkProfileCard from './LarkProfileCard'
+
+// 同一人员在列表中可能出现多次；复用已解析结果和并发请求，避免重复访问通讯录。
+const directoryAvatarCache = new Map<string, string>()
+const directoryAvatarRequests = new Map<string, Promise<string | undefined>>()
+
+const resolveDirectoryAvatarUrl = (openId: string): Promise<string | undefined> => {
+  const cached = directoryAvatarCache.get(openId)
+
+  if (cached) return Promise.resolve(cached)
+
+  const pending = directoryAvatarRequests.get(openId)
+
+  if (pending) return pending
+
+  const request = apiFetch<LarkUserBrief>(`/contact/users/${encodeURIComponent(openId)}`)
+    .then(user => {
+      const url = avatarUrlOf(user)
+
+      if (url) directoryAvatarCache.set(openId, url)
+
+      return url
+    })
+    .catch(() => undefined)
+    .finally(() => directoryAvatarRequests.delete(openId))
+
+  directoryAvatarRequests.set(openId, request)
+
+  return request
+}
 
 export type UserAvatarProps = {
 
@@ -31,9 +65,53 @@ const UserAvatar = ({ openId, name, avatarUrl, size = 'default', className, with
   const displayName = name?.trim() || ''
   const initials = displayName ? displayName.slice(0, 1).toUpperCase() : '?'
 
+  const [resolvedDirectoryAvatar, setResolvedDirectoryAvatar] = useState<{
+    openId: string
+    url: string
+  } | null>(() =>
+    openId && directoryAvatarCache.has(openId)
+      ? { openId, url: directoryAvatarCache.get(openId) as string }
+      : null
+  )
+
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
+
+  const directoryAvatarUrl =
+    resolvedDirectoryAvatar && resolvedDirectoryAvatar.openId === openId
+      ? resolvedDirectoryAvatar.url
+      : openId
+        ? directoryAvatarCache.get(openId)
+        : undefined
+
+  const providedAvatarFailed = Boolean(avatarUrl && failedAvatarUrl === avatarUrl)
+  const resolvedAvatarUrl = providedAvatarFailed ? directoryAvatarUrl : (avatarUrl ?? directoryAvatarUrl)
+
+  useEffect(() => {
+    // 调用方未提供头像，或提供的地址已失效时，统一从本地通讯录补齐稳定 URL。
+    if (!openId || (avatarUrl && !providedAvatarFailed)) return
+
+    let cancelled = false
+
+    void resolveDirectoryAvatarUrl(openId).then(url => {
+      if (!cancelled && url) setResolvedDirectoryAvatar({ openId, url })
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [avatarUrl, openId, providedAvatarFailed])
+
   const avatar = (
     <Avatar size={size} className={className}>
-      {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+      {resolvedAvatarUrl && (
+        <AvatarImage
+          src={resolvedAvatarUrl}
+          alt={displayName}
+          onLoadingStatusChange={status => {
+            if (status === 'error') setFailedAvatarUrl(resolvedAvatarUrl)
+          }}
+        />
+      )}
       <AvatarFallback>{initials}</AvatarFallback>
     </Avatar>
   )

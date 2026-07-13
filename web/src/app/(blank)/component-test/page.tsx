@@ -8,10 +8,12 @@ import {
   ComponentIcon,
   Layers3Icon,
   PanelLeftIcon,
-  SlidersHorizontalIcon
+  SlidersHorizontalIcon,
+  UsersIcon
 } from 'lucide-react'
 
 import Header from '@/components/layout/Header'
+import { LarkMemberPickerDialog, type LarkPickerMember } from '@/components/shared/lark'
 import {
   DatePicker,
   DateRangePicker,
@@ -31,7 +33,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
-type ComponentKey = 'date-time' | 'buttons' | 'form-controls' | 'feedback'
+type ComponentKey = 'date-time' | 'buttons' | 'form-controls' | 'feedback' | 'member-picker'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -64,6 +66,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '反馈与占位',
     description: 'Progress / Skeleton',
     icon: Layers3Icon
+  },
+  {
+    key: 'member-picker',
+    title: '人员选择弹窗',
+    description: 'LarkMemberPickerDialog',
+    icon: UsersIcon
   }
 ]
 
@@ -310,10 +318,72 @@ const FeedbackPreview = () => (
   </div>
 )
 
+/** LarkMemberPickerDialog 示例：搜索添加 → 待确认区 取消/确认 → 已选成员列表移除 */
+const MemberPickerPreview = () => {
+  const [open, setOpen] = useState(false)
+
+  const [members, setMembers] = useState<LarkPickerMember[]>([
+    {
+      openId: 'ou_d081669b3d00fa5912f3c0928cd5bef8',
+      name: '郑亮',
+      description: '研发主管',
+      badge: '管理员',
+      removable: false
+    },
+    { openId: 'ou_216b190da89a53a1d84a0e25886f8c41', name: '彭巧丽', description: '总监' },
+    { openId: 'ou_3e2bbdc22e748a1d16c6a6fa408e7c8a', name: '赵俊(GT)', description: 'CEO' }
+  ])
+
+  const handleConfirm = (added: LarkPickerMember[]) => {
+    setMembers(prev => [...prev, ...added])
+  }
+
+  return (
+    <div className='grid gap-4 xl:grid-cols-2'>
+      <Card>
+        <CardHeader>
+          <CardTitle>协作者管理式弹窗</CardTitle>
+          <CardDescription>顶部飞书搜索 → 本次新增待确认区（取消/确认）→ 已选成员列表（可移除）</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button onClick={() => setOpen(true)}>打开人员选择弹窗</Button>
+          <LarkMemberPickerDialog
+            open={open}
+            onOpenChange={setOpen}
+            title='协作者管理'
+            searchPlaceholder='添加协作者，可搜索用户'
+            members={members}
+            membersLabel='所有可编辑此表格（除表头）的用户'
+            removeLabel='移除权限'
+            onConfirm={handleConfirm}
+            onRemoveMember={member => setMembers(prev => prev.filter(item => item.openId !== member.openId))}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>当前受控值</CardTitle>
+          <CardDescription>弹窗确认/移除后同步到业务方的成员列表</CardDescription>
+        </CardHeader>
+        <CardContent className='text-muted-foreground flex flex-col gap-1.5 text-sm'>
+          {members.map(member => (
+            <span key={member.openId}>
+              {member.name}
+              {member.badge ? `（${member.badge}）` : ''} — {member.description ?? member.openId}
+            </span>
+          ))}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
+  if (activeComponent === 'member-picker') return <MemberPickerPreview />
 
   return <DateTimePreview />
 }

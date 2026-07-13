@@ -66,6 +66,7 @@ export class ReviewController {
       req.user.open_id,
       participantId,
       dto.items,
+      dto.knownAssignmentIds,
     );
   }
 

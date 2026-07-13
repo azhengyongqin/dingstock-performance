@@ -62,6 +62,14 @@ export class ContactService {
     return { items: enriched, total: enriched.length };
   }
 
+  /** 按 open_id 返回页面展示所需的最小人员资料，供选人后补齐头像。 */
+  async findUserBrief(openId: string) {
+    return this.prisma.larkUser.findUnique({
+      where: { open_id: openId },
+      select: { open_id: true, name: true, avatar: true, job_title: true },
+    });
+  }
+
   /**
    * 收集指定部门及其所有后代部门的 open_department_id（含自身）。
    * 通过一次性拉取 parent 关系在内存中做 BFS，避免递归查询数据库。

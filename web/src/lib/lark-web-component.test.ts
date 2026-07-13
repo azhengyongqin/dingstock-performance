@@ -24,7 +24,9 @@ vi.mock('./api', () => ({
 const loadModule = async () => {
   vi.resetModules()
 
-  const render = vi.fn(() => ({ unmount: vi.fn() }))
+  const render = vi.fn<
+    (name: string, props: Record<string, unknown>, container: Element) => { unmount: () => void }
+  >(() => ({ unmount: vi.fn() }))
 
   const sdk = {
     config: vi.fn().mockResolvedValue(undefined),
@@ -144,5 +146,21 @@ describe('acquireLarkSelector 实例池', () => {
     expect(mountPoint.childElementCount).toBe(1)
 
     second.release()
+  })
+})
+
+describe('ensureLarkWebComponent 主题初始化', () => {
+  it('首次鉴权时读取项目已应用的 dark 主题，而不是默认 light', async () => {
+    document.documentElement.classList.add('dark')
+
+    try {
+      const { mod } = await loadModule()
+
+      await mod.ensureLarkWebComponent()
+
+      expect(window.webComponent?.config).toHaveBeenCalledWith(expect.objectContaining({ theme: 'dark' }))
+    } finally {
+      document.documentElement.classList.remove('dark')
+    }
   })
 })

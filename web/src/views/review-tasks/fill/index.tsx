@@ -280,7 +280,7 @@ const ReviewFill = () => {
         title={isManager ? '上级评估' : '360° 评估'}
         description={`${context.cycle.name} · 被评估人：${employee?.name ?? '-'}`}
         backHref='/review-tasks'
-        backLabel='返回评审任务'
+        backLabel='评审任务'
         actions={submitted ? <Badge variant='outline'>已提交</Badge> : undefined}
       />
 

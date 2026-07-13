@@ -21,6 +21,12 @@ export type LarkSelectorOption = {
   name?: string
   label?: string
   avatarUrl?: string
+
+  /** 飞书 Selector 的实际人员资料载体。 */
+  entity?: {
+    name?: string
+    avatarUrl?: string
+  }
   type?: number
 } & Record<string, unknown>
 

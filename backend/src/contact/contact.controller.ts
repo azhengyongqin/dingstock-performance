@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -52,5 +60,14 @@ export class ContactController {
   })
   listUsers(@Query('department_id') departmentId?: string) {
     return this.contactService.listUsers(departmentId);
+  }
+
+  @Get('users/:openId')
+  @ApiOperation({ summary: '查询单个已同步员工的展示资料' })
+  async getUserBrief(@Param('openId') openId: string) {
+    const user = await this.contactService.findUserBrief(openId);
+    if (!user) throw new NotFoundException('员工不存在或尚未同步');
+
+    return user;
   }
 }

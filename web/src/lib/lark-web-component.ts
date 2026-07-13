@@ -60,6 +60,16 @@ let currentTheme: LarkComponentTheme = 'light'
 let configuredOpenId: string | null = null
 let larkStylePatchObserverStarted = false
 
+/**
+ * next-themes 会把解析后的主题写到 html 的 class。
+ * 首次鉴权直接读取这个已落地的状态，避免等待 React effect 导致 SDK 先以 light 初始化。
+ */
+const getAppliedProjectTheme = (): LarkComponentTheme => {
+  if (typeof document === 'undefined') return currentTheme
+
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
+}
+
 const LARK_GLOBAL_FORM_RESET_RE =
   /input\s*,\s*button\s*,\s*select\s*,\s*optgroup\s*,\s*textarea\s*\{\s*color\s*:\s*inherit\s*;\s*font-family\s*:\s*inherit\s*;?\s*\}/g
 
@@ -156,6 +166,9 @@ const loadSdk = (): Promise<LarkWebComponentSdk> => {
 export const ensureLarkWebComponent = (): Promise<LarkWebComponentSdk> => {
   if (!configPromise) {
     configPromise = (async () => {
+      // 首次 config 前同步当前页面主题，保证 SDK 初始渲染与项目视觉状态一致。
+      currentTheme = getAppliedProjectTheme()
+
       const sdk = await loadSdk()
 
       // 组件鉴权要求：参与签名的 url 需剔除 ? 与 # 之后的参数，且与 config 传入值完全一致

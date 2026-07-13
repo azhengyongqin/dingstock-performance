@@ -7,21 +7,33 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Third-party Imports
-import { Loader2Icon, PlusIcon, SaveIcon, Trash2Icon } from 'lucide-react'
+import { ChevronDownIcon, InfoIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
 import { LarkMemberSelector, UserAvatar } from '@/components/shared/lark'
 import PageHeader from '@/components/shared/PageHeader'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Separator } from '@/components/ui/separator'
 
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
 import type { LarkUserBrief } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
+import { groupReviewersByRelation, RELATION_LABEL } from './group-reviewers'
+import { reviewerFromMemberOption } from './reviewer-selection'
 
 // ===== 类型（GET /participants/:pid/reviewers 响应） =====
 
@@ -51,21 +63,97 @@ type SelectedReviewer = {
   submitted?: boolean
 }
 
-const RELATION_LABEL: Record<string, string> = {
-  LEADER: '直属上级',
-  PEER: '同事',
-  CROSS_DEPT: '跨部门协作',
-  ORG_OWNER: '组织负责人',
-  PROJECT_OWNER: '项目负责人'
-}
+const RELATION_KEYS = Object.keys(RELATION_LABEL)
 
-/** 评审关系下拉选项 */
-const RELATION_OPTIONS = Object.entries(RELATION_LABEL).map(([value, label]) => ({ value, label }))
+/** 成员 pill：姓名处下拉可「移至其他分组」，未提交可移除；已提交锁定 */
+const MemberPill = ({
+  entry,
+  onRemove,
+  onChangeRelation
+}: {
+  entry: SelectedReviewer
+  onRemove: (openId: string) => void
+  onChangeRelation: (openId: string, relation: string) => void
+}) => (
+  <div className='bg-muted/60 flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-1'>
+    <UserAvatar openId={entry.reviewerOpenId} name={entry.name} avatarUrl={entry.avatarUrl} size='sm' />
+    {entry.submitted ? (
+      <>
+        <span className='text-sm'>{entry.name ?? entry.reviewerOpenId}</span>
+        <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>
+      </>
+    ) : (
+      <>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<button className='hover:text-primary flex items-center gap-0.5 text-sm' type='button' />}
+          >
+            {entry.name ?? entry.reviewerOpenId}
+            <ChevronDownIcon className='text-muted-foreground size-3' />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align='start'>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>移至分组</DropdownMenuLabel>
+              {RELATION_KEYS.filter(relation => relation !== entry.relation).map(relation => (
+                <DropdownMenuItem key={relation} onClick={() => onChangeRelation(entry.reviewerOpenId, relation)}>
+                  {RELATION_LABEL[relation]}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant='destructive' onClick={() => onRemove(entry.reviewerOpenId)}>
+              移除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button
+          type='button'
+          aria-label={`移除 ${entry.name ?? entry.reviewerOpenId}`}
+          className='text-muted-foreground hover:text-destructive'
+          onClick={() => onRemove(entry.reviewerOpenId)}
+        >
+          <XIcon className='size-3.5' />
+        </button>
+      </>
+    )}
+  </div>
+)
+
+/** 推荐 chip：头像 + 姓名 + 推荐原因 + 一键添加；已在名单中的置灰 */
+const RecommendationChip = ({
+  item,
+  added,
+  onAdd
+}: {
+  item: Recommendation
+  added: boolean
+  onAdd: (item: Recommendation) => void
+}) => (
+  <div
+    className='flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-0.5 data-[added=true]:opacity-40'
+    data-added={added}
+  >
+    <UserAvatar openId={item.openId} name={item.user?.name} avatarUrl={avatarUrlOf(item.user)} size='sm' />
+    <span className='text-sm'>{item.user?.name ?? item.openId}</span>
+    <Badge variant='outline'>{item.reason}</Badge>
+    <Button
+      variant='ghost'
+      size='icon-sm'
+      className='size-5 rounded-full'
+      disabled={added}
+      aria-label={`添加 ${item.user?.name ?? item.openId}`}
+      onClick={() => onAdd(item)}
+    >
+      <PlusIcon className='size-3' />
+    </Button>
+  </div>
+)
 
 /**
  * 评审人推荐与指定页（产品 §7.8）：
- * 左侧系统推荐（直属上级/组织负责人/同部门/历史评审关系），右侧当前指派名单。
- * 保存 = 覆盖式 PUT，未提交的被移除者置 REPLACED（后端保证留痕）。
+ * 飞书弹窗式分组表排版——banner → 推荐 chips → 搜索 → 关系分组表格行（五类分组默认全部展示）。
+ * 保存 = 覆盖式 PUT + knownAssignmentIds 乐观校验：
+ * 加载后他人新增的指派不会被本次保存挤掉；移除已提交者会被服务端整单拒绝（409）。
  */
 const ReviewerAssign = () => {
   const router = useRouter()
@@ -74,6 +162,7 @@ const ReviewerAssign = () => {
 
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [selected, setSelected] = useState<SelectedReviewer[]>([])
+  const [knownAssignmentIds, setKnownAssignmentIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -94,17 +183,18 @@ const ReviewerAssign = () => {
         `/participants/${participantId}/reviewers`
       )
 
+      const active = (data.assignments ?? []).filter(assignment => assignment.status !== 'REPLACED')
+
       setRecommendations(data.recommendations ?? [])
+      setKnownAssignmentIds(active.map(assignment => assignment.id))
       setSelected(
-        (data.assignments ?? [])
-          .filter(assignment => assignment.status !== 'REPLACED')
-          .map(assignment => ({
-            reviewerOpenId: assignment.reviewerOpenId,
-            relation: assignment.relation,
-            name: assignment.reviewer?.name,
-            avatarUrl: avatarUrlOf(assignment.reviewer),
-            submitted: assignment.status === 'SUBMITTED'
-          }))
+        active.map(assignment => ({
+          reviewerOpenId: assignment.reviewerOpenId,
+          relation: assignment.relation,
+          name: assignment.reviewer?.name,
+          avatarUrl: avatarUrlOf(assignment.reviewer),
+          submitted: assignment.status === 'SUBMITTED'
+        }))
       )
     } catch (err) {
       setError(err instanceof Error ? err.message : '无法加载评审员数据')
@@ -142,26 +232,35 @@ const ReviewerAssign = () => {
     })
   }
 
+  const removeReviewer = (openId: string) => {
+    setSelected(prev => prev.filter(item => item.reviewerOpenId !== openId))
+  }
+
+  const changeRelation = (openId: string, relation: string) => {
+    setSelected(prev => prev.map(item => (item.reviewerOpenId === openId ? { ...item, relation } : item)))
+  }
+
   const handleSave = async () => {
-    if (selected.length === 0) {
-      toast.error('请至少保留一名评审员')
-
-      return
-    }
-
     setSaving(true)
 
     try {
       await apiFetch(`/participants/${participantId}/reviewers`, {
         method: 'PUT',
         body: JSON.stringify({
-          items: selected.map(entry => ({ reviewerOpenId: entry.reviewerOpenId, relation: entry.relation }))
+          items: selected.map(entry => ({ reviewerOpenId: entry.reviewerOpenId, relation: entry.relation })),
+          knownAssignmentIds
         })
       })
       toast.success('评审员指派已保存，系统将发送任务通知')
       router.back()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '保存失败')
+      if (err instanceof ApiError && err.status === 409) {
+        // 服务端护栏整单拒绝（如试图移除已提交者）：提示并重新加载最新名单
+        toast.error(err.message)
+        void fetchData()
+      } else {
+        toast.error(err instanceof ApiError ? err.message : '保存失败')
+      }
     } finally {
       setSaving(false)
     }
@@ -187,153 +286,96 @@ const ReviewerAssign = () => {
     )
   }
 
+  // 五类关系分组默认全部展示（含空组）
+  const groups = groupReviewersByRelation(selected, { includeEmpty: true })
+
   return (
     <div className='flex flex-col gap-6'>
       <PageHeader
         title='评审人推荐与指定'
-        description='系统按直属上级 / 组织负责人 / 同部门 / 历史评审关系推荐；Leader 确认或 HR 补充后生效'
+        description='为被评估人指定 360°评估人；推荐仅是候选，采纳后才生效'
         backHref='/team-review'
-        backLabel='返回团队看板'
-        actions={
-          <Button disabled={saving} onClick={() => void handleSave()}>
-            {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SaveIcon />}
-            保存指派
-          </Button>
-        }
+        backLabel='团队看板'
       />
 
-      <div className='grid gap-6 lg:grid-cols-2'>
-        {/* 左侧：系统推荐 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>系统推荐</CardTitle>
-            <CardDescription>点击「添加」加入右侧指派名单</CardDescription>
-          </CardHeader>
-          <CardContent className='flex flex-col gap-2'>
-            {recommendations.length === 0 ? (
-              <span className='text-muted-foreground py-6 text-center text-sm'>暂无推荐</span>
-            ) : (
-              recommendations.map(item => {
-                const added = selected.some(entry => entry.reviewerOpenId === item.openId)
+      <Card className='mx-auto w-full max-w-3xl'>
+        <CardHeader>
+          <CardTitle>邀请 360°评估人</CardTitle>
+        </CardHeader>
+        <CardContent className='flex flex-col gap-4'>
+          {/* 360° 邀请规则说明（不设人数规则） */}
+          <Alert>
+            <InfoIcon />
+            <AlertDescription>
+              考核 Leader 与 HR 可为员工指定 360°评估人；评估结果仅作参考，员工不可见评估人身份与明细。
+            </AlertDescription>
+          </Alert>
 
-                return (
-                  <div key={item.openId} className='flex items-center justify-between rounded-lg border p-2.5'>
-                    <div className='flex items-center gap-2'>
-                      <UserAvatar
-                        openId={item.openId}
-                        name={item.user?.name}
-                        avatarUrl={avatarUrlOf(item.user)}
-                        size='sm'
-                      />
-                      <div className='flex flex-col'>
-                        <span className='text-sm font-medium'>{item.user?.name ?? item.openId}</span>
-                        <span className='text-muted-foreground text-xs'>{item.user?.job_title ?? ''}</span>
-                      </div>
-                      <Badge variant='outline'>{item.reason}</Badge>
-                    </div>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      disabled={added}
-                      onClick={() =>
-                        addReviewer({
-                          openId: item.openId,
-                          relation: item.relation,
-                          name: item.user?.name,
-                          avatarUrl: avatarUrlOf(item.user)
-                        })
-                      }
-                    >
-                      <PlusIcon />
-                      {added ? '已添加' : '添加'}
-                    </Button>
-                  </div>
-                )
-              })
-            )}
-
-            <div className='mt-2 border-t pt-3'>
-              <div className='text-muted-foreground mb-2 text-xs'>没有合适人选？直接搜索添加：</div>
-              <LarkMemberSelector
-                placeholder='搜索并选择评审员'
-                onSelect={option =>
-                  addReviewer({
-                    openId: option.id as string | undefined,
-                    name: (option.name ?? option.label) as string | undefined,
-                    avatarUrl: option.avatarUrl as string | undefined
-                  })
-                }
-              />
+          {recommendations.length > 0 && (
+            <div className='flex flex-col gap-2'>
+              <span className='text-sm font-medium'>根据组织架构与历史评审关系推荐</span>
+              <div className='flex flex-wrap gap-1.5'>
+                {recommendations.map(item => (
+                  <RecommendationChip
+                    key={item.openId}
+                    item={item}
+                    added={selected.some(entry => entry.reviewerOpenId === item.openId)}
+                    onAdd={recommendation =>
+                      addReviewer({
+                        openId: recommendation.openId,
+                        relation: recommendation.relation,
+                        name: recommendation.user?.name,
+                        avatarUrl: avatarUrlOf(recommendation.user)
+                      })
+                    }
+                  />
+                ))}
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {/* 右侧：当前指派名单 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>当前指派名单（{selected.length} 人）</CardTitle>
-            <CardDescription>已提交评估的评审员不可移除；移除未提交者将保留更换痕迹</CardDescription>
-          </CardHeader>
-          <CardContent className='flex flex-col gap-2'>
-            {selected.length === 0 ? (
-              <span className='text-muted-foreground py-6 text-center text-sm'>尚未指派评审员</span>
-            ) : (
-              selected.map(entry => (
-                <div key={entry.reviewerOpenId} className='flex items-center justify-between rounded-lg border p-2.5'>
-                  <div className='flex items-center gap-2'>
-                    <UserAvatar
-                      openId={entry.reviewerOpenId}
-                      name={entry.name}
-                      avatarUrl={entry.avatarUrl}
-                      size='sm'
-                    />
-                    <span className='text-sm font-medium'>{entry.name ?? entry.reviewerOpenId}</span>
-                    {entry.submitted && <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>}
-                  </div>
-                  <div className='flex items-center gap-2'>
-                    <Select
-                      value={entry.relation}
-                      items={RELATION_OPTIONS}
-                      disabled={entry.submitted}
-                      onValueChange={value =>
-                        setSelected(prev =>
-                          prev.map(item =>
-                            item.reviewerOpenId === entry.reviewerOpenId
-                              ? { ...item, relation: value as string }
-                              : item
-                          )
-                        )
-                      }
-                    >
-                      <SelectTrigger className='min-w-32' size='sm'>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {RELATION_OPTIONS.map(option => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!entry.submitted && (
-                      <Button
-                        variant='ghost'
-                        size='icon-sm'
-                        onClick={() =>
-                          setSelected(prev => prev.filter(item => item.reviewerOpenId !== entry.reviewerOpenId))
-                        }
-                      >
-                        <Trash2Icon className='text-destructive size-3.5' />
-                      </Button>
-                    )}
-                  </div>
+          <LarkMemberSelector
+            placeholder='通过姓名搜索添加评审员'
+            onSelect={option => addReviewer(reviewerFromMemberOption(option))}
+          />
+
+          {/* 关系分组表格行：左标签列 + 成员 pills */}
+          <div className='overflow-hidden rounded-lg border'>
+            {groups.map((group, groupIndex) => (
+              <div key={group.relation} className='grid grid-cols-[7.5rem_1fr]'>
+                {groupIndex > 0 && <Separator className='col-span-2' />}
+                <div className='bg-muted/40 text-muted-foreground flex items-start px-3 py-2.5 text-sm'>
+                  {group.label}
                 </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-      </div>
+                <div className='flex flex-wrap items-center gap-1.5 px-3 py-2'>
+                  {group.entries.length === 0 ? (
+                    <span className='text-muted-foreground/60 text-sm'>暂无评审员</span>
+                  ) : (
+                    group.entries.map(entry => (
+                      <MemberPill
+                        key={entry.reviewerOpenId}
+                        entry={entry}
+                        onRemove={removeReviewer}
+                        onChangeRelation={changeRelation}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className='flex justify-end gap-2'>
+            <Button variant='outline' disabled={saving} onClick={() => router.back()}>
+              取消
+            </Button>
+            <Button disabled={saving} onClick={() => void handleSave()}>
+              {saving && <Loader2Icon className='size-4 animate-spin' />}
+              确定
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

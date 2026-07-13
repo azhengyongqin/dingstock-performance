@@ -35,7 +35,7 @@ const PagesLayout = ({ children }: Readonly<{ children: ReactNode }>) => {
           <Header />
           <main
             className={cn(
-              'mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 py-6 sm:px-6',
+              'mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 pb-4 sm:px-4',
               settings.layout === 'compact' ? 'mx-auto max-w-360' : 'w-full'
             )}
           >

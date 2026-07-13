@@ -660,21 +660,22 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
 
   const step = STEPS[currentStep]
   const stepLocked = !realCycleId && step.key !== 'basic'
+  const pageTitle = isNew && !realCycleId ? '新建绩效周期' : `编辑绩效周期${name ? ` · ${name}` : ''}`
+
+  const pageDescription = inProgressAdminEdit
+    ? '周期进行中 · 管理员编辑模式：可修改各步骤，破坏性修改需二次确认'
+    : editable
+      ? '按步骤完成周期配置后即可启动评审'
+      : '周期已启动：仅时间窗口可调整，其余配置只读'
 
   return (
     <>
       <div className='flex flex-col gap-6'>
         <PageHeader
-          title={isNew && !realCycleId ? '新建绩效周期' : `编辑绩效周期${name ? ` · ${name}` : ''}`}
-          description={
-            inProgressAdminEdit
-              ? '周期进行中 · 管理员编辑模式：可修改各步骤，破坏性修改需二次确认'
-              : editable
-                ? '按步骤完成周期配置后即可启动评审'
-                : '周期已启动：仅时间窗口可调整，其余配置只读'
-          }
+          title={pageTitle}
+          description={pageDescription}
           backHref={realCycleId ? `/cycles/${realCycleId}` : '/cycles'}
-          backLabel={realCycleId ? '返回周期详情' : '返回周期列表'}
+          backLabel={realCycleId ? '周期详情' : '绩效周期'}
         />
 
         {inProgressAdminEdit && (

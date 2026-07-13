@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -154,12 +155,14 @@ export class ReviewerService {
 
   /**
    * 覆盖式指派：新增创建、移除的未提交指派置 REPLACED（保留痕迹）。
-   * 已提交（SUBMITTED）的指派不可静默移除。
+   * 护栏：移除已提交（SUBMITTED）的指派整单拒绝；
+   * knownAssignmentIds 为页面加载时的指派快照，加载后他人新增的指派缺席不视为删除。
    */
   async upsertReviewers(
     operatorOpenId: string,
     participantId: number,
     items: ReviewerItemDto[],
+    knownAssignmentIds?: number[],
   ) {
     const participant = await this.requireParticipant(participantId);
     const operatorRole = await this.assertCanManage(
@@ -176,11 +179,29 @@ export class ReviewerService {
     });
     const wanted = new Map(items.map((item) => [item.reviewerOpenId, item]));
 
+    // 乐观校验：只有操作者加载页面时已见过的指派，缺席才视为删除
+    const known = knownAssignmentIds ? new Set(knownAssignmentIds) : null;
+    const isRemovalAttempt = (assignment: { id: number }) =>
+      !known || known.has(assignment.id);
+
+    // 护栏：已提交评估的评审员不可被覆盖移除，整单拒绝，提示刷新后重试
+    const removedSubmitted = current.filter(
+      (assignment) =>
+        assignment.status === PerfAssignmentStatus.SUBMITTED &&
+        !wanted.has(assignment.reviewerOpenId) &&
+        isRemovalAttempt(assignment),
+    );
+    if (removedSubmitted.length > 0) {
+      throw new ConflictException(
+        '名单中包含已提交评估的评审员，不可移除；请刷新页面后重试',
+      );
+    }
+
     await this.prisma.$transaction(async (tx) => {
       // 移除：未提交的置 REPLACED
       for (const assignment of current) {
         if (!wanted.has(assignment.reviewerOpenId)) {
-          if (assignment.status === PerfAssignmentStatus.SUBMITTED) continue; // 已提交不动
+          if (!isRemovalAttempt(assignment)) continue; // 他人新增，不动
           await tx.perfReviewerAssignment.update({
             where: { id: assignment.id },
             data: { status: PerfAssignmentStatus.REPLACED },

@@ -101,6 +101,7 @@ pnpm prisma:studio        # Prisma Studio
 - `app/**/page.tsx` 只做薄壳，真实 UI 放 `src/views/`；带侧边栏页面放 `app/(pages)/`，全屏页放 `app/(blank)/`。
 - 导航唯一入口 `src/configs/navConfig.tsx`；接口调用统一走 `src/lib/api.ts`（自动带 Bearer token）。
 - 验证：改动后在 `web/` 下运行 `pnpm lint` 与 `pnpm build`（本机 pnpm 在非交互终端需加 `CI=true` 前缀）。
+- **新组件开发或已有组件封装时，必须在 `web/src/app/(blank)/component-test/` 中补充对应的示例代码，用该页面验证组件的使用方式、交互状态与视觉表现。**
 
 ### 基础组件必须用 shadcn ui（强制规则）
 
@@ -128,6 +129,7 @@ pnpm prisma:studio        # Prisma Studio
 
 ### 飞书网页组件：人员头像与选人（强制规则）
 
+- **只要涉及飞书网页组件的需求、问题排查或组件封装，都必须先参考 `docs/飞书网页组件/` 下的项目文档；项目文档与飞书官方文档不一致时，以官方文档为准，并同步更新项目文档。**
 - **人员头像一律使用 `@/components/shared/lark` 的 `UserAvatar`**（头像 + 点击弹出飞书：成员名片组件），禁止直接用 `ui/avatar` 渲染人员头像；拿不到 `open_id` 时组件自动退化为普通头像（纯展示、不可点击）。
 - **人员搜索/选择优先使用 `LarkMemberSelector`
 

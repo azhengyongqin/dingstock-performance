@@ -27,10 +27,10 @@ const Header = () => {
   const { open, isMobile } = useSidebar()
 
   return (
-    <header className='sticky top-0 z-50 shrink-0 px-4 before:absolute before:inset-0 before:rounded-t-xl before:mask-[linear-gradient(var(--card),var(--card)_18%,transparent_100%)] before:backdrop-blur-md sm:px-6'>
+    <header className='sticky top-0 z-50 shrink-0 px-4 before:absolute before:inset-0 before:rounded-t-xl before:mask-[linear-gradient(var(--card),var(--card)_18%,transparent_100%)] before:backdrop-blur-md sm:px-4'>
       <div
         className={cn(
-          'bg-card relative z-51 mx-auto mt-3 flex w-full items-center justify-between rounded-xl border px-6 py-2',
+          'bg-card relative z-51 mx-auto mt-3 flex w-full items-center justify-between rounded-xl border px-2 py-2',
           settings.layout === 'compact' ? 'max-w-348' : 'w-full'
         )}
       >

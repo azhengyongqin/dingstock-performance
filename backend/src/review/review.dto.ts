@@ -25,6 +25,12 @@ export class UpsertReviewersDto {
   @ValidateNested({ each: true })
   @Type(() => ReviewerItemDto)
   items!: ReviewerItemDto[];
+
+  /** 页面加载时的指派 id 快照（乐观校验）：加载后他人新增的指派缺席不视为删除 */
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  knownAssignmentIds?: number[];
 }
 
 export class SaveSelfReviewDto {

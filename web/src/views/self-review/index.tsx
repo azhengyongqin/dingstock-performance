@@ -209,7 +209,7 @@ const SelfReview = () => {
   if (loading) {
     return (
       <div className='flex flex-col gap-6'>
-        <PageHeader title='员工自评' description='正在加载当前周期自评…' backHref='/workbench' backLabel='返回工作台' />
+        <PageHeader title='员工自评' description='正在加载当前周期自评…' backHref='/workbench' backLabel='工作台' />
         <Skeleton className='h-48 w-full' />
         <Skeleton className='h-72 w-full' />
       </div>
@@ -219,7 +219,7 @@ const SelfReview = () => {
   if (error) {
     return (
       <div className='flex flex-col gap-6'>
-        <PageHeader title='员工自评' description='当前周期的自评填写' backHref='/workbench' backLabel='返回工作台' />
+        <PageHeader title='员工自评' description='当前周期的自评填写' backHref='/workbench' backLabel='工作台' />
         <Card>
           <CardContent className='text-muted-foreground flex flex-col items-center gap-3 py-16 text-sm'>
             <span>{error}</span>
@@ -235,7 +235,7 @@ const SelfReview = () => {
   if (!participant) {
     return (
       <div className='flex flex-col gap-6'>
-        <PageHeader title='员工自评' description='当前周期的自评填写' backHref='/workbench' backLabel='返回工作台' />
+        <PageHeader title='员工自评' description='当前周期的自评填写' backHref='/workbench' backLabel='工作台' />
         <Card>
           <CardContent className='text-muted-foreground flex flex-col items-center gap-2 py-16 text-sm'>
             <span>当前没有进行中的考核周期</span>
@@ -252,7 +252,7 @@ const SelfReview = () => {
         title='员工自评'
         description={`${participant.cycle.name} · 我的状态：${PARTICIPANT_STATUS_LABEL[participant.status] ?? participant.status}`}
         backHref='/workbench'
-        backLabel='返回工作台'
+        backLabel='工作台'
         actions={
           <div className='flex items-center gap-2'>
             <Badge className={CYCLE_STATUS_BADGE[participant.cycle.status]}>
