@@ -673,6 +673,8 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
                 ? '按步骤完成周期配置后即可启动评审'
                 : '周期已启动：仅时间窗口可调整，其余配置只读'
           }
+          backHref={realCycleId ? `/cycles/${realCycleId}` : '/cycles'}
+          backLabel={realCycleId ? '返回周期详情' : '返回周期列表'}
         />
 
         {inProgressAdminEdit && (

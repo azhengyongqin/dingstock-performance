@@ -228,11 +228,94 @@ export const renderLarkComponent = async (
   return sdk.render(name, props, container)
 }
 
+// ===== 人员搜索（Selector）实例池复用 =====
+// SDK 每次 render 都会向其内部事件总线新增监听，且 unmount 不清理（实测：
+// 页面累计第 8 次 render 即触发 “possible EventEmitter memory leak detected”）。
+// 组件反复挂载（条件渲染、步骤切换、页面软导航）都会走到 render，因此实例
+// 按 render 属性签名池化：只创建不销毁，卸载时把宿主节点摘下停放，同签名
+// 再次挂载时直接搬回；onSelect 经池条目上的可变引用路由到当前持有者。
+
+type SelectorPoolEntry = {
+  signature: string
+  host: HTMLDivElement
+  ready: Promise<void>
+  inUse: boolean
+  onSelect: (option: Record<string, unknown>) => void
+}
+
+const selectorPool: SelectorPoolEntry[] = []
+
+export type LarkSelectorHandle = {
+
+  /** render 完成（含 SDK 加载与鉴权）；失败会 reject */
+  ready: Promise<void>
+
+  /** 卸载时调用：归还实例到池中（不 unmount，供下次同签名挂载复用） */
+  release: () => void
+}
+
+/**
+ * 把（池化的）人员搜索组件挂到 mountPoint 下。
+ * renderProps 必须可 JSON 序列化且键序稳定（不含函数）；相同签名的空闲实例直接复用，
+ * 不会重新 render。同签名并发挂载时各占一个池条目，互不抢占。
+ */
+export const acquireLarkSelector = (
+  renderProps: Record<string, unknown>,
+  onSelect: (option: Record<string, unknown>) => void,
+  mountPoint: HTMLElement
+): LarkSelectorHandle => {
+  const signature = JSON.stringify(renderProps)
+
+  let entry = selectorPool.find(item => item.signature === signature && !item.inUse)
+
+  if (!entry) {
+    const created: SelectorPoolEntry = {
+      signature,
+      host: document.createElement('div'),
+      ready: Promise.resolve(),
+      inUse: false,
+      onSelect: () => undefined
+    }
+
+    created.ready = renderLarkComponent(
+      'Selector',
+      { ...renderProps, onSelect: (option: Record<string, unknown>) => created.onSelect(option) },
+      created.host
+    ).then(
+      () => undefined,
+      error => {
+        // 渲染失败的实例剔除出池，下次挂载重新创建（保留重试机会）
+        const index = selectorPool.indexOf(created)
+
+        if (index >= 0) selectorPool.splice(index, 1)
+        throw error
+      }
+    )
+
+    selectorPool.push(created)
+    entry = created
+  }
+
+  const acquired = entry
+
+  acquired.inUse = true
+  acquired.onSelect = onSelect
+  mountPoint.appendChild(acquired.host)
+
+  return {
+    ready: acquired.ready,
+    release: () => {
+      acquired.inUse = false
+      acquired.onSelect = () => undefined
+      acquired.host.remove()
+    }
+  }
+}
+
 // ===== 成员名片（UserProfile）单例复用 =====
-// SDK 的 unmount 不会清理其内部事件总线上的监听器，反复 render 会不断累计监听
-// 并触发 “possible EventEmitter memory leak detected” 告警。
-// 因此全局只维护一个 UserProfile 实例：弹层打开时把常驻宿主节点挂进弹层、
-// 关闭时摘出来；仅当要展示的 openId 变化时才销毁重建。
+// 与 Selector 同因（SDK unmount 不清理内部监听）。名片按 openId 展示、
+// 全局同一时刻只弹一张，因此用更简单的单例策略：弹层打开时把常驻宿主节点
+// 挂进弹层、关闭时摘出来；仅当要展示的 openId 变化时才销毁重建。
 
 let profileCardHost: HTMLDivElement | null = null
 let profileCardInstance: LarkComponentInstance | null = null

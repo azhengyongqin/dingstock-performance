@@ -192,6 +192,8 @@ const ReviewerAssign = () => {
       <PageHeader
         title='评审人推荐与指定'
         description='系统按直属上级 / 组织负责人 / 同部门 / 历史评审关系推荐；Leader 确认或 HR 补充后生效'
+        backHref='/team-review'
+        backLabel='返回团队看板'
         actions={
           <Button disabled={saving} onClick={() => void handleSave()}>
             {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SaveIcon />}

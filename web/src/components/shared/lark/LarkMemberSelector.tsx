@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Third-party Imports
 import { CircleAlertIcon } from 'lucide-react'
@@ -10,9 +10,10 @@ import { CircleAlertIcon } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Util Imports
+import { acquireLarkSelector } from '@/lib/lark-web-component'
 import { cn } from '@/lib/utils'
 
-import { useLarkComponentMount } from './use-lark-component-mount'
+import { useLarkThemeSync, type LarkMountStatus } from './use-lark-component-mount'
 
 /** 飞书搜索组件选中条目（OptionData）：不同实体字段略有差异，这里只声明常用字段 */
 export type LarkSelectorOption = {
@@ -41,6 +42,10 @@ export type LarkMemberSelectorProps = {
 /**
  * 项目统一的人员搜索选择组件：基于飞书 Selector 网页组件，只搜索“人”。
  * 所有需要搜索/选择人员的场景优先使用本组件，不要自己拼 Combobox + 通讯录接口。
+ *
+ * 实例经 acquireLarkSelector 池化复用：SDK 的 unmount 不清理内部事件监听，
+ * 组件反复挂载（条件渲染 / 步骤切换 / 页面软导航）若每次都 render 会累计监听
+ * 并触发 “possible EventEmitter memory leak detected” 告警。
  */
 const LarkMemberSelector = ({
   onSelect,
@@ -50,29 +55,57 @@ const LarkMemberSelector = ({
   panelWidth = 320,
   panelHeight = 400
 }: LarkMemberSelectorProps) => {
-  // 回调经 ref 透传：调用方每次渲染传入新函数也不会导致组件重建
+  // 回调经 ref 透传：调用方每次渲染传入新函数也不会导致实例重建
   const onSelectRef = useRef(onSelect)
 
   useEffect(() => {
     onSelectRef.current = onSelect
   })
 
-  const componentProps = useMemo(
-    () => ({
-      onSelect: (option: LarkSelectorOption) => onSelectRef.current(option),
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [status, setStatus] = useState<LarkMountStatus>('loading')
 
-      // searchEntityTypes: 1 表示“人”，本组件固定只搜人员
-      searchEntityTypes: [1],
-      placeholder,
-      showSearchIcon: true,
-      triggerWidth,
-      panelWidth,
-      panelHeight
-    }),
-    [placeholder, triggerWidth, panelWidth, panelHeight]
-  )
+  useLarkThemeSync()
 
-  const { containerRef, status } = useLarkComponentMount('Selector', componentProps)
+  useEffect(() => {
+    const mountPoint = containerRef.current
+
+    if (!mountPoint) return
+
+    let cancelled = false
+
+    setStatus('loading')
+
+    const { ready, release } = acquireLarkSelector(
+      {
+        // searchEntityTypes: 1 表示“人”，本组件固定只搜人员
+        searchEntityTypes: [1],
+        placeholder,
+        showSearchIcon: true,
+        triggerWidth,
+        panelWidth,
+        panelHeight
+      },
+      option => onSelectRef.current(option as LarkSelectorOption),
+      mountPoint
+    )
+
+    ready
+      .then(() => {
+        if (!cancelled) setStatus('ready')
+      })
+      .catch(error => {
+        if (!cancelled) {
+          console.error('[lark-web-component] Selector 渲染失败：', error)
+          setStatus('error')
+        }
+      })
+
+    return () => {
+      cancelled = true
+      release()
+    }
+  }, [placeholder, triggerWidth, panelWidth, panelHeight])
 
   return (
     <div className={cn('relative min-h-9', className)} style={{ width: triggerWidth }}>
