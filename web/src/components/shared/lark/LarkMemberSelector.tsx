@@ -15,6 +15,106 @@ import { cn } from '@/lib/utils'
 
 import { useLarkThemeSync, type LarkMountStatus } from './use-lark-component-mount'
 
+const LARK_SELECTOR_DROPDOWN_SELECTOR = '.larkw-selector-container__dropdown'
+const dropdownMutationListeners = new Set<() => void>()
+let sharedDropdownObserver: MutationObserver | null = null
+
+/** 所有 Selector 共用一个 Portal 观察器，避免多实例重复监听整个 document.body。 */
+const subscribeToDropdownMutations = (listener: () => void) => {
+  dropdownMutationListeners.add(listener)
+
+  if (!sharedDropdownObserver) {
+    sharedDropdownObserver = new MutationObserver(() => {
+      dropdownMutationListeners.forEach(notify => notify())
+    })
+    sharedDropdownObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    })
+  }
+
+  return () => {
+    dropdownMutationListeners.delete(listener)
+
+    if (dropdownMutationListeners.size > 0) return
+
+    sharedDropdownObserver?.disconnect()
+    sharedDropdownObserver = null
+  }
+}
+
+/** 飞书结果面板挂在页面级 Portal，需按水平位置找到当前搜索框对应的可见面板。 */
+const syncVisibleDropdownWidth = (trigger: HTMLElement, width: number) => {
+  const triggerRect = trigger.getBoundingClientRect()
+  const horizontalThreshold = Math.max(48, triggerRect.width * 0.15)
+  const verticalThreshold = Math.max(24, triggerRect.height)
+
+  const nearest = Array.from(
+    document.querySelectorAll<HTMLElement>(LARK_SELECTOR_DROPDOWN_SELECTOR)
+  ).reduce<{
+    panel: HTMLElement | null
+    horizontalDistance: number
+    verticalDistance: number
+    totalDistance: number
+  }>(
+    (nearest, panel) => {
+      const rect = panel.getBoundingClientRect()
+      const style = window.getComputedStyle(panel)
+
+      if (
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        style.display === 'none' ||
+        style.visibility === 'hidden' ||
+        style.opacity === '0'
+      ) {
+        return nearest
+      }
+
+      // 兼容面板向上/向下展开，避免两个左边缘相同的 Selector 串台。
+      const horizontalDistance = Math.abs(rect.left - triggerRect.left)
+
+      const verticalDistance = Math.min(
+        Math.abs(rect.top - triggerRect.bottom),
+        Math.abs(rect.bottom - triggerRect.top)
+      )
+
+      const totalDistance = horizontalDistance + verticalDistance
+
+      if (horizontalDistance > horizontalThreshold || verticalDistance > verticalThreshold) return nearest
+
+      return totalDistance < nearest.totalDistance
+        ? { panel, horizontalDistance, verticalDistance, totalDistance }
+        : nearest
+    },
+    {
+      panel: null,
+      horizontalDistance: Number.POSITIVE_INFINITY,
+      verticalDistance: Number.POSITIVE_INFINITY,
+      totalDistance: Number.POSITIVE_INFINITY
+    }
+  )
+
+  if (!nearest.panel) return
+
+  const cssWidth = `${width}px`
+  const nearestPanel = nearest.panel
+
+  if (
+    nearestPanel.style.getPropertyValue('width') === cssWidth &&
+    nearestPanel.style.getPropertyPriority('width') === 'important' &&
+    nearestPanel.style.getPropertyValue('min-width') === cssWidth &&
+    nearestPanel.style.getPropertyPriority('min-width') === 'important'
+  ) {
+    return
+  }
+
+  nearestPanel.style.setProperty('width', cssWidth, 'important')
+  nearestPanel.style.setProperty('min-width', cssWidth, 'important')
+}
+
 /** 飞书搜索组件选中条目（OptionData）：不同实体字段略有差异，这里只声明常用字段 */
 export type LarkSelectorOption = {
   id?: string
@@ -74,7 +174,9 @@ const LarkMemberSelector = ({
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const dropdownMutationCleanupRef = useRef<(() => void) | null>(null)
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const fluidWidthRef = useRef<number | null>(null)
   const [status, setStatus] = useState<LarkMountStatus>('loading')
   const [fluidWidth, setFluidWidth] = useState<number | null>(null)
 
@@ -83,29 +185,40 @@ const LarkMemberSelector = ({
   const setRootElement = useCallback(
     (node: HTMLDivElement | null) => {
       resizeObserverRef.current?.disconnect()
+      dropdownMutationCleanupRef.current?.()
 
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
       if (!node || !fluid) return
 
       const width = Math.round(node.getBoundingClientRect().width)
+      const initialWidth = width > 0 ? width : triggerWidth
 
       // SDK 的 panelWidth 只接受数字，因此挂载时将容器实际宽度同时传给触发器和结果面板。
-      setFluidWidth(width > 0 ? width : triggerWidth)
+      fluidWidthRef.current = initialWidth
+      setFluidWidth(initialWidth)
 
       resizeObserverRef.current = new ResizeObserver(entries => {
         const nextWidth = Math.round(entries[0]?.contentRect.width ?? 0)
 
         if (nextWidth <= 0) return
 
-        // 窗口拖拽过程中会高频触发，稍作合并可避免反复重建 SDK 实例。
+        // 窗口拖拽过程中会高频触发，稍作合并后只调整当前可见浮层，不重建 SDK 实例。
         if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
 
         resizeTimerRef.current = setTimeout(() => {
-          setFluidWidth(current => (current === nextWidth ? current : nextWidth))
+          fluidWidthRef.current = nextWidth
+          syncVisibleDropdownWidth(node, nextWidth)
           resizeTimerRef.current = null
         }, 100)
       })
       resizeObserverRef.current.observe(node)
+
+      // 浮层可能在缩放之后才创建/显示，使用最新宽度在 Portal 变化时补同步。
+      dropdownMutationCleanupRef.current = subscribeToDropdownMutations(() => {
+        const currentWidth = fluidWidthRef.current
+
+        if (currentWidth) syncVisibleDropdownWidth(node, currentWidth)
+      })
     },
     [fluid, triggerWidth]
   )
