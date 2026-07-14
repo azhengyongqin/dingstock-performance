@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   ArrayUnique,
   IsArray,
   IsBoolean,
@@ -11,17 +13,24 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
 import {
   PerfCycleStatus,
-  PerfCycleType,
   PerfDimensionType,
   PerfRole,
   PerfScoringMethod,
 } from '../generated/prisma/enums';
+import {
+  ConfigRatingDto,
+  ConfigStageModesDto,
+  ConstraintProfilesDto,
+  NotificationRulesDto,
+  ReviewerRelationWeightsDto,
+} from '../config-template/config-template.dto';
 
 /** 维度配置项：周期维度与模板维度共用（差异只在归属外键） */
 export class DimensionItemDto {
@@ -116,25 +125,33 @@ export class CreateCycleDto {
   @MaxLength(100)
   name!: string;
 
-  @IsOptional()
-  @IsEnum(PerfCycleType)
-  type?: PerfCycleType;
+  /** 新版四步创建只选择一份已发布配置版本，不再逐项拼装表单。 */
+  @IsInt()
+  configTemplateVersionId!: number;
 
+  /** 计划启动时间必须带时区，作为所有相对计划的唯一绝对锚点。 */
   @IsDateString()
-  startDate!: string;
-
-  @IsDateString()
-  endDate!: string;
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'plannedStartAt 必须包含时区' })
+  plannedStartAt!: string;
 
   /** 周期负责人；缺省为当前操作人 */
   @IsOptional()
   @IsString()
   ownerOpenId?: string;
+}
 
-  /** 来源模板：创建时把评估规则与维度集复制为本周期快照 */
-  @IsOptional()
+/** 为迁移后的旧草稿补齐新版配置快照；基础信息与快照必须原子写入。 */
+export class InitializeCycleSetupDto {
+  @IsString()
+  @MaxLength(100)
+  name!: string;
+
   @IsInt()
-  templateId?: number;
+  configTemplateVersionId!: number;
+
+  @IsDateString()
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'plannedStartAt 必须包含时区' })
+  plannedStartAt!: string;
 }
 
 export class UpdateCycleDto {
@@ -144,20 +161,72 @@ export class UpdateCycleDto {
   name?: string;
 
   @IsOptional()
-  @IsEnum(PerfCycleType)
-  type?: PerfCycleType;
-
-  @IsOptional()
   @IsDateString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsDateString()
-  endDate?: string;
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'plannedStartAt 必须包含时区' })
+  plannedStartAt?: string;
 
   @IsOptional()
   @IsString()
   ownerOpenId?: string;
+}
+
+export class CyclePlanStageDto {
+  @IsIn(['SELF', 'PEER', 'MANAGER'])
+  stage!: 'SELF' | 'PEER' | 'MANAGER';
+
+  @IsDateString()
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'startAt 必须包含时区' })
+  startAt!: string;
+
+  @IsDateString()
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, {
+    message: 'reminderDeadlineAt 必须包含时区',
+  })
+  reminderDeadlineAt!: string;
+}
+
+export class UpsertCyclePlanDto {
+  @IsBoolean()
+  allowStageOverlap!: boolean;
+
+  @IsArray()
+  @ArrayMinSize(3)
+  @ArrayMaxSize(3)
+  @ArrayUnique((item: CyclePlanStageDto) => item.stage)
+  @ValidateNested({ each: true })
+  @Type(() => CyclePlanStageDto)
+  stages!: CyclePlanStageDto[];
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => NotificationRulesDto)
+  notificationRules!: NotificationRulesDto;
+}
+
+/** 高级配置只调整周期自己的计算快照，不回写来源模板或 D/M 表单。 */
+export class UpdateCycleAdvancedConfigDto {
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ConfigStageModesDto)
+  stageModes!: ConfigStageModesDto;
+
+  @IsArray()
+  @ArrayMinSize(4)
+  @ArrayMaxSize(4)
+  @ArrayUnique((item: ConfigRatingDto) => item.symbol)
+  @ValidateNested({ each: true })
+  @Type(() => ConfigRatingDto)
+  ratings!: ConfigRatingDto[];
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ConstraintProfilesDto)
+  constraintProfiles!: ConstraintProfilesDto;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ReviewerRelationWeightsDto)
+  reviewerRelationWeights!: ReviewerRelationWeightsDto;
 }
 
 export class ApplyTemplateDto {

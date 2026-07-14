@@ -5,6 +5,7 @@ import { RbacModule } from '../rbac/rbac.module';
 import { SharedModule } from '../shared/shared.module';
 import { CycleController } from './cycle.controller';
 import { CycleService } from './cycle.service';
+import { CycleSetupService } from './cycle-setup.service';
 import { TemplateController } from './template.controller';
 import { TemplateService } from './template.service';
 
@@ -12,7 +13,7 @@ import { TemplateService } from './template.service';
 @Module({
   imports: [SharedModule, AuthModule, RbacModule, AuditModule],
   controllers: [CycleController, TemplateController],
-  providers: [CycleService, TemplateService],
-  exports: [CycleService],
+  providers: [CycleService, CycleSetupService, TemplateService],
+  exports: [CycleService, CycleSetupService],
 })
 export class CycleModule {}

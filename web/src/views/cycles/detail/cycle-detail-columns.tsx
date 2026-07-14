@@ -8,14 +8,14 @@ import { UserAvatar } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 
 // Util Imports
-import type { PerfDimension, PerfParticipantItem } from '@/lib/perf-api'
+import type { PerfCycleSchedule, PerfDimension, PerfParticipantItem } from '@/lib/perf-api'
 import {
   DIMENSION_TYPE_LABEL,
   PARTICIPANT_STATUS_LABEL,
   SCORING_METHOD_LABEL,
   SELF_REVIEW_STATUS_LABEL,
   avatarUrlOf,
-  formatDate
+  formatDateTime
 } from '@/lib/perf-api'
 
 // ===== 考核人员（真实参与者行） =====
@@ -23,6 +23,11 @@ import {
 export type ParticipantRow = PerfParticipantItem
 
 export const participantColumns: ColumnDef<ParticipantRow>[] = [
+  {
+    id: 'jobLevelPrefix',
+    header: '职级前缀',
+    cell: ({ row }) => row.original.jobLevelPrefixSnapshot ? <Badge variant='outline'>{row.original.jobLevelPrefixSnapshot}</Badge> : <span className='text-destructive'>缺失</span>
+  },
   {
     id: 'employee',
     header: '员工',
@@ -136,25 +141,28 @@ export const dimensionColumns: ColumnDef<DimensionRow>[] = [
 
 // ===== 时间窗口（cycle.windows JSON → 行） =====
 
-export type StageWindowRow = { stage: string; startAt?: string; endAt?: string }
+export type StageWindowRow = PerfCycleSchedule
 
 export const WINDOW_STAGE_LABEL: Record<string, string> = {
-  selfReview: '员工自评',
-  review: '评审打分',
-  calibration: 'AI 分析 & 校准',
-  confirm: '结果确认',
-  appeal: '申诉处理'
+  SELF: '员工自评',
+  PEER: '360°评估',
+  MANAGER: '上级评估'
 }
 
 export const stageWindowColumns: ColumnDef<StageWindowRow>[] = [
-  { accessorKey: 'stage', header: '阶段' },
   {
-    id: 'window',
-    header: '时间窗口',
-    cell: ({ row }) => (
-      <span className='text-muted-foreground'>
-        {formatDate(row.original.startAt)} ~ {formatDate(row.original.endAt)}
-      </span>
-    )
+    id: 'stage',
+    header: '任务',
+    cell: ({ row }) => WINDOW_STAGE_LABEL[row.original.stage] ?? row.original.stage
+  },
+  {
+    id: 'startAt',
+    header: '任务开始时间',
+    cell: ({ row }) => <span className='text-muted-foreground'>{formatDateTime(row.original.startAt)}</span>
+  },
+  {
+    id: 'reminderDeadlineAt',
+    header: '填写提醒时间',
+    cell: ({ row }) => <span className='text-muted-foreground'>{formatDateTime(row.original.reminderDeadlineAt)}</span>
   }
 ]

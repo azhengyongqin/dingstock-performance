@@ -5,15 +5,7 @@ import { apiFetch } from './api'
 
 // ===== 枚举（与 backend/prisma schema 对齐） =====
 
-export type PerfCycleStatus =
-  | 'DRAFT'
-  | 'PENDING'
-  | 'SELF_REVIEW'
-  | 'REVIEWING'
-  | 'AI_ANALYZING'
-  | 'CALIBRATING'
-  | 'CONFIRMING'
-  | 'ARCHIVED'
+export type PerfCycleStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'ARCHIVED'
 
 export type PerfParticipantStatus =
   | 'PENDING_SELF_REVIEW'
@@ -70,23 +62,15 @@ export type PerfFormItemConfig = {
 
 export const CYCLE_STATUS_LABEL: Record<PerfCycleStatus, string> = {
   DRAFT: '草稿',
-  PENDING: '待启动',
-  SELF_REVIEW: '自评中',
-  REVIEWING: '评审中',
-  AI_ANALYZING: 'AI 分析中',
-  CALIBRATING: '校准中',
-  CONFIRMING: '结果确认中',
+  SCHEDULED: '待启动',
+  ACTIVE: '进行中',
   ARCHIVED: '已归档'
 }
 
 export const CYCLE_STATUS_BADGE: Record<PerfCycleStatus, string> = {
   DRAFT: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-  PENDING: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
-  SELF_REVIEW: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  REVIEWING: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  AI_ANALYZING: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-  CALIBRATING: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
-  CONFIRMING: 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400',
+  SCHEDULED: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+  ACTIVE: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   ARCHIVED: 'bg-muted text-muted-foreground'
 }
 
@@ -186,11 +170,16 @@ export type PerfCycle = {
   name: string
   type: PerfCycleType
   status: PerfCycleStatus
-  startDate: string
-  endDate: string
+  plannedStartAt?: string | null
   ownerOpenId: string
   templateId?: number | null
   template?: { id: number; name: string } | null
+  currentConfigVersionId?: number | null
+  currentConfigVersion?: {
+    id: number
+    version: number
+    sourceConfigTemplateVersionId?: number | null
+  } | null
   windows?: Record<string, { startAt?: string; endAt?: string }> | null
   notificationRules?: Record<string, unknown> | null
   evaluationRule?: PerfEvaluationRule | null
@@ -209,6 +198,9 @@ export type PerfParticipantItem = {
   employee: LarkUserBrief | null
   leader: LarkUserBrief | null
   departmentName: string | null
+  jobLevelCodeSnapshot?: string | null
+  jobLevelPrefixSnapshot?: PerfJobLevelPrefix | null
+  formSnapshotId?: number | null
   selfReview?: { status: PerfSelfReviewStatus; submittedAt?: string | null } | null
   managerReview?: { status: PerfReviewStatus; initialLevel?: string | null } | null
   result?: { finalLevel: string; confirmedByEmployee: boolean } | null
@@ -235,7 +227,16 @@ export type ReviewTaskItem = {
   employee: LarkUserBrief | null
 }
 
-export type StartCheckItem = { key: string; ok: boolean; message: string }
+export type CycleSetupStepTarget = 'basic' | 'participants' | 'plan' | 'advanced'
+
+export type StartCheckItem = {
+  key: string
+  ok: boolean
+  message: string
+  target?: CycleSetupStepTarget
+  actionLabel?: string
+  issues?: Array<{ code: string; path: string; message: string; participantId?: number; employeeOpenId?: string }>
+}
 
 export type PerfTemplate = {
   id: number
@@ -447,6 +448,96 @@ export type PerfConfigNotificationRules = {
   }>
 }
 
+// ===== 绩效周期四步创建与独立快照 =====
+
+export type PerfParticipantPrefixCheckStatus =
+  | 'MATCHED'
+  | 'MISSING_JOB_LEVEL'
+  | 'UNSUPPORTED_PREFIX'
+  | 'NO_FORM'
+  | 'AMBIGUOUS_FORM'
+
+export type PerfParticipantPrefixCheck = {
+  participantId: number
+  employeeOpenId: string
+  status: PerfParticipantPrefixCheckStatus
+  jobLevelCode: string | null
+  jobLevelPrefix: PerfJobLevelPrefix | null
+  formTemplateVersionId?: number | null
+  formSnapshotId?: number | null
+  formTemplateName?: string | null
+  message: string
+}
+
+export type PerfParticipantPrefixCheckResponse = {
+  ok: boolean
+  items: PerfParticipantPrefixCheck[]
+}
+
+export type PerfCycleSetupParticipant = PerfParticipantItem & {
+  jobLevelCodeSnapshot: string | null
+  jobLevelPrefixSnapshot: PerfJobLevelPrefix | null
+}
+
+export type PerfCycleSchedule = {
+  id?: number
+  stage: PerfConfigScheduleStage
+  startAt: string
+  reminderDeadlineAt: string
+}
+
+export type PerfCyclePlan = {
+  allowStageOverlap: boolean
+  stages: PerfCycleSchedule[]
+  notificationRules: PerfConfigNotificationRules
+  issues?: StartCheckItem[]
+}
+
+export type PerfCycleFormSnapshotSummary = {
+  id: number
+  jobLevelPrefix: PerfJobLevelPrefix
+  sourceFormTemplateVersionId: number
+  name?: string
+  version?: number
+  content?: { name?: string; version?: number; [key: string]: unknown }
+}
+
+export type PerfCycleConfigSnapshot = {
+  id: number
+  cycleId: number
+  version: number
+  sourceConfigTemplateVersionId: number | null
+  source?: {
+    id: number
+    templateId?: number
+    name: string
+    version: number
+  } | null
+  stageModes: PerfConfigTemplateVersion['stageModes']
+  ratings: PerfConfigTemplateRating[]
+  constraintProfiles: PerfConfigConstraintProfiles
+  reviewerRelationWeights: Record<PerfConfigReviewerRelation, string>
+  notificationRules: PerfConfigNotificationRules
+  allowStageOverlap: boolean
+  forms: PerfCycleFormSnapshotSummary[]
+}
+
+export type CreatePerfCycleInput = {
+  name: string
+  configTemplateVersionId: number
+  plannedStartAt: string
+}
+
+export type UpdatePerfCycleBasicInput = {
+  name: string
+  plannedStartAt: string
+}
+
+export type UpdatePerfCycleAdvancedConfigInput = Pick<
+  PerfConfigTemplateVersion,
+  'stageModes' | 'ratings' | 'constraintProfiles' | 'reviewerRelationWeights'
+>
+
 export type ConfigTemplateValidationIssue = {
   code: string
   message: string
@@ -579,6 +670,46 @@ export const previewPerfConfigTemplateCalculation = <T = Record<string, unknown>
     method: 'POST',
     body: JSON.stringify(input)
   })
+
+/** 四步创建接口集中在业务 API 层，页面不再拼接旧模板或直接启动路径。 */
+export const createPerfCycle = (input: CreatePerfCycleInput) =>
+  apiFetch<PerfCycle>('/cycles', { method: 'POST', body: JSON.stringify(input) })
+
+export const updatePerfCycleBasic = (cycleId: number, input: UpdatePerfCycleBasicInput) =>
+  apiFetch<PerfCycle>(`/cycles/${cycleId}`, { method: 'PATCH', body: JSON.stringify(input) })
+
+/** 旧周期迁为 DRAFT 后，由用户选择配置并一次性补齐新版快照。 */
+export const initializePerfCycleSetup = (cycleId: number, input: CreatePerfCycleInput) =>
+  apiFetch<PerfCycle>(`/cycles/${cycleId}/config-snapshot/initialize`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+
+export const getPerfCycleConfigSnapshot = (cycleId: number) =>
+  apiFetch<PerfCycleConfigSnapshot>(`/cycles/${cycleId}/config-snapshot`)
+
+export const updatePerfCycleAdvancedConfig = (cycleId: number, input: UpdatePerfCycleAdvancedConfigInput) =>
+  apiFetch<PerfCycleConfigSnapshot>(`/cycles/${cycleId}/config-snapshot`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const getPerfCycleParticipantPrefixCheck = (cycleId: number) =>
+  apiFetch<PerfParticipantPrefixCheckResponse>(`/cycles/${cycleId}/participants/prefix-check`)
+
+export const getPerfCyclePlan = (cycleId: number) => apiFetch<PerfCyclePlan>(`/cycles/${cycleId}/plan`)
+
+export const updatePerfCyclePlan = (cycleId: number, input: PerfCyclePlan) =>
+  apiFetch<PerfCyclePlan>(`/cycles/${cycleId}/plan`, { method: 'PUT', body: JSON.stringify(input) })
+
+export const getPerfCycleStartCheck = (cycleId: number) =>
+  apiFetch<{ items: StartCheckItem[]; ok: boolean }>(`/cycles/${cycleId}/start-check`)
+
+export const schedulePerfCycle = (cycleId: number) =>
+  apiFetch<{ changed: boolean; cycle: PerfCycle }>(`/cycles/${cycleId}/schedule`, { method: 'POST' })
+
+export const returnPerfCycleToDraft = (cycleId: number) =>
+  apiFetch<{ changed: boolean; cycle: PerfCycle }>(`/cycles/${cycleId}/return-to-draft`, { method: 'POST' })
 
 // ===== 小工具 =====
 

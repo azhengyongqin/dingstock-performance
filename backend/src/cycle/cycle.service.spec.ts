@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
@@ -34,10 +34,8 @@ jest.mock(
   () => ({
     PerfCycleStatus: {
       DRAFT: 'DRAFT',
-      PENDING: 'PENDING',
-      SELF_REVIEW: 'SELF_REVIEW',
-      REVIEWING: 'REVIEWING',
-      CONFIRMING: 'CONFIRMING',
+      SCHEDULED: 'SCHEDULED',
+      ACTIVE: 'ACTIVE',
       ARCHIVED: 'ARCHIVED',
     },
     PerfNotificationChannel: {
@@ -132,85 +130,6 @@ describe('CycleService', () => {
     service = moduleRef.get(CycleService);
   });
 
-  it('使用不可用配置模板创建绩效周期时拒绝并返回业务原因', async () => {
-    txMock.perfTemplate.findFirst.mockResolvedValue({
-      id: 10,
-      levels: [],
-      commentRequiredRules: null,
-      dimensions: [{ id: 1, weight: 100, applicableScope: null }],
-    });
-
-    await expect(
-      service.createCycle('ou_hr', {
-        name: '2026 H1 绩效评估',
-        startDate: '2026-01-01',
-        endDate: '2026-06-30',
-        templateId: 10,
-      }),
-    ).rejects.toThrow(BadRequestException);
-  });
-
-  it('使用可用配置模板创建绩效周期时复制评估规则与评估维度快照', async () => {
-    txMock.perfCycle.create.mockResolvedValue({
-      id: 100,
-      name: '2026 H1 绩效评估',
-      status: 'DRAFT',
-    });
-    txMock.perfTemplate.findFirst.mockResolvedValue({
-      id: 10,
-      levels: TEST_RATINGS,
-      commentRequiredRules: { requiredRatingSymbols: ['S', 'C'] },
-      dimensions: [
-        {
-          id: 1,
-          name: '业绩',
-          type: 'REGULAR',
-          scoringMethod: 'LEVEL',
-          weight: 100,
-          required: true,
-          sortOrder: 0,
-          visibleRoles: ['LEADER'],
-          editableRoles: ['LEADER'],
-          formSchema: null,
-          applicableScope: null,
-          conclusionOptions: null,
-          employeeVisible: null,
-        },
-      ],
-    });
-    prismaMock.perfCycle.findFirst.mockResolvedValue({
-      id: 100,
-      templateId: 10,
-      evaluationRule: { levels: TEST_RATINGS },
-      dimensions: [{ id: 200, name: '业绩' }],
-      _count: { participants: 0 },
-    });
-
-    const cycle = await service.createCycle('ou_hr', {
-      name: '2026 H1 绩效评估',
-      startDate: '2026-01-01',
-      endDate: '2026-06-30',
-      templateId: 10,
-    });
-
-    expect(txMock.perfEvaluationRule.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        cycleId: 100,
-        levels: TEST_RATINGS,
-      }),
-    });
-    expect(txMock.perfDimension.createMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          cycleId: 100,
-          name: '业绩',
-          weight: 100,
-        }),
-      ],
-    });
-    expect(cycle.templateId).toBe(10);
-  });
-
   it('启动前重新套用配置模板会整体覆盖周期配置并记录业务审计', async () => {
     prismaMock.perfCycle.findFirst
       .mockResolvedValueOnce({
@@ -285,7 +204,7 @@ describe('CycleService', () => {
   it('周期启动后拒绝重新套用配置模板', async () => {
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'SELF_REVIEW',
+      status: 'ACTIVE',
     });
 
     await expect(
@@ -296,7 +215,7 @@ describe('CycleService', () => {
   it('ADMIN 可编辑进行中周期的评估维度（非破坏性新增无需确认）', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst
-      .mockResolvedValueOnce({ id: 100, status: 'SELF_REVIEW' })
+      .mockResolvedValueOnce({ id: 100, status: 'ACTIVE' })
       .mockResolvedValueOnce({
         id: 100,
         dimensions: [{ id: 300, name: '新维度' }],
@@ -323,7 +242,7 @@ describe('CycleService', () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'REVIEWING',
+      status: 'ACTIVE',
     });
     prismaMock.perfDimension.findMany.mockResolvedValue([
       {
@@ -353,7 +272,7 @@ describe('CycleService', () => {
   it('ADMIN 带 confirm 时执行进行中的破坏性维度删除', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst
-      .mockResolvedValueOnce({ id: 100, status: 'REVIEWING' })
+      .mockResolvedValueOnce({ id: 100, status: 'ACTIVE' })
       .mockResolvedValueOnce({
         id: 100,
         dimensions: [],
@@ -391,5 +310,18 @@ describe('CycleService', () => {
     await expect(
       service.updateCycle('ou_admin', 100, { name: '改名' }),
     ).rejects.toThrow(ConflictException);
+  });
+
+  it('新版周期调用旧配置写接口时明确拒绝，避免静默写入 legacy 字段', async () => {
+    prismaMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'DRAFT',
+      currentConfigVersionId: 19,
+    });
+
+    await expect(
+      service.updateNotificationRules('ou_hr', 100, { stages: [] }),
+    ).rejects.toThrow(ConflictException);
+    expect(txMock.perfCycle.update).not.toHaveBeenCalled();
   });
 });

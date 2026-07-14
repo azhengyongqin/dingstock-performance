@@ -4,15 +4,10 @@ import { assertCycleTransition } from './cycle-state';
 
 describe('周期状态机', () => {
   const legal: [PerfCycleStatus, PerfCycleStatus][] = [
-    [PerfCycleStatus.DRAFT, PerfCycleStatus.PENDING],
-    [PerfCycleStatus.PENDING, PerfCycleStatus.SELF_REVIEW],
-    [PerfCycleStatus.PENDING, PerfCycleStatus.DRAFT],
-    [PerfCycleStatus.SELF_REVIEW, PerfCycleStatus.REVIEWING],
-    [PerfCycleStatus.REVIEWING, PerfCycleStatus.AI_ANALYZING],
-    [PerfCycleStatus.REVIEWING, PerfCycleStatus.CALIBRATING],
-    [PerfCycleStatus.AI_ANALYZING, PerfCycleStatus.CALIBRATING],
-    [PerfCycleStatus.CALIBRATING, PerfCycleStatus.CONFIRMING],
-    [PerfCycleStatus.CONFIRMING, PerfCycleStatus.ARCHIVED],
+    [PerfCycleStatus.DRAFT, PerfCycleStatus.SCHEDULED],
+    [PerfCycleStatus.SCHEDULED, PerfCycleStatus.DRAFT],
+    [PerfCycleStatus.SCHEDULED, PerfCycleStatus.ACTIVE],
+    [PerfCycleStatus.ACTIVE, PerfCycleStatus.ARCHIVED],
   ];
 
   it.each(legal)('允许 %s → %s', (from, to) => {

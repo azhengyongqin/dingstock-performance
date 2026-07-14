@@ -56,7 +56,7 @@ export class ReviewService {
       where: {
         reviewerOpenId,
         status: { not: PerfAssignmentStatus.REPLACED },
-        cycle: { deletedAt: null, status: { notIn: ['DRAFT', 'PENDING'] } },
+        cycle: { deletedAt: null, status: 'ACTIVE' },
       },
       include: {
         participant: true,
@@ -71,7 +71,7 @@ export class ReviewService {
         leaderOpenIdSnapshot: reviewerOpenId,
         cycle: {
           deletedAt: null,
-          status: { notIn: ['DRAFT', 'PENDING', 'ARCHIVED'] },
+          status: 'ACTIVE',
         },
       },
       include: {

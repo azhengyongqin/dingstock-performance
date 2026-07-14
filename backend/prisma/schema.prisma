@@ -172,16 +172,12 @@ enum PerfCycleType {
   @@schema("performance")
 }
 
-/// 周期状态机（研发文档 §8.2）：DRAFT → PENDING → SELF_REVIEW → REVIEWING → AI_ANALYZING → CALIBRATING → CONFIRMING → ARCHIVED
+/// 周期只保存粗粒度生命周期；具体评估进度由任务和参与人事实派生。
 enum PerfCycleStatus {
-  DRAFT /// 草稿：唯一允许删除周期的状态
-  PENDING /// 待启动
-  SELF_REVIEW /// 自评中
-  REVIEWING /// 评审中
-  AI_ANALYZING /// AI 分析中
-  CALIBRATING /// 校准中
-  CONFIRMING /// 结果确认中
-  ARCHIVED /// 已归档
+  DRAFT /// 草稿：允许配置与名单调整
+  SCHEDULED /// 待启动：通过启动检查，等待计划启动
+  ACTIVE /// 进行中：各人工任务可并行推进
+  ARCHIVED /// 已归档：永久只读终态
 
   @@schema("performance")
 }
@@ -462,6 +458,7 @@ model PerfFormTemplateVersion {
   derivedVersions PerfFormTemplateVersion[] @relation("PerfFormTemplateVersionSource")
   subforms        PerfFormSubform[]
   configBindings  PerfConfigFormBinding[]
+  cycleSnapshots  PerfCycleFormSnapshot[]   @relation("PerfCycleFormSnapshotSource")
 
   @@unique([templateId, version])
   /// 供配置模板绑定使用；冗余职级前缀进入复合外键，防止绑定记录伪造适用前缀。
@@ -585,6 +582,7 @@ model PerfConfigTemplateVersion {
   sourceVersion   PerfConfigTemplateVersion?  @relation("PerfConfigTemplateVersionSource", fields: [sourceVersionId], references: [id], onDelete: Restrict)
   derivedVersions PerfConfigTemplateVersion[] @relation("PerfConfigTemplateVersionSource")
   formBindings    PerfConfigFormBinding[]
+  cycleVersions   PerfCycleConfigVersion[]    @relation("PerfCycleConfigVersionSource")
 
   @@unique([templateId, version])
   @@index([templateId, status])
@@ -609,6 +607,63 @@ model PerfConfigFormBinding {
   @@unique([configVersionId, jobLevelPrefix])
   @@index([formTemplateVersionId])
   @@map("perf_config_form_bindings")
+  @@schema("performance")
+}
+
+/// 周期内独立的计算配置快照版本；首版从已发布配置模板复制，后续版本不回写模板。
+model PerfCycleConfigVersion {
+  id                            Int                 @id @default(autoincrement()) /// 内部自增主键
+  cycleId                       Int                 @map("cycle_id") /// 所属绩效周期
+  version                       Int /// 周期内递增版本号，从 1 开始
+  sourceConfigTemplateVersionId Int?                @map("source_config_template_version_id") /// 来源配置模板版本；历史回填可为空
+  selfStageMode                 PerfStageResultMode @map("self_stage_mode") /// 自评固定直接评级
+  peerStageMode                 PerfStageResultMode @map("peer_stage_mode") /// 360°加权评级或加权评分
+  managerStageMode              PerfStageResultMode @map("manager_stage_mode") /// 上级评估加权评级或加权评分
+  aiStageMode                   PerfStageResultMode @map("ai_stage_mode") /// AI 固定直接评级
+  ratings                       Json /// 固定 S/A/B/C 的等级、区间、映射分和评语要求快照
+  constraintProfiles            Json                @map("constraint_profiles") /// 按计算模式保存的受控约束快照
+  orgOwnerWeight                Decimal             @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
+  projectOwnerWeight            Decimal             @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
+  peerWeight                    Decimal             @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
+  crossDeptWeight               Decimal             @map("cross_dept_weight") @db.Decimal(5, 2) /// 跨部门协作方基础权重
+  schedulePreset                Json                @map("schedule_preset") /// 相对计划启动时间的开放与软提醒规则
+  notificationRules             Json                @map("notification_rules") /// 飞书通知接收人、抄送人与提醒频率快照
+  createdByOpenId               String              @map("created_by_open_id") /// 创建快照版本的操作者 open_id
+  createdAt                     DateTime            @default(now()) @map("created_at") /// 创建时间
+  updatedAt                     DateTime            @updatedAt @map("updated_at") /// DRAFT / SCHEDULED 阶段的最近调整时间
+
+  cycle               PerfCycle                  @relation("PerfCycleConfigVersions", fields: [cycleId], references: [id], onDelete: Cascade)
+  currentForCycle     PerfCycle?                 @relation("PerfCycleCurrentConfigVersion")
+  sourceConfigVersion PerfConfigTemplateVersion? @relation("PerfCycleConfigVersionSource", fields: [sourceConfigTemplateVersionId], references: [id], onDelete: Restrict)
+  formSnapshots       PerfCycleFormSnapshot[]
+
+  @@unique([cycleId, version])
+  /// 表单快照用复合外键锁定配置版本与周期，防止跨周期挂载。
+  @@unique([id, cycleId])
+  @@index([sourceConfigTemplateVersionId])
+  @@map("perf_cycle_config_versions")
+  @@schema("performance")
+}
+
+/// 周期表单快照；每个配置版本对 D/M 前缀各保存一份完整且独立的表单内容。
+model PerfCycleFormSnapshot {
+  id                          Int                @id @default(autoincrement()) /// 内部自增主键
+  cycleConfigVersionId        Int                @map("cycle_config_version_id") /// 所属周期配置版本
+  cycleId                     Int                @map("cycle_id") /// 冗余周期 ID，用于复合外键阻止跨周期挂载
+  jobLevelPrefix              PerfJobLevelPrefix @map("job_level_prefix") /// 受控 D/M 职级前缀
+  sourceFormTemplateVersionId Int                @map("source_form_template_version_id") /// 来源已发布表单版本
+  content                     Json /// 完整子表单、维度、评估项及稳定快照 key 的 JSONB
+  createdAt                   DateTime           @default(now()) @map("created_at") /// 创建时间
+  updatedAt                   DateTime           @updatedAt @map("updated_at") /// DRAFT / SCHEDULED 阶段的最近调整时间
+
+  configVersion     PerfCycleConfigVersion  @relation(fields: [cycleConfigVersionId, cycleId], references: [id, cycleId], onDelete: Cascade)
+  sourceFormVersion PerfFormTemplateVersion @relation("PerfCycleFormSnapshotSource", fields: [sourceFormTemplateVersionId], references: [id], onDelete: Restrict)
+  participants      PerfParticipant[]
+
+  @@unique([cycleConfigVersionId, jobLevelPrefix])
+  @@index([cycleId])
+  @@index([sourceFormTemplateVersionId])
+  @@map("perf_cycle_form_snapshots")
   @@schema("performance")
 }
 
@@ -662,30 +717,34 @@ model PerfTemplateDimension {
   @@schema("performance")
 }
 
-/// 绩效周期：评估流程顶层聚合。仅 DRAFT 状态允许删除（软删除），启动后只能流转状态。
+/// 绩效周期：评审活动顶层聚合；名称表达业务期间，仅 DRAFT 允许软删除。
 model PerfCycle {
-  id                Int             @id @default(autoincrement()) /// 内部自增主键
-  name              String /// 周期名称，如「2026 H1 绩效评估」
-  type              PerfCycleType   @default(SEMI_ANNUAL) /// 周期类型
-  status            PerfCycleStatus @default(DRAFT) /// 周期状态机，流转由 service 显式控制并写审计
-  startDate         DateTime        @map("start_date") @db.Date /// 周期开始日期
-  endDate           DateTime        @map("end_date") @db.Date /// 周期结束日期
-  ownerOpenId       String          @map("owner_open_id") /// 周期负责人（HR）飞书 open_id
-  templateId        Int?            @map("template_id") /// 来源配置模板，仅溯源用；周期实际配置以复制到本周期的快照（evaluation_rule/dimensions）为准
-  windows           Json? /// 各阶段时间窗口（产品 §9.3）：{ selfReview/review/calibration/confirm/appeal: { startAt, endAt, remindAt[] } }
-  notificationRules Json?           @map("notification_rules") /// 催办规则（产品 §9.9）：截止前提醒/逾期频率/接收人/抄送 Leader/HR
-  createdAt         DateTime        @default(now()) @map("created_at") /// 创建时间
-  updatedAt         DateTime        @updatedAt @map("updated_at") /// 最近更新时间
-  deletedAt         DateTime?       @map("deleted_at") /// 软删除时间；仅 DRAFT 可删，查询默认过滤 null
+  id                     Int             @id @default(autoincrement()) /// 内部自增主键
+  name                   String /// 周期名称，如「2026 上半年绩效评定」；直接承担业务期间表达
+  type                   PerfCycleType   @default(SEMI_ANNUAL) /// 周期类型
+  status                 PerfCycleStatus @default(DRAFT) /// DRAFT / SCHEDULED / ACTIVE / ARCHIVED 粗粒度生命周期
+  startDate              DateTime?       @map("start_date") @db.Date /// 遗留周期的考核期间开始日；新版四步创建不再要求
+  endDate                DateTime?       @map("end_date") @db.Date /// 遗留周期的考核期间结束日；新版四步创建不再要求
+  plannedStartAt         DateTime?       @map("planned_start_at") /// 计划启动时间；相对日程换算绝对时间的唯一锚点
+  ownerOpenId            String          @map("owner_open_id") /// 周期负责人（HR）飞书 open_id
+  templateId             Int?            @map("template_id") /// 遗留 PerfTemplate 来源；不得复用为新版配置版本 ID
+  currentConfigVersionId Int?            @unique @map("current_config_version_id") /// 当前周期配置快照；遗留周期可为空
+  windows                Json? /// 遗留周期绝对窗口；新版周期从配置快照与计划启动时间派生
+  notificationRules      Json?           @map("notification_rules") /// 遗留周期通知规则；新版周期读取配置快照
+  createdAt              DateTime        @default(now()) @map("created_at") /// 创建时间
+  updatedAt              DateTime        @updatedAt @map("updated_at") /// 最近更新时间
+  deletedAt              DateTime?       @map("deleted_at") /// 软删除时间；仅 DRAFT 可删，查询默认过滤 null
 
-  template            PerfTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  evaluationRule      PerfEvaluationRule?
-  dimensions          PerfDimension[]
-  participants        PerfParticipant[]
-  reviewerAssignments PerfReviewerAssignment[]
-  exportTasks         ReportExportTask[]
+  template             PerfTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  currentConfigVersion PerfCycleConfigVersion?  @relation("PerfCycleCurrentConfigVersion", fields: [currentConfigVersionId], references: [id], onDelete: SetNull)
+  configVersions       PerfCycleConfigVersion[] @relation("PerfCycleConfigVersions")
+  evaluationRule       PerfEvaluationRule?
+  dimensions           PerfDimension[]
+  participants         PerfParticipant[]
+  reviewerAssignments  PerfReviewerAssignment[]
+  exportTasks          ReportExportTask[]
 
-  @@index([status])
+  @@index([status, plannedStartAt])
   @@index([deletedAt])
   @@index([templateId])
   @@map("perf_cycles")
@@ -740,21 +799,23 @@ model PerfDimension {
   @@schema("performance")
 }
 
-/// 考核人员：单人评估过程的聚合根（产品 §8.5）。自评/360°/上级/AI/校准/结果/申诉/面谈全部挂本表。
-/// 快照字段在周期启动时写入，组织变动不影响历史（产品 §6.1.5、§6.6.4）。
+/// 参与人：单人评估过程的聚合根；加入周期时先固化前缀与表单绑定，启动时再复核组织快照。
 model PerfParticipant {
-  id                   Int                   @id @default(autoincrement()) /// 内部自增主键
-  cycleId              Int                   @map("cycle_id") /// 所属周期
-  employeeOpenId       String                @map("employee_open_id") /// 被考核员工飞书 open_id（逻辑外键 lark_users，展示层 join）
-  leaderOpenIdSnapshot String?               @map("leader_open_id_snapshot") /// 启动时直属 Leader open_id 快照；上级评估/团队看板按此过滤
-  departmentIdSnapshot String?               @map("department_id_snapshot") /// 启动时部门 open_department_id 快照
-  jobLevelSnapshot     Json?                 @map("job_level_snapshot") /// 启动时职级/岗位快照（来自 corehr job_level 等对象，含 jobCategory 岗位类别如 D/M）；用于维度 applicable_scope 匹配与展示
-  isPromotionEnabled   Boolean               @default(false) @map("is_promotion_enabled") /// 是否启用晋升评估维度
-  status               PerfParticipantStatus @default(PENDING_SELF_REVIEW) /// 参与者状态机
-  createdAt            DateTime              @default(now()) @map("created_at") /// 创建时间
-  updatedAt            DateTime              @updatedAt @map("updated_at") /// 最近更新时间
+  id                     Int                   @id @default(autoincrement()) /// 内部自增主键
+  cycleId                Int                   @map("cycle_id") /// 所属周期
+  employeeOpenId         String                @map("employee_open_id") /// 被考核员工飞书 open_id（逻辑外键 lark_users，展示层 join）
+  leaderOpenIdSnapshot   String?               @map("leader_open_id_snapshot") /// 启动时直属 Leader open_id 快照；上级评估/团队看板按此过滤
+  departmentIdSnapshot   String?               @map("department_id_snapshot") /// 启动时部门 open_department_id 快照
+  jobLevelSnapshot       Json?                 @map("job_level_snapshot") /// 启动时职级/岗位快照（来自 corehr job_level 等对象，含 jobCategory 岗位类别如 D/M）；用于维度 applicable_scope 匹配与展示
+  jobLevelPrefixSnapshot PerfJobLevelPrefix?   @map("job_level_prefix_snapshot") /// 从 CoreHR 职级 code 提取的 D/M 前缀；遗留数据可为空
+  formSnapshotId         Int?                  @map("form_snapshot_id") /// 精确匹配的周期表单快照；与职级前缀成对存在
+  isPromotionEnabled     Boolean               @default(false) @map("is_promotion_enabled") /// 是否启用晋升评估维度
+  status                 PerfParticipantStatus @default(PENDING_SELF_REVIEW) /// 参与者状态机
+  createdAt              DateTime              @default(now()) @map("created_at") /// 创建时间
+  updatedAt              DateTime              @updatedAt @map("updated_at") /// 最近更新时间
 
-  cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  cycle        PerfCycle              @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  formSnapshot PerfCycleFormSnapshot? @relation(fields: [formSnapshotId], references: [id], onDelete: Restrict)
 
   reviewerAssignments PerfReviewerAssignment[]
   selfReview          PerfSelfReview?
@@ -769,7 +830,9 @@ model PerfParticipant {
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
   @@index([cycleId, status])
   @@index([cycleId, leaderOpenIdSnapshot])
+  @@index([cycleId, jobLevelPrefixSnapshot])
   @@index([employeeOpenId])
+  @@index([formSnapshotId])
   @@map("perf_participants")
   @@schema("performance")
 }

@@ -90,11 +90,16 @@ const PerformanceProfile = () => {
 
   const items = useMemo(() => data?.items ?? [], [data])
 
-  // 趋势图数据：按周期开始时间正序（旧 → 新），等级映射为数值
+  // 周期名称承担业务期间表达；趋势只按归档时间排序，不再读取已移除的考核期间日期。
   const trendData = useMemo(
     () =>
       [...items]
-        .sort((a, b) => new Date(a.cycle.startDate).getTime() - new Date(b.cycle.startDate).getTime())
+        .sort((a, b) => {
+          const aTime = a.archivedAt ? new Date(a.archivedAt).getTime() : a.cycle.id
+          const bTime = b.archivedAt ? new Date(b.archivedAt).getTime() : b.cycle.id
+
+          return aTime - bTime
+        })
         .map(item => ({
           cycle: item.cycle.name,
           levelValue: levelToValue(item.finalLevel),

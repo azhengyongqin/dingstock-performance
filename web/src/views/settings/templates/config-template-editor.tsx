@@ -70,7 +70,16 @@ type Props = {
   onChange: (value: PerfConfigTemplateVersion) => void
   section?: ConfigTemplateSection
   onSectionChange?: (section: ConfigTemplateSection) => void
+  visibleSections?: ConfigTemplateSection[]
 }
+
+const CONFIG_SECTIONS: Array<{ value: ConfigTemplateSection; label: string }> = [
+  { value: 'ratings', label: '评级与模式' },
+  { value: 'constraints', label: '等级约束' },
+  { value: 'relations', label: '关系权重' },
+  { value: 'bindings', label: '表单绑定' },
+  { value: 'schedule', label: '日程通知' }
+]
 
 /** 配置模板草稿编辑器：所有可变项均来自固定枚举，不接受公式、脚本或自由扩展评级。 */
 const ConfigTemplateEditor = ({
@@ -79,10 +88,12 @@ const ConfigTemplateEditor = ({
   editable,
   onChange,
   section = 'ratings',
-  onSectionChange
+  onSectionChange,
+  visibleSections = CONFIG_SECTIONS.map(item => item.value)
 }: Props) => {
   const [internalSection, setInternalSection] = useState<ConfigTemplateSection>(section)
-  const activeSection = onSectionChange ? section : internalSection
+  const requestedSection = onSectionChange ? section : internalSection
+  const activeSection = visibleSections.includes(requestedSection) ? requestedSection : (visibleSections[0] ?? 'ratings')
   const patch = (next: Partial<PerfConfigTemplateVersion>) => onChange({ ...value, ...next })
 
   const patchRating = (symbol: PerfPerformanceLevel, next: Partial<(typeof value.ratings)[number]>) =>
@@ -188,11 +199,9 @@ const ConfigTemplateEditor = ({
       className='flex flex-col gap-4'
     >
       <TabsList className='h-auto flex-wrap justify-start'>
-        <TabsTrigger value='ratings'>评级与模式</TabsTrigger>
-        <TabsTrigger value='constraints'>等级约束</TabsTrigger>
-        <TabsTrigger value='relations'>关系权重</TabsTrigger>
-        <TabsTrigger value='bindings'>表单绑定</TabsTrigger>
-        <TabsTrigger value='schedule'>日程通知</TabsTrigger>
+        {CONFIG_SECTIONS.filter(item => visibleSections.includes(item.value)).map(item => (
+          <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>
+        ))}
       </TabsList>
 
       <TabsContent value='ratings' className='flex flex-col gap-6'>

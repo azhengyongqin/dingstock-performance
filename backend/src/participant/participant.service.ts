@@ -8,10 +8,12 @@ import {
   PerfCycleStatus,
   PerfParticipantStatus,
 } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { assertParticipantTransition } from './participant-state';
+import { analyzeParticipantFormMatch } from '../cycle/participant-prefix';
 
 @Injectable()
 export class ParticipantService {
@@ -101,7 +103,7 @@ export class ParticipantService {
   /**
    * 名单可增删校验（角色感知）：
    * - ADMIN：除已归档外的任何状态都可增删考核人员；
-   * - 其余（HR）：仅 DRAFT/PENDING 可增删（保持原限制）。
+   * - 其余（HR）：仅 DRAFT/SCHEDULED 可增删。
    */
   private async assertMutable(
     cycleStatus: PerfCycleStatus,
@@ -115,36 +117,37 @@ export class ParticipantService {
     }
     if (
       cycleStatus !== PerfCycleStatus.DRAFT &&
-      cycleStatus !== PerfCycleStatus.PENDING
+      cycleStatus !== PerfCycleStatus.SCHEDULED
     ) {
       throw new ConflictException('周期已启动，考核人员名单不可增删');
     }
   }
 
-  /** 进行中（可能已产生评估数据）：非 DRAFT/PENDING/ARCHIVED */
+  /** 进行中（可能已产生评估数据）：ACTIVE */
   private isInProgress(status: PerfCycleStatus) {
-    return (
-      status !== PerfCycleStatus.DRAFT &&
-      status !== PerfCycleStatus.PENDING &&
-      status !== PerfCycleStatus.ARCHIVED
-    );
+    return status === PerfCycleStatus.ACTIVE;
   }
 
   /**
-   * 进行中新增考核人员：为新参与者回填 Leader/部门/职级快照并置 PENDING_SELF_REVIEW，
-   * 使其与启动时圈定的人一致地并入评估流程。快照口径同 CycleService.startCycle：CoreHR > 通讯录。
+   * 新增名单时立即固化主数据与 D/M 表单匹配。
+   * 四步向导第二步因此可以展示真实阻塞项，而不必等到周期启动。
    */
-  private async snapshotNewParticipants(cycleId: number, openIds: string[]) {
-    const participants = await this.prisma.perfParticipant.findMany({
+  private async snapshotNewParticipants(
+    tx: Prisma.TransactionClient,
+    cycleId: number,
+    openIds: string[],
+    active: boolean,
+  ) {
+    const participants = await tx.perfParticipant.findMany({
       where: { cycleId, employeeOpenId: { in: openIds } },
     });
     if (participants.length === 0) return;
-    const [users, corehrs] = await Promise.all([
-      this.prisma.larkUser.findMany({
+    const [users, corehrs, cycle] = await Promise.all([
+      tx.larkUser.findMany({
         where: { open_id: { in: openIds } },
         select: { open_id: true, leader_user_id: true, department_ids: true },
       }),
-      this.prisma.larkCorehrEmployee.findMany({
+      tx.larkCorehrEmployee.findMany({
         where: { open_id: { in: openIds } },
         select: {
           open_id: true,
@@ -153,27 +156,45 @@ export class ParticipantService {
           job_level: true,
         },
       }),
+      tx.perfCycle.findUnique({
+        where: { id: cycleId },
+        include: {
+          currentConfigVersion: { include: { formSnapshots: true } },
+        },
+      }),
     ]);
     const userMap = new Map(users.map((u) => [u.open_id, u]));
     const corehrMap = new Map(corehrs.map((c) => [c.open_id, c]));
 
-    await this.prisma.$transaction(async (tx) => {
-      for (const participant of participants) {
-        const user = userMap.get(participant.employeeOpenId);
-        const corehr = corehrMap.get(participant.employeeOpenId);
-        await tx.perfParticipant.update({
-          where: { id: participant.id },
-          data: {
-            leaderOpenIdSnapshot:
-              corehr?.direct_manager_id ?? user?.leader_user_id ?? null,
-            departmentIdSnapshot:
-              corehr?.department_id ?? user?.department_ids?.[0] ?? null,
-            jobLevelSnapshot: corehr?.job_level ?? undefined,
-            status: PerfParticipantStatus.PENDING_SELF_REVIEW,
-          },
-        });
-      }
-    });
+    for (const participant of participants) {
+      const user = userMap.get(participant.employeeOpenId);
+      const corehr = corehrMap.get(participant.employeeOpenId);
+      const formMatch = analyzeParticipantFormMatch(
+        {
+          id: participant.id,
+          employeeOpenId: participant.employeeOpenId,
+          jobLevelSnapshot: corehr?.job_level ?? null,
+        },
+        cycle?.currentConfigVersion?.formSnapshots ?? [],
+      );
+      await tx.perfParticipant.update({
+        where: { id: participant.id },
+        data: {
+          leaderOpenIdSnapshot:
+            corehr?.direct_manager_id ?? user?.leader_user_id ?? null,
+          departmentIdSnapshot:
+            corehr?.department_id ?? user?.department_ids?.[0] ?? null,
+          jobLevelSnapshot: corehr?.job_level ?? undefined,
+          jobLevelPrefixSnapshot:
+            formMatch.status === 'MATCHED' ? formMatch.jobLevelPrefix : null,
+          formSnapshotId:
+            formMatch.status === 'MATCHED' ? formMatch.formSnapshotId : null,
+          status: active
+            ? PerfParticipantStatus.PENDING_SELF_REVIEW
+            : undefined,
+        },
+      });
+    }
   }
 
   /**
@@ -216,47 +237,60 @@ export class ParticipantService {
     cycleId: number,
     openIds: string[],
   ) {
-    const cycle = await this.requireCycle(cycleId);
-    await this.assertMutable(cycle.status, operatorOpenId);
     if (openIds.length === 0) throw new BadRequestException('人员名单为空');
 
-    const users = await this.prisma.larkUser.findMany({
-      where: { open_id: { in: openIds } },
-      select: { open_id: true },
-    });
-    const validIds = new Set(users.map((u) => u.open_id));
-    const missing = openIds.filter((id) => !validIds.has(id));
-    const toAdd = openIds.filter((id) => validIds.has(id));
+    const mutation = await this.prisma.$transaction(async (tx) => {
+      // 与 schedule 使用同一周期行锁，保证增员提交时 SCHEDULED 完整性始终成立。
+      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_cycles" WHERE "id" = ${cycleId} AND "deleted_at" IS NULL FOR UPDATE`;
+      const cycle = await tx.perfCycle.findFirst({
+        where: { id: cycleId, deletedAt: null },
+      });
+      if (!cycle) throw new NotFoundException('绩效周期不存在');
+      await this.assertMutable(cycle.status, operatorOpenId);
 
-    // 记录新增前已在名单中的人，用于识别真正新增者（进行中需回填快照，避免误重置已进入流程的参与者）
-    const existing = await this.prisma.perfParticipant.findMany({
-      where: { cycleId, employeeOpenId: { in: toAdd } },
-      select: { employeeOpenId: true },
-    });
-    const existingSet = new Set(existing.map((p) => p.employeeOpenId));
-
-    const result = await this.prisma.perfParticipant.createMany({
-      data: toAdd.map((employeeOpenId) => ({ cycleId, employeeOpenId })),
-      skipDuplicates: true,
-    });
-
-    // 进行中新增：为新参与者回填快照并置 PENDING_SELF_REVIEW，正确并入流程
-    if (this.isInProgress(cycle.status)) {
+      const users = await tx.larkUser.findMany({
+        where: { open_id: { in: openIds } },
+        select: { open_id: true },
+      });
+      const validIds = new Set(users.map((user) => user.open_id));
+      const missing = openIds.filter((id) => !validIds.has(id));
+      const toAdd = openIds.filter((id) => validIds.has(id));
+      const existing = await tx.perfParticipant.findMany({
+        where: { cycleId, employeeOpenId: { in: toAdd } },
+        select: { employeeOpenId: true },
+      });
+      const existingSet = new Set(existing.map((row) => row.employeeOpenId));
+      const result = await tx.perfParticipant.createMany({
+        data: toAdd.map((employeeOpenId) => ({ cycleId, employeeOpenId })),
+        skipDuplicates: true,
+      });
       const freshOpenIds = toAdd.filter((id) => !existingSet.has(id));
       if (freshOpenIds.length > 0) {
-        await this.snapshotNewParticipants(cycleId, freshOpenIds);
+        await this.snapshotNewParticipants(
+          tx,
+          cycleId,
+          freshOpenIds,
+          this.isInProgress(cycle.status),
+        );
       }
-    }
+      return { cycle, result, missing };
+    });
 
     await this.auditService.record({
       operatorOpenId,
       action: 'participant.add',
       targetType: 'perf_cycle',
       targetId: String(cycleId),
-      after: { added: result.count, requested: openIds.length, missing },
-      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
+      after: {
+        added: mutation.result.count,
+        requested: openIds.length,
+        missing: mutation.missing,
+      },
+      reason: this.isInProgress(mutation.cycle.status)
+        ? '管理员进行中编辑'
+        : undefined,
     });
-    return { added: result.count, missing };
+    return { added: mutation.result.count, missing: mutation.missing };
   }
 
   /** 按部门圈人（含子部门） */

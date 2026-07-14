@@ -85,7 +85,7 @@ const CycleList = () => {
     <div className='flex flex-col gap-6'>
       <PageHeader
         title='绩效周期'
-        description='创建并管理绩效考核周期：考核人员、评估维度、时间窗口与通知规则'
+        description='从已发布配置模板创建周期，并管理参与者、实际计划与启动状态'
         actions={
           <Button render={<Link href='/cycles/new/edit' />} nativeButton={false}>
             <PlusIcon />

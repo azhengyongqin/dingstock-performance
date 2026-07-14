@@ -24,16 +24,19 @@ import { PerfCycleStatus, PerfRole } from '../generated/prisma/enums';
 import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
-  AdvanceCycleDto,
   ApplyTemplateDto,
   CreateCycleDto,
+  InitializeCycleSetupDto,
+  UpdateCycleAdvancedConfigDto,
   UpdateCycleDto,
   UpsertDimensionsDto,
+  UpsertCyclePlanDto,
   UpsertNotificationRulesDto,
   UpsertEvaluationRuleDto,
   UpsertWindowsDto,
 } from './cycle.dto';
 import { CycleService } from './cycle.service';
+import { CycleSetupService } from './cycle-setup.service';
 
 // 周期管理为 HR/ADMIN 专属操作域（产品 §3.7）；员工/评审员侧走 self-reviews、review-tasks 等接口
 @ApiTags('cycle')
@@ -42,7 +45,10 @@ import { CycleService } from './cycle.service';
 @Roles(PerfRole.HR, PerfRole.ADMIN)
 @ApiBearerAuth()
 export class CycleController {
-  constructor(private readonly cycleService: CycleService) {}
+  constructor(
+    private readonly cycleService: CycleService,
+    private readonly cycleSetupService: CycleSetupService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: '周期列表（可按状态过滤）' })
@@ -52,15 +58,74 @@ export class CycleController {
   }
 
   @Post()
-  @ApiOperation({ summary: '创建周期（可从模板复制评估规则与维度集）' })
+  @ApiOperation({ summary: '从已发布配置版本创建周期并固化完整快照' })
   create(@Req() req: AuthenticatedRequest, @Body() dto: CreateCycleDto) {
-    return this.cycleService.createCycle(req.user.open_id, dto);
+    return this.cycleSetupService.createFromPublishedConfig(
+      req.user.open_id,
+      dto,
+    );
   }
 
   @Get(':id')
   @ApiOperation({ summary: '周期详情（含评估规则、维度、人数）' })
   detail(@Param('id', ParseIntPipe) id: number) {
     return this.cycleService.getCycle(id);
+  }
+
+  @Get(':id/config-snapshot')
+  @ApiOperation({ summary: '读取周期独立配置与 D/M 表单快照' })
+  configSnapshot(@Param('id', ParseIntPipe) id: number) {
+    return this.cycleSetupService.getConfigSnapshot(id);
+  }
+
+  @Post(':id/config-snapshot/initialize')
+  @ApiOperation({ summary: '为迁移后的旧草稿原子初始化配置与表单快照' })
+  initializeConfigSnapshot(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: InitializeCycleSetupDto,
+  ) {
+    return this.cycleSetupService.initializeLegacyDraft(
+      req.user.open_id,
+      id,
+      dto,
+    );
+  }
+
+  @Put(':id/config-snapshot')
+  @ApiOperation({ summary: '调整周期自己的评级、约束与关系权重快照' })
+  updateConfigSnapshot(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCycleAdvancedConfigDto,
+  ) {
+    return this.cycleSetupService.updateAdvancedConfig(
+      req.user.open_id,
+      id,
+      dto,
+    );
+  }
+
+  @Get(':id/participants/prefix-check')
+  @ApiOperation({ summary: '检查每名参与人的 D/M 职级与唯一表单匹配' })
+  participantPrefixCheck(@Param('id', ParseIntPipe) id: number) {
+    return this.cycleSetupService.getParticipantPrefixCheck(id);
+  }
+
+  @Get(':id/plan')
+  @ApiOperation({ summary: '读取基于计划启动时间生成的三阶段实际计划' })
+  plan(@Param('id', ParseIntPipe) id: number) {
+    return this.cycleSetupService.getPlan(id);
+  }
+
+  @Put(':id/plan')
+  @ApiOperation({ summary: '调整三阶段计划与通知规则' })
+  updatePlan(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertCyclePlanDto,
+  ) {
+    return this.cycleSetupService.updatePlan(req.user.open_id, id, dto);
   }
 
   @Patch(':id')
@@ -143,28 +208,25 @@ export class CycleController {
   @Get(':id/start-check')
   @ApiOperation({ summary: '启动前完整性检查（人员/规则/维度权重/窗口）' })
   startCheck(@Param('id', ParseIntPipe) id: number) {
-    return this.cycleService.startCheck(id);
+    return this.cycleSetupService.startCheck(id);
   }
 
-  @Post(':id/start')
-  @ApiOperation({
-    summary: '启动周期：写参与者快照、生成启动通知、进入自评阶段',
-  })
-  start(
+  @Post(':id/schedule')
+  @ApiOperation({ summary: '检查通过后设为待启动；不提前创建评估任务' })
+  schedule(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.cycleService.startCycle(req.user.open_id, id);
+    return this.cycleSetupService.schedule(req.user.open_id, id);
   }
 
-  @Post(':id/advance')
-  @ApiOperation({ summary: '推进周期阶段（合法流转由状态机校验）' })
-  advance(
+  @Post(':id/return-to-draft')
+  @ApiOperation({ summary: '把待启动周期退回草稿继续调整' })
+  returnToDraft(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: AdvanceCycleDto,
   ) {
-    return this.cycleService.advanceCycle(req.user.open_id, id, dto);
+    return this.cycleSetupService.returnToDraft(req.user.open_id, id);
   }
 
   @Post(':id/close')

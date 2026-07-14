@@ -21,9 +21,8 @@ jest.mock(
   () => ({
     PerfCycleStatus: {
       DRAFT: 'DRAFT',
-      PENDING: 'PENDING',
-      SELF_REVIEW: 'SELF_REVIEW',
-      REVIEWING: 'REVIEWING',
+      SCHEDULED: 'SCHEDULED',
+      ACTIVE: 'ACTIVE',
       ARCHIVED: 'ARCHIVED',
     },
     PerfParticipantStatus: {
@@ -42,16 +41,25 @@ jest.mock('../audit/audit.service', () => ({
 
 describe('ParticipantService', () => {
   const txMock = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
+    perfCycle: {
+      findFirst: jest.fn(),
+      findUnique: jest.fn(),
+    },
     perfParticipant: {
+      findMany: jest.fn(),
+      createMany: jest.fn(),
       update: jest.fn(),
     },
+    larkUser: { findMany: jest.fn() },
+    larkCorehrEmployee: { findMany: jest.fn() },
   };
 
   const prismaMock = {
     $transaction: jest.fn((callback: (tx: typeof txMock) => unknown) =>
       Promise.resolve(callback(txMock)),
     ),
-    perfCycle: { findFirst: jest.fn() },
+    perfCycle: { findFirst: jest.fn(), findUnique: jest.fn() },
     perfParticipant: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -107,9 +115,9 @@ describe('ParticipantService', () => {
   });
 
   it('HR 在周期启动后不可增删考核人员', async () => {
-    prismaMock.perfCycle.findFirst.mockResolvedValue({
+    txMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'SELF_REVIEW',
+      status: 'ACTIVE',
     });
 
     await expect(
@@ -119,11 +127,11 @@ describe('ParticipantService', () => {
 
   it('ADMIN 进行中新增考核人员时回填 Leader/部门快照并置自评待办', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
-    prismaMock.perfCycle.findFirst.mockResolvedValue({
+    txMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'SELF_REVIEW',
+      status: 'ACTIVE',
     });
-    prismaMock.larkUser.findMany
+    txMock.larkUser.findMany
       .mockResolvedValueOnce([{ open_id: 'ou_new' }]) // 校验有效 open_id
       .mockResolvedValueOnce([
         {
@@ -132,11 +140,14 @@ describe('ParticipantService', () => {
           department_ids: ['d1'],
         },
       ]); // 快照回填
-    prismaMock.perfParticipant.findMany
+    txMock.perfParticipant.findMany
       .mockResolvedValueOnce([]) // 新增前已存在者
       .mockResolvedValueOnce([{ id: 9, employeeOpenId: 'ou_new' }]); // 待快照的新参与者
-    prismaMock.larkCorehrEmployee.findMany.mockResolvedValue([]);
-    prismaMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
+    txMock.larkCorehrEmployee.findMany.mockResolvedValue([]);
+    txMock.perfCycle.findUnique.mockResolvedValue({
+      currentConfigVersion: { formSnapshots: [] },
+    });
+    txMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
 
     await service.addByOpenIds('ou_admin', 100, ['ou_new']);
 
@@ -156,11 +167,50 @@ describe('ParticipantService', () => {
     );
   });
 
+  it('SCHEDULED 增员在同一事务内完成 D/M 表单绑定', async () => {
+    txMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'SCHEDULED',
+    });
+    txMock.larkUser.findMany
+      .mockResolvedValueOnce([{ open_id: 'ou_new' }])
+      .mockResolvedValueOnce([{ open_id: 'ou_new', department_ids: ['d1'] }]);
+    txMock.perfParticipant.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 9, employeeOpenId: 'ou_new' }]);
+    txMock.larkCorehrEmployee.findMany.mockResolvedValue([
+      {
+        open_id: 'ou_new',
+        department_id: 'd1',
+        direct_manager_id: 'ou_leader',
+        job_level: { code: 'D3' },
+      },
+    ]);
+    txMock.perfCycle.findUnique.mockResolvedValue({
+      currentConfigVersion: {
+        formSnapshots: [{ id: 88, jobLevelPrefix: 'D' }],
+      },
+    });
+    txMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
+
+    await service.addByOpenIds('ou_hr', 100, ['ou_new']);
+
+    expect(txMock.perfParticipant.createMany).toHaveBeenCalled();
+    expect(txMock.perfParticipant.update).toHaveBeenCalledWith({
+      where: { id: 9 },
+      data: expect.objectContaining({
+        jobLevelPrefixSnapshot: 'D',
+        formSnapshotId: 88,
+      }),
+    });
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+  });
+
   it('ADMIN 移除已产生结果数据的考核人员被拒绝', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'CONFIRMING',
+      status: 'ACTIVE',
     });
     prismaMock.perfParticipant.findFirst.mockResolvedValue({
       id: 9,
@@ -178,7 +228,7 @@ describe('ParticipantService', () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'SELF_REVIEW',
+      status: 'ACTIVE',
     });
     prismaMock.perfParticipant.findFirst.mockResolvedValue({
       id: 9,
@@ -198,7 +248,7 @@ describe('ParticipantService', () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'SELF_REVIEW',
+      status: 'ACTIVE',
     });
     prismaMock.perfParticipant.findFirst.mockResolvedValue({
       id: 9,

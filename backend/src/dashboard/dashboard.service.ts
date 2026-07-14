@@ -280,7 +280,7 @@ export class DashboardService {
           },
           cycle: {
             deletedAt: null,
-            status: { notIn: ['DRAFT', 'PENDING', 'ARCHIVED'] },
+            status: 'ACTIVE',
           },
         },
       }),
@@ -290,7 +290,7 @@ export class DashboardService {
           status: PerfAssignmentStatus.PENDING,
           cycle: {
             deletedAt: null,
-            status: { notIn: ['DRAFT', 'PENDING', 'ARCHIVED'] },
+            status: 'ACTIVE',
           },
         },
       }),
@@ -300,7 +300,7 @@ export class DashboardService {
           managerReview: { isNot: { status: PerfReviewStatus.SUBMITTED } },
           cycle: {
             deletedAt: null,
-            status: { notIn: ['DRAFT', 'PENDING', 'ARCHIVED'] },
+            status: 'ACTIVE',
           },
         },
       }),

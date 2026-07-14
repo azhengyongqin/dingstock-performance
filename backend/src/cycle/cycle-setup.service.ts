@@ -1,0 +1,923 @@
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client';
+import { PerfCycleStatus, PerfRole } from '../generated/prisma/enums';
+import { AuditService } from '../audit/audit.service';
+import { RbacService } from '../rbac/rbac.service';
+import { PrismaService } from '../shared/database/prisma.service';
+import type { SchedulePreset } from '../config-template/config-template.contract';
+import type {
+  ConfigConstraintProfiles,
+  ConfigRatingDefinition,
+  ConfigStageModes,
+  ConfigTemplateVersionContract,
+  ConfigTemplatePublicationIssue,
+  NotificationRules,
+} from '../config-template/config-template.contract';
+import { validateConfigTemplatePublication } from '../config-template/publication-validator';
+import type { FormItemConfig } from '../form-template/form-template.contract';
+import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import {
+  generateCyclePlan,
+  validateCyclePlan,
+  type CyclePlan,
+} from './cycle-plan';
+import {
+  analyzeParticipantFormMatch,
+  type ParticipantFormMatch,
+} from './participant-prefix';
+import type {
+  CreateCycleDto,
+  InitializeCycleSetupDto,
+  UpdateCycleAdvancedConfigDto,
+  UpsertCyclePlanDto,
+} from './cycle.dto';
+
+type DbClient = PrismaService | Prisma.TransactionClient;
+
+export type CycleStartCheckIssue = {
+  code: string;
+  path: string;
+  message: string;
+  participantId?: number;
+  employeeOpenId?: string;
+};
+
+export type CycleStartCheckItem = {
+  key:
+    | 'config_snapshot'
+    | 'participants'
+    | 'participant_prefixes'
+    | 'schedule'
+    | 'notifications';
+  ok: boolean;
+  message: string;
+  issues: CycleStartCheckIssue[];
+  target: 'basic' | 'participants' | 'plan' | 'advanced';
+  actionLabel: string;
+};
+
+const sourceVersionInclude = {
+  template: { select: { id: true } },
+  formBindings: {
+    orderBy: { jobLevelPrefix: 'asc' as const },
+    include: {
+      formTemplateVersion: {
+        include: {
+          subforms: {
+            orderBy: { sortOrder: 'asc' as const },
+            include: {
+              dimensions: {
+                orderBy: [
+                  { audience: 'asc' as const },
+                  { sortOrder: 'asc' as const },
+                ],
+                include: { items: { orderBy: { sortOrder: 'asc' as const } } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+const cycleSetupInclude = {
+  currentConfigVersion: {
+    include: {
+      sourceConfigVersion: {
+        select: { id: true, templateId: true, name: true, version: true },
+      },
+      formSnapshots: { orderBy: { jobLevelPrefix: 'asc' as const } },
+    },
+  },
+  participants: { orderBy: { id: 'asc' as const } },
+};
+
+type CycleConfigSnapshotRecord = Prisma.PerfCycleConfigVersionGetPayload<{
+  include: { formSnapshots: true };
+}>;
+
+/**
+ * 四步创建专用服务。
+ * 旧周期 CRUD 暂留 CycleService；新版创建、计划、检查与待启动状态全部收口到这里。
+ */
+@Injectable()
+export class CycleSetupService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+    private readonly rbacService: RbacService,
+  ) {}
+
+  async createFromPublishedConfig(operatorOpenId: string, dto: CreateCycleDto) {
+    if (!dto.configTemplateVersionId || !dto.plannedStartAt) {
+      throw new BadRequestException(
+        '创建周期必须选择已发布配置版本并填写计划启动时间',
+      );
+    }
+    // 先验证时区与计划预设之外的基础输入，避免事务内留下含糊错误。
+    if (!/(Z|[+-]\d{2}:\d{2})$/i.test(dto.plannedStartAt)) {
+      throw new BadRequestException('计划启动时间必须包含时区');
+    }
+    const ownerOpenId = dto.ownerOpenId ?? operatorOpenId;
+    if (
+      ownerOpenId !== operatorOpenId &&
+      !(await this.rbacService.hasAnyRole(ownerOpenId, [
+        PerfRole.HR,
+        PerfRole.ADMIN,
+      ]))
+    ) {
+      throw new BadRequestException('周期负责人必须拥有 HR 或 ADMIN 角色');
+    }
+
+    const cycleId = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
+      const source = await tx.perfConfigTemplateVersion.findUnique({
+        where: { id: dto.configTemplateVersionId },
+        include: sourceVersionInclude,
+      });
+      if (!source || source.status !== 'PUBLISHED') {
+        throw new BadRequestException('配置模板版本未发布或已不可用');
+      }
+      const prefixes = source.formBindings.map(
+        (binding) => binding.jobLevelPrefix,
+      );
+      if (
+        source.formBindings.length !== 2 ||
+        !prefixes.includes('D') ||
+        !prefixes.includes('M')
+      ) {
+        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
+      }
+
+      const plan = generateCyclePlan(
+        dto.plannedStartAt,
+        source.schedulePreset as unknown as SchedulePreset,
+      );
+      const planIssues = validateCyclePlan(plan);
+      if (planIssues.length > 0) {
+        throw new BadRequestException({
+          code: 'CONFIG_SCHEDULE_INVALID',
+          message: '配置模板计划不可用',
+          issues: planIssues,
+        });
+      }
+
+      const cycle = await tx.perfCycle.create({
+        data: {
+          name: dto.name,
+          ownerOpenId,
+          plannedStartAt: new Date(dto.plannedStartAt),
+          status: PerfCycleStatus.DRAFT,
+        },
+      });
+      const snapshot = await tx.perfCycleConfigVersion.create({
+        data: {
+          cycleId: cycle.id,
+          version: 1,
+          sourceConfigTemplateVersionId: source.id,
+          selfStageMode: source.selfStageMode,
+          peerStageMode: source.peerStageMode,
+          managerStageMode: source.managerStageMode,
+          aiStageMode: source.aiStageMode,
+          ratings: this.inputJson(source.ratings),
+          constraintProfiles: this.inputJson(source.constraintProfiles),
+          orgOwnerWeight: source.orgOwnerWeight,
+          projectOwnerWeight: source.projectOwnerWeight,
+          peerWeight: source.peerWeight,
+          crossDeptWeight: source.crossDeptWeight,
+          schedulePreset: this.inputJson(source.schedulePreset),
+          notificationRules: this.inputJson(source.notificationRules),
+          createdByOpenId: operatorOpenId,
+          formSnapshots: {
+            create: source.formBindings.map((binding) => ({
+              cycleId: cycle.id,
+              jobLevelPrefix: binding.jobLevelPrefix,
+              sourceFormTemplateVersionId: binding.formTemplateVersionId,
+              content: this.inputJson(
+                this.toFormSnapshotContent(binding.formTemplateVersion),
+              ),
+            })),
+          },
+        },
+      });
+      await tx.perfCycle.update({
+        where: { id: cycle.id },
+        data: { currentConfigVersionId: snapshot.id },
+      });
+      return cycle.id;
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.setup.create',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: {
+        configTemplateVersionId: dto.configTemplateVersionId,
+        plannedStartAt: dto.plannedStartAt,
+        status: PerfCycleStatus.DRAFT,
+      },
+    });
+    return this.getSetup(cycleId);
+  }
+
+  /**
+   * 旧 PENDING 周期迁回 DRAFT 后没有新版快照；由用户明确选择配置版本后一次性补齐。
+   * 该入口不会覆盖已经初始化的周期，避免误换快照破坏历史绑定。
+   */
+  async initializeLegacyDraft(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: InitializeCycleSetupDto,
+  ) {
+    if (!/(Z|[+-]\d{2}:\d{2})$/i.test(dto.plannedStartAt)) {
+      throw new BadRequestException('计划启动时间必须包含时区');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.getSetup(cycleId, tx);
+      if (cycle.status !== PerfCycleStatus.DRAFT) {
+        throw new ConflictException('只有旧草稿周期允许初始化配置快照');
+      }
+      if (cycle.currentConfigVersionId || cycle.currentConfigVersion) {
+        throw new ConflictException('周期配置快照已存在，不能重复初始化');
+      }
+
+      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
+      const source = await tx.perfConfigTemplateVersion.findUnique({
+        where: { id: dto.configTemplateVersionId },
+        include: sourceVersionInclude,
+      });
+      if (!source || source.status !== 'PUBLISHED') {
+        throw new BadRequestException('配置模板版本未发布或已不可用');
+      }
+      const prefixes = source.formBindings.map(
+        (binding) => binding.jobLevelPrefix,
+      );
+      if (
+        source.formBindings.length !== 2 ||
+        !prefixes.includes('D') ||
+        !prefixes.includes('M')
+      ) {
+        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
+      }
+      const plan = generateCyclePlan(
+        dto.plannedStartAt,
+        source.schedulePreset as unknown as SchedulePreset,
+      );
+      const planIssues = validateCyclePlan(plan);
+      if (planIssues.length > 0) {
+        throw new BadRequestException({
+          code: 'CONFIG_SCHEDULE_INVALID',
+          message: '配置模板计划不可用',
+          issues: planIssues,
+        });
+      }
+
+      const snapshot = await tx.perfCycleConfigVersion.create({
+        data: {
+          cycleId,
+          version: 1,
+          sourceConfigTemplateVersionId: source.id,
+          selfStageMode: source.selfStageMode,
+          peerStageMode: source.peerStageMode,
+          managerStageMode: source.managerStageMode,
+          aiStageMode: source.aiStageMode,
+          ratings: this.inputJson(source.ratings),
+          constraintProfiles: this.inputJson(source.constraintProfiles),
+          orgOwnerWeight: source.orgOwnerWeight,
+          projectOwnerWeight: source.projectOwnerWeight,
+          peerWeight: source.peerWeight,
+          crossDeptWeight: source.crossDeptWeight,
+          schedulePreset: this.inputJson(source.schedulePreset),
+          notificationRules: this.inputJson(source.notificationRules),
+          createdByOpenId: operatorOpenId,
+          formSnapshots: {
+            create: source.formBindings.map((binding) => ({
+              cycleId,
+              jobLevelPrefix: binding.jobLevelPrefix,
+              sourceFormTemplateVersionId: binding.formTemplateVersionId,
+              content: this.inputJson(
+                this.toFormSnapshotContent(binding.formTemplateVersion),
+              ),
+            })),
+          },
+        },
+        include: { formSnapshots: true },
+      });
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: {
+          name: dto.name,
+          plannedStartAt: new Date(dto.plannedStartAt),
+          currentConfigVersionId: snapshot.id,
+        },
+      });
+
+      if (cycle.participants.length > 0) {
+        const openIds = cycle.participants.map(
+          (participant) => participant.employeeOpenId,
+        );
+        const [users, corehrs] = await Promise.all([
+          tx.larkUser.findMany({
+            where: { open_id: { in: openIds } },
+            select: {
+              open_id: true,
+              leader_user_id: true,
+              department_ids: true,
+            },
+          }),
+          tx.larkCorehrEmployee.findMany({
+            where: { open_id: { in: openIds } },
+            select: {
+              open_id: true,
+              direct_manager_id: true,
+              department_id: true,
+              job_level: true,
+            },
+          }),
+        ]);
+        const userMap = new Map(users.map((user) => [user.open_id, user]));
+        const corehrMap = new Map(
+          corehrs.map((employee) => [employee.open_id, employee]),
+        );
+
+        for (const participant of cycle.participants) {
+          const user = userMap.get(participant.employeeOpenId);
+          const corehr = corehrMap.get(participant.employeeOpenId);
+          // CoreHR 暂缺时保留旧快照；没有任何职级则留空，由启动检查给出可操作阻塞项。
+          const jobLevel =
+            corehr?.job_level ?? participant.jobLevelSnapshot ?? null;
+          const match = analyzeParticipantFormMatch(
+            {
+              id: participant.id,
+              employeeOpenId: participant.employeeOpenId,
+              jobLevelSnapshot: jobLevel,
+            },
+            snapshot.formSnapshots,
+          );
+          await tx.perfParticipant.update({
+            where: { id: participant.id },
+            data: {
+              leaderOpenIdSnapshot:
+                corehr?.direct_manager_id ??
+                user?.leader_user_id ??
+                participant.leaderOpenIdSnapshot,
+              departmentIdSnapshot:
+                corehr?.department_id ??
+                user?.department_ids?.[0] ??
+                participant.departmentIdSnapshot,
+              jobLevelSnapshot:
+                jobLevel === null ? undefined : this.inputJson(jobLevel),
+              jobLevelPrefixSnapshot:
+                match.status === 'MATCHED' ? match.jobLevelPrefix : null,
+              formSnapshotId:
+                match.status === 'MATCHED' ? match.formSnapshotId : null,
+            },
+          });
+        }
+      }
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.setup.initialize_legacy_draft',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: dto,
+    });
+    return this.getSetup(cycleId);
+  }
+
+  async getSetup(cycleId: number, client: DbClient = this.prisma) {
+    const cycle = await client.perfCycle.findFirst({
+      where: { id: cycleId, deletedAt: null },
+      include: cycleSetupInclude,
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+    return cycle;
+  }
+
+  async getConfigSnapshot(cycleId: number) {
+    const cycle = await this.getSetup(cycleId);
+    const snapshot = cycle.currentConfigVersion;
+    if (!snapshot) throw new NotFoundException('周期配置快照不存在');
+    return {
+      id: snapshot.id,
+      cycleId: snapshot.cycleId,
+      sourceConfigTemplateVersionId: snapshot.sourceConfigTemplateVersionId,
+      source: snapshot.sourceConfigVersion,
+      version: snapshot.version,
+      forms: snapshot.formSnapshots.map((form) => ({
+        id: form.id,
+        jobLevelPrefix: form.jobLevelPrefix,
+        sourceFormTemplateVersionId: form.sourceFormTemplateVersionId,
+        content: form.content,
+      })),
+      stageModes: {
+        SELF: snapshot.selfStageMode,
+        PEER: snapshot.peerStageMode,
+        MANAGER: snapshot.managerStageMode,
+        AI: snapshot.aiStageMode,
+      },
+      ratings: snapshot.ratings,
+      constraintProfiles: snapshot.constraintProfiles,
+      reviewerRelationWeights: {
+        ORG_OWNER: snapshot.orgOwnerWeight.toString(),
+        PROJECT_OWNER: snapshot.projectOwnerWeight.toString(),
+        PEER: snapshot.peerWeight.toString(),
+        CROSS_DEPT: snapshot.crossDeptWeight.toString(),
+      },
+      notificationRules: snapshot.notificationRules,
+      allowStageOverlap: (
+        snapshot.schedulePreset as { allowStageOverlap?: boolean }
+      ).allowStageOverlap,
+    };
+  }
+
+  async updateAdvancedConfig(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: UpdateCycleAdvancedConfigDto,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.getSetup(cycleId, tx);
+      if (
+        cycle.status !== PerfCycleStatus.DRAFT &&
+        cycle.status !== PerfCycleStatus.SCHEDULED
+      ) {
+        throw new ConflictException('只有草稿或待启动周期允许调整高级配置');
+      }
+      const snapshot = cycle.currentConfigVersion;
+      if (!snapshot) throw new ConflictException('周期配置快照不存在');
+      const issues = this.validateConfigContract(
+        this.toConfigContract(snapshot, dto),
+      );
+      if (issues.length > 0) {
+        throw new BadRequestException({
+          code: 'CYCLE_ADVANCED_CONFIG_INVALID',
+          message: '周期高级配置校验失败',
+          issues,
+        });
+      }
+      await tx.perfCycleConfigVersion.update({
+        where: { id: snapshot.id },
+        data: {
+          selfStageMode: dto.stageModes.SELF,
+          peerStageMode: dto.stageModes.PEER,
+          managerStageMode: dto.stageModes.MANAGER,
+          aiStageMode: dto.stageModes.AI,
+          ratings: this.inputJson(dto.ratings),
+          constraintProfiles: this.inputJson(dto.constraintProfiles),
+          orgOwnerWeight: dto.reviewerRelationWeights.ORG_OWNER,
+          projectOwnerWeight: dto.reviewerRelationWeights.PROJECT_OWNER,
+          peerWeight: dto.reviewerRelationWeights.PEER,
+          crossDeptWeight: dto.reviewerRelationWeights.CROSS_DEPT,
+        },
+      });
+    });
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.advanced_config.update',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: dto,
+    });
+    return this.getConfigSnapshot(cycleId);
+  }
+
+  async getParticipantPrefixCheck(
+    cycleId: number,
+    client: DbClient = this.prisma,
+  ): Promise<{
+    ok: boolean;
+    items: Array<
+      ParticipantFormMatch & {
+        formTemplateVersionId?: number;
+        formTemplateName?: string;
+      }
+    >;
+  }> {
+    const cycle = await this.getSetup(cycleId, client);
+    const forms = cycle.currentConfigVersion?.formSnapshots ?? [];
+    const items = cycle.participants.map((participant) => {
+      const match = analyzeParticipantFormMatch(participant, forms);
+      const form = forms.find(
+        (candidate) => candidate.id === match.formSnapshotId,
+      );
+      const content = form?.content as { name?: unknown } | undefined;
+      return {
+        ...match,
+        formTemplateVersionId: form?.sourceFormTemplateVersionId,
+        formTemplateName:
+          typeof content?.name === 'string' ? content.name : undefined,
+      };
+    });
+    return {
+      ok: items.length > 0 && items.every((item) => item.status === 'MATCHED'),
+      items,
+    };
+  }
+
+  async getPlan(cycleId: number) {
+    const cycle = await this.getSetup(cycleId);
+    const snapshot = cycle.currentConfigVersion;
+    if (!snapshot || !cycle.plannedStartAt) {
+      throw new NotFoundException('周期计划不存在');
+    }
+    const plan = generateCyclePlan(
+      cycle.plannedStartAt.toISOString(),
+      snapshot.schedulePreset as unknown as SchedulePreset,
+    );
+    return { ...plan, notificationRules: snapshot.notificationRules };
+  }
+
+  async updatePlan(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: UpsertCyclePlanDto,
+  ) {
+    const plan: CyclePlan = {
+      allowStageOverlap: dto.allowStageOverlap,
+      stages: dto.stages,
+    };
+    const issues = validateCyclePlan(plan);
+    if (issues.length > 0) {
+      throw new BadRequestException({
+        code: 'CYCLE_PLAN_INVALID',
+        message: '周期计划校验失败',
+        issues,
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.requireEditableSetup(cycleId, tx);
+      if (!cycle.plannedStartAt || !cycle.currentConfigVersionId) {
+        throw new ConflictException('周期缺少计划锚点或配置快照');
+      }
+      const anchor = cycle.plannedStartAt.getTime();
+      const schedulePreset = {
+        allowStageOverlap: dto.allowStageOverlap,
+        stages: dto.stages.map((row) => ({
+          stage: row.stage,
+          startOffsetMinutes: this.toMinuteOffset(anchor, row.startAt),
+          reminderDeadlineOffsetMinutes: this.toMinuteOffset(
+            anchor,
+            row.reminderDeadlineAt,
+          ),
+        })),
+      } satisfies SchedulePreset;
+      await tx.perfCycleConfigVersion.update({
+        where: { id: cycle.currentConfigVersionId },
+        data: {
+          schedulePreset: this.inputJson(schedulePreset),
+          notificationRules: this.inputJson(dto.notificationRules),
+        },
+      });
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.plan.update',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: dto,
+    });
+    return this.getPlan(cycleId);
+  }
+
+  async startCheck(
+    cycleId: number,
+    client: DbClient = this.prisma,
+  ): Promise<{ items: CycleStartCheckItem[]; ok: boolean }> {
+    const cycle = await this.getSetup(cycleId, client);
+    const snapshot = cycle.currentConfigVersion;
+    const publicationIssues = snapshot
+      ? this.validateConfigContract(this.toConfigContract(snapshot))
+      : [];
+    const configIssues: CycleStartCheckIssue[] = snapshot
+      ? publicationIssues
+          .filter(
+            (issue) =>
+              !issue.path.startsWith('notificationRules') &&
+              !issue.path.startsWith('schedulePreset'),
+          )
+          .map((issue) => this.publicationIssue(issue))
+      : [
+          {
+            code: 'CONFIG_SNAPSHOT_MISSING',
+            path: 'currentConfigVersionId',
+            message: '周期配置快照缺失，请重新创建周期',
+          },
+        ];
+    const participantIssues: CycleStartCheckIssue[] =
+      cycle.participants.length > 0
+        ? []
+        : [
+            {
+              code: 'PARTICIPANTS_EMPTY',
+              path: 'participants',
+              message: '尚未添加考核人员',
+            },
+          ];
+    const prefixCheck = await this.getParticipantPrefixCheck(cycleId, client);
+    const prefixIssues = prefixCheck.items
+      .filter((item) => item.status !== 'MATCHED')
+      .map((item) => ({
+        code: `PARTICIPANT_${item.status}`,
+        path: `participants.${item.participantId}.jobLevel`,
+        message: item.message,
+        participantId: item.participantId,
+        employeeOpenId: item.employeeOpenId,
+      }));
+    let scheduleIssues: CycleStartCheckIssue[] = [];
+    if (!cycle.plannedStartAt || !snapshot) {
+      scheduleIssues = [
+        {
+          code: 'SCHEDULE_MISSING',
+          path: 'plannedStartAt',
+          message: '计划启动时间或周期计划缺失',
+        },
+      ];
+    } else {
+      scheduleIssues = validateCyclePlan(
+        generateCyclePlan(
+          cycle.plannedStartAt.toISOString(),
+          snapshot.schedulePreset as unknown as SchedulePreset,
+        ),
+      );
+      scheduleIssues.push(
+        ...publicationIssues
+          .filter((issue) => issue.path.startsWith('schedulePreset'))
+          .map((issue) => this.publicationIssue(issue)),
+      );
+    }
+    const notificationIssues = publicationIssues
+      .filter((issue) => issue.path.startsWith('notificationRules'))
+      .map((issue) => this.publicationIssue(issue));
+
+    const items: CycleStartCheckItem[] = [
+      this.checkItem(
+        'config_snapshot',
+        configIssues,
+        '配置快照完整',
+        'advanced',
+        '查看高级配置',
+      ),
+      this.checkItem(
+        'participants',
+        participantIssues,
+        `已添加 ${cycle.participants.length} 名考核人员`,
+        'participants',
+        '添加考核人员',
+      ),
+      this.checkItem(
+        'participant_prefixes',
+        prefixIssues,
+        '所有参与人均已唯一匹配 D/M 表单',
+        'participants',
+        '修复职级主数据',
+      ),
+      this.checkItem(
+        'schedule',
+        scheduleIssues,
+        '三阶段计划校验通过',
+        'plan',
+        '调整计划',
+      ),
+      this.checkItem(
+        'notifications',
+        notificationIssues,
+        '通知规则校验通过',
+        'plan',
+        '调整通知',
+      ),
+    ];
+    return { items, ok: items.every((item) => item.ok) };
+  }
+
+  async schedule(operatorOpenId: string, cycleId: number) {
+    let changed = false;
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.getSetup(cycleId, tx);
+      if (cycle.status === PerfCycleStatus.SCHEDULED) return;
+      if (cycle.status !== PerfCycleStatus.DRAFT) {
+        throw new ConflictException(
+          `周期状态 ${cycle.status} 不允许设为待启动`,
+        );
+      }
+      const check = await this.startCheck(cycleId, tx);
+      if (!check.ok) {
+        throw new BadRequestException({
+          code: 'CYCLE_START_CHECK_FAILED',
+          message: '启动检查未通过',
+          items: check.items,
+        });
+      }
+      // Ticket 04 只切换粗粒度状态，任务和通知由 Ticket 05 的原子启动创建。
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { status: PerfCycleStatus.SCHEDULED },
+      });
+      changed = true;
+    });
+    if (changed) {
+      await this.auditService.record({
+        operatorOpenId,
+        action: 'cycle.schedule',
+        targetType: 'perf_cycle',
+        targetId: String(cycleId),
+        before: { status: PerfCycleStatus.DRAFT },
+        after: { status: PerfCycleStatus.SCHEDULED },
+      });
+    }
+    return { changed, cycle: await this.getSetup(cycleId) };
+  }
+
+  async returnToDraft(operatorOpenId: string, cycleId: number) {
+    let changed = false;
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.getSetup(cycleId, tx);
+      if (cycle.status === PerfCycleStatus.DRAFT) return;
+      if (cycle.status !== PerfCycleStatus.SCHEDULED) {
+        throw new ConflictException(`周期状态 ${cycle.status} 不允许退回草稿`);
+      }
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { status: PerfCycleStatus.DRAFT },
+      });
+      changed = true;
+    });
+    if (changed) {
+      await this.auditService.record({
+        operatorOpenId,
+        action: 'cycle.return_to_draft',
+        targetType: 'perf_cycle',
+        targetId: String(cycleId),
+        before: { status: PerfCycleStatus.SCHEDULED },
+        after: { status: PerfCycleStatus.DRAFT },
+      });
+    }
+    return { changed, cycle: await this.getSetup(cycleId) };
+  }
+
+  private async requireEditableSetup(cycleId: number, client: DbClient) {
+    const cycle = await client.perfCycle.findFirst({
+      where: { id: cycleId, deletedAt: null },
+    });
+    if (!cycle) throw new NotFoundException('绩效周期不存在');
+    if (
+      cycle.status !== PerfCycleStatus.DRAFT &&
+      cycle.status !== PerfCycleStatus.SCHEDULED
+    ) {
+      throw new ConflictException('只有草稿或待启动周期允许调整');
+    }
+    return cycle;
+  }
+
+  private async lockCycle(tx: Prisma.TransactionClient, cycleId: number) {
+    await tx.$queryRaw`SELECT "id" FROM "performance"."perf_cycles" WHERE "id" = ${cycleId} AND "deleted_at" IS NULL FOR UPDATE`;
+  }
+
+  private checkItem(
+    key: CycleStartCheckItem['key'],
+    issues: CycleStartCheckIssue[],
+    successMessage: string,
+    target: CycleStartCheckItem['target'],
+    actionLabel: string,
+  ): CycleStartCheckItem {
+    return {
+      key,
+      ok: issues.length === 0,
+      message: issues.length === 0 ? successMessage : issues[0].message,
+      issues,
+      target,
+      actionLabel,
+    };
+  }
+
+  private publicationIssue(
+    issue: ConfigTemplatePublicationIssue,
+  ): CycleStartCheckIssue {
+    return { code: issue.code, path: issue.path, message: issue.message };
+  }
+
+  private validateConfigContract(
+    contract: ConfigTemplateVersionContract,
+  ): ConfigTemplatePublicationIssue[] {
+    try {
+      return validateConfigTemplatePublication(contract);
+    } catch {
+      // 历史或直接数据库写入的畸形 JSON 也必须转成可操作检查项，不能让启动检查 500。
+      return [
+        {
+          code: 'CONFIG_SNAPSHOT_MALFORMED',
+          path: 'configSnapshot',
+          message: '周期配置快照结构损坏，请重新创建周期或联系管理员修复',
+        },
+      ];
+    }
+  }
+
+  private toConfigContract(
+    snapshot: CycleConfigSnapshotRecord,
+    advanced?: UpdateCycleAdvancedConfigDto,
+  ): ConfigTemplateVersionContract {
+    return {
+      name: '周期配置快照',
+      stageModes: (advanced?.stageModes ?? {
+        SELF: snapshot.selfStageMode,
+        PEER: snapshot.peerStageMode,
+        MANAGER: snapshot.managerStageMode,
+        AI: snapshot.aiStageMode,
+      }) as ConfigStageModes,
+      ratings: (advanced?.ratings ??
+        snapshot.ratings) as unknown as ConfigRatingDefinition[],
+      constraintProfiles: (advanced?.constraintProfiles ??
+        snapshot.constraintProfiles) as unknown as ConfigConstraintProfiles,
+      reviewerRelationWeights: advanced?.reviewerRelationWeights ?? {
+        ORG_OWNER: snapshot.orgOwnerWeight.toString(),
+        PROJECT_OWNER: snapshot.projectOwnerWeight.toString(),
+        PEER: snapshot.peerWeight.toString(),
+        CROSS_DEPT: snapshot.crossDeptWeight.toString(),
+      },
+      formBindings: snapshot.formSnapshots.map((form) => ({
+        formTemplateVersionId: form.sourceFormTemplateVersionId,
+        // 周期已持有独立内容；来源后来归档不应让快照失效。
+        status: 'PUBLISHED',
+        jobLevelPrefix: form.jobLevelPrefix,
+        subforms: ((form.content as { subforms?: unknown }).subforms ??
+          []) as FormTemplateSubformContract[],
+      })),
+      schedulePreset: snapshot.schedulePreset as unknown as SchedulePreset,
+      notificationRules:
+        snapshot.notificationRules as unknown as NotificationRules,
+    };
+  }
+
+  private toMinuteOffset(anchor: number, value: string): number {
+    const time = Date.parse(value);
+    const minutes = (time - anchor) / 60_000;
+    if (!Number.isInteger(minutes) || minutes < 0) {
+      throw new BadRequestException(
+        '阶段时间必须按整分钟设置且不能早于计划启动时间',
+      );
+    }
+    return minutes;
+  }
+
+  private toFormSnapshotContent(
+    version: Prisma.PerfFormTemplateVersionGetPayload<{
+      include: typeof sourceVersionInclude.formBindings.include.formTemplateVersion.include;
+    }>,
+  ) {
+    return {
+      schemaVersion: 1,
+      name: version.name,
+      description: version.description,
+      jobLevelPrefix: version.jobLevelPrefix,
+      subforms: version.subforms.map((subform) => ({
+        key: `subform:${subform.type}`,
+        type: subform.type,
+        title: subform.title,
+        description: subform.description,
+        sortOrder: subform.sortOrder,
+        dimensions: subform.dimensions.map((dimension) => ({
+          key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
+          kind: dimension.kind,
+          audience: dimension.audience,
+          name: dimension.name,
+          description: dimension.description,
+          weight: dimension.weight?.toString() ?? null,
+          isCore: dimension.isCore,
+          sortOrder: dimension.sortOrder,
+          items: dimension.items.map((item) => ({
+            key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
+            type: item.type,
+            title: item.title,
+            description: item.description,
+            placeholder: item.placeholder,
+            required: item.required,
+            sortOrder: item.sortOrder,
+            config: item.config as FormItemConfig | null,
+          })),
+        })),
+      })),
+    };
+  }
+
+  private inputJson(value: unknown): Prisma.InputJsonValue {
+    return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+}

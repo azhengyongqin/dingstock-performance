@@ -11,7 +11,7 @@ import { formatDate } from '@/lib/perf-api'
 
 /** 历史绩效行数据 = 后端 GET /profiles/{openId}/performance 的 item */
 export type PerformanceHistoryRow = {
-  cycle: { id: number; name: string; startDate: string; endDate: string }
+  cycle: { id: number; name: string }
   finalLevel: string
   promotionResult?: string | null
   confirmedByEmployee: boolean
@@ -30,16 +30,6 @@ export const performanceHistoryColumns: ColumnDef<PerformanceHistoryRow>[] = [
     accessorFn: row => row.cycle.name,
     header: '考核周期',
     cell: ({ row }) => <span className='font-medium'>{row.original.cycle.name}</span>
-  },
-  {
-    id: 'window',
-    header: '时间范围',
-    enableSorting: false,
-    cell: ({ row }) => (
-      <span className='text-muted-foreground'>
-        {formatDate(row.original.cycle.startDate)} ~ {formatDate(row.original.cycle.endDate)}
-      </span>
-    )
   },
   {
     id: 'finalLevel',

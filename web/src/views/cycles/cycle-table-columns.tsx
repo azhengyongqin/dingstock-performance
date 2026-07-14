@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 
 // Util Imports
 import type { PerfCycle } from '@/lib/perf-api'
-import { CYCLE_STATUS_BADGE, CYCLE_STATUS_LABEL, CYCLE_TYPE_LABEL, formatDate } from '@/lib/perf-api'
+import { CYCLE_STATUS_BADGE, CYCLE_STATUS_LABEL, CYCLE_TYPE_LABEL, formatDateTime } from '@/lib/perf-api'
 
 /** 周期列表行数据 = 后端 GET /cycles 的 item */
 export type CycleRow = PerfCycle
@@ -56,14 +56,10 @@ export const cycleTableColumns: ColumnDef<CycleRow>[] = [
     meta: { headClassName: 'text-right', cellClassName: 'text-right' }
   },
   {
-    id: 'window',
-    header: '时间范围',
+    id: 'plannedStartAt',
+    header: '计划启动时间',
     enableSorting: false,
-    cell: ({ row }) => (
-      <span className='text-muted-foreground'>
-        {formatDate(row.original.startDate)} ~ {formatDate(row.original.endDate)}
-      </span>
-    )
+    cell: ({ row }) => <span className='text-muted-foreground'>{formatDateTime(row.original.plannedStartAt)}</span>
   },
   {
     id: 'actions',
@@ -80,7 +76,7 @@ export const cycleTableColumns: ColumnDef<CycleRow>[] = [
           size='sm'
           render={<Link href={`/cycles/${row.original.id}/edit`} />}
           nativeButton={false}
-          disabled={row.original.status === 'ARCHIVED'}
+          disabled={row.original.status !== 'DRAFT' && row.original.status !== 'SCHEDULED'}
         >
           编辑
         </Button>

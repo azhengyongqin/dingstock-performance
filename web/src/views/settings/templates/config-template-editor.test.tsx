@@ -53,6 +53,24 @@ const candidates = [
 ] as PerfFormTemplateVersionSummary[]
 
 describe('ConfigTemplateEditor', () => {
+  it('允许周期高级配置只暴露复杂计算规则，不把表单绑定和日程变成默认入口', () => {
+    render(
+      <ConfigTemplateEditor
+        value={version}
+        candidates={candidates}
+        editable
+        visibleSections={['ratings', 'constraints', 'relations']}
+        onChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('tab', { name: '评级与模式' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '等级约束' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '关系权重' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '表单绑定' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '日程通知' })).not.toBeInTheDocument()
+  })
+
   it('固定展示 SELF/AI 直接评级，只允许切换 PEER/MANAGER 模式', () => {
     render(<ConfigTemplateEditor value={version} candidates={candidates} editable onChange={vi.fn()} />)
 

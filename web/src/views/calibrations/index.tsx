@@ -117,11 +117,12 @@ const Calibrations = () => {
   const fetchCycles = useCallback(async () => {
     try {
       const result = await apiFetch<ListResponse<PerfCycle>>('/cycles')
-      const items = result.items ?? []
+      const items = (result.items ?? []).filter(cycle => cycle.status === 'ACTIVE')
 
       setCycles(items)
 
-      const defaultCycle = items.find(cycle => cycle.status !== 'DRAFT') ?? items[0]
+      // 待启动周期尚未生成评估任务，不能成为校准页默认周期。
+      const defaultCycle = items[0]
 
       setSelectedCycleId(defaultCycle ? String(defaultCycle.id) : null)
 

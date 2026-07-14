@@ -38,7 +38,7 @@ export class CreateConfigTemplateDto {
   description?: string | null;
 }
 
-class ConfigStageModesDto {
+export class ConfigStageModesDto {
   @IsIn(['DIRECT_RATING'])
   SELF!: 'DIRECT_RATING';
 
@@ -52,7 +52,7 @@ class ConfigStageModesDto {
   AI!: 'DIRECT_RATING';
 }
 
-class ConfigRatingDto {
+export class ConfigRatingDto {
   @IsIn(LEVELS)
   symbol!: (typeof LEVELS)[number];
 
@@ -121,7 +121,7 @@ class ScoreConstraintRuleDto {
   targetLevel!: (typeof LEVELS)[number];
 }
 
-class ConstraintProfilesDto {
+export class ConstraintProfilesDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => RatingConstraintRuleDto)
@@ -133,7 +133,7 @@ class ConstraintProfilesDto {
   WEIGHTED_SCORE!: ScoreConstraintRuleDto[];
 }
 
-class ReviewerRelationWeightsDto {
+export class ReviewerRelationWeightsDto {
   @IsString()
   @Matches(PERCENT_DECIMAL_TEXT)
   ORG_OWNER!: string;
@@ -234,7 +234,7 @@ class NotificationStageRuleDto {
   reminder!: NotificationReminderDto;
 }
 
-class NotificationRulesDto {
+export class NotificationRulesDto {
   @IsArray()
   @ArrayMinSize(3)
   @ArrayMaxSize(3)

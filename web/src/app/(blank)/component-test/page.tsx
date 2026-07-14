@@ -5,6 +5,7 @@ import { useState } from 'react'
 import {
   CalendarClockIcon,
   CheckCircle2Icon,
+  ClipboardCheckIcon,
   ComponentIcon,
   FileStackIcon,
   Layers3Icon,
@@ -33,7 +34,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import type { PerfConfigTemplateVersion, PerfFormTemplateVersion } from '@/lib/perf-api'
+import type {
+  PerfConfigTemplateVersion,
+  PerfCyclePlan,
+  PerfCycleSetupParticipant,
+  PerfFormTemplateVersion,
+  PerfParticipantPrefixCheck
+} from '@/lib/perf-api'
+import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 
@@ -45,6 +53,7 @@ type ComponentKey =
   | 'member-picker'
   | 'form-template'
   | 'config-template'
+  | 'cycle-setup'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -95,6 +104,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '配置模板编辑器',
     description: '评级 / 约束 / 绑定 / 日程通知',
     icon: SlidersHorizontalIcon
+  },
+  {
+    key: 'cycle-setup',
+    title: '周期四步创建',
+    description: '基本信息 / 参与者 / 计划 / 检查',
+    icon: ClipboardCheckIcon
   }
 ]
 
@@ -547,6 +562,91 @@ const ConfigTemplateEditorPreview = () => {
   )
 }
 
+const CYCLE_SETUP_PARTICIPANTS: PerfCycleSetupParticipant[] = [
+  {
+    id: 9201,
+    cycleId: 920,
+    employeeOpenId: 'ou_cycle_preview',
+    leaderOpenIdSnapshot: null,
+    departmentIdSnapshot: null,
+    jobLevelCodeSnapshot: 'D5',
+    jobLevelPrefixSnapshot: 'D',
+    isPromotionEnabled: false,
+    status: 'PENDING_SELF_REVIEW',
+    employee: { open_id: 'ou_cycle_preview', name: '周期示例员工' },
+    leader: null,
+    departmentName: '研发部'
+  }
+]
+
+const CYCLE_SETUP_PREFIX_CHECKS: PerfParticipantPrefixCheck[] = [
+  {
+    participantId: 9201,
+    employeeOpenId: 'ou_cycle_preview',
+    status: 'MATCHED',
+    jobLevelCode: 'D5',
+    jobLevelPrefix: 'D',
+    formSnapshotId: 9301,
+    formTemplateVersionId: 9001,
+    formTemplateName: 'D 普通岗评估表单',
+    message: '已匹配 D 普通岗评估表单'
+  }
+]
+
+/** Ticket 04 业务组件示例：完全使用本地受控状态，不访问周期接口。 */
+const CycleSetupPreview = () => {
+  const [status, setStatus] = useState<'DRAFT' | 'SCHEDULED'>('DRAFT')
+
+  const [draft, setDraft] = useState<CycleSetupDraft>({
+    name: '2026 上半年绩效评定',
+    configTemplateVersionId: String(CONFIG_TEMPLATE_PREVIEW_VALUE.id),
+    plannedStartAt: '2026-08-01T09:00'
+  })
+
+  const [plan, setPlan] = useState<PerfCyclePlan>({
+    allowStageOverlap: true,
+    stages: [
+      { stage: 'SELF', startAt: '2026-08-01T01:00:00.000Z', reminderDeadlineAt: '2026-08-04T01:00:00.000Z' },
+      { stage: 'PEER', startAt: '2026-08-02T01:00:00.000Z', reminderDeadlineAt: '2026-08-06T01:00:00.000Z' },
+      { stage: 'MANAGER', startAt: '2026-08-04T01:00:00.000Z', reminderDeadlineAt: '2026-08-08T01:00:00.000Z' }
+    ],
+    notificationRules: CONFIG_TEMPLATE_PREVIEW_VALUE.notificationRules
+  })
+
+  return (
+    <CycleSetupEditor
+      status={status}
+      draft={draft}
+      configTemplates={[{ ...CONFIG_TEMPLATE_PREVIEW_VALUE, isUsable: true }]}
+      sourceConfigLabel=''
+      participants={CYCLE_SETUP_PARTICIPANTS}
+      prefixChecks={CYCLE_SETUP_PREFIX_CHECKS}
+      plan={plan}
+      checkItems={[
+        { key: 'snapshot', ok: true, message: '周期配置与 D/M 表单快照完整' },
+        { key: 'participants', ok: true, message: '参与者职级前缀均唯一匹配' },
+        { key: 'plan', ok: true, message: '三类任务实际计划完整' }
+      ]}
+      checkOk
+      editable
+      saving={false}
+      onDraftChange={setDraft}
+      onSaveBasic={async () => true}
+      onAddMember={() => {}}
+      onAddDepartment={() => {}}
+      onRemoveMember={() => {}}
+      onTogglePromotion={() => {}}
+      onPlanChange={setPlan}
+      onSavePlan={async () => true}
+      onRunChecks={() => {}}
+      onSaveDraft={() => {}}
+      onSchedule={() => setStatus('SCHEDULED')}
+      onReturnToDraft={() => setStatus('DRAFT')}
+      onOpenAdvanced={() => {}}
+    />
+  )
+}
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -554,6 +654,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
+  if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
 
   return <DateTimePreview />
 }
@@ -594,9 +695,10 @@ const ComponentTestPage = () => {
                 const active = item.key === activeComponent
 
                 return (
-                  <button
+                  <Button
                     key={item.key}
                     type='button'
+                    variant='ghost'
                     className={cn(
                       'hover:bg-muted flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
                       active && 'bg-muted text-foreground'
@@ -608,7 +710,7 @@ const ComponentTestPage = () => {
                       <span className='block font-medium'>{item.title}</span>
                       <span className='text-muted-foreground mt-0.5 block truncate text-xs'>{item.description}</span>
                     </span>
-                  </button>
+                  </Button>
                 )
               })}
             </nav>

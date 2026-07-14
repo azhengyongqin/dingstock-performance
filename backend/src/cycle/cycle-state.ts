@@ -2,18 +2,12 @@ import { ConflictException } from '@nestjs/common';
 import { PerfCycleStatus } from '../generated/prisma/enums';
 
 /**
- * 周期状态机（研发文档 §8.2）：
- * DRAFT → PENDING → SELF_REVIEW → REVIEWING → AI_ANALYZING → CALIBRATING → CONFIRMING → ARCHIVED
- * 映射表即文档；AI_ANALYZING 在 AI 开关关闭时允许跳过（REVIEWING 直达 CALIBRATING）。
+ * 周期只表达粗粒度生命周期，细阶段由任务和参与人事实派生。
  */
 const CYCLE_TRANSITIONS: Record<PerfCycleStatus, PerfCycleStatus[]> = {
-  DRAFT: [PerfCycleStatus.PENDING],
-  PENDING: [PerfCycleStatus.SELF_REVIEW, PerfCycleStatus.DRAFT],
-  SELF_REVIEW: [PerfCycleStatus.REVIEWING],
-  REVIEWING: [PerfCycleStatus.AI_ANALYZING, PerfCycleStatus.CALIBRATING],
-  AI_ANALYZING: [PerfCycleStatus.CALIBRATING],
-  CALIBRATING: [PerfCycleStatus.CONFIRMING],
-  CONFIRMING: [PerfCycleStatus.ARCHIVED],
+  DRAFT: [PerfCycleStatus.SCHEDULED],
+  SCHEDULED: [PerfCycleStatus.DRAFT, PerfCycleStatus.ACTIVE],
+  ACTIVE: [PerfCycleStatus.ARCHIVED],
   ARCHIVED: [],
 };
 
