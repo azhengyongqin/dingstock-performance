@@ -10,6 +10,7 @@ import { CalibrationModule } from './calibration/calibration.module';
 import configuration from './config/configuration';
 import { validationSchema } from './config/validation.schema';
 import { ContactModule } from './contact/contact.module';
+import { ConfigTemplateModule } from './config-template/config-template.module';
 import { CycleModule } from './cycle/cycle.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { FormTemplateModule } from './form-template/form-template.module';
@@ -41,6 +42,7 @@ import { SharedModule } from './shared/shared.module';
     NotificationModule,
     DashboardModule,
     FormTemplateModule,
+    ConfigTemplateModule,
   ],
   controllers: [AppController],
   providers: [AppService],

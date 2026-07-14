@@ -33,10 +33,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import type { PerfFormTemplateVersion } from '@/lib/perf-api'
+import type { PerfConfigTemplateVersion, PerfFormTemplateVersion } from '@/lib/perf-api'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
+import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 
-type ComponentKey = 'date-time' | 'buttons' | 'form-controls' | 'feedback' | 'member-picker' | 'form-template'
+type ComponentKey =
+  | 'date-time'
+  | 'buttons'
+  | 'form-controls'
+  | 'feedback'
+  | 'member-picker'
+  | 'form-template'
+  | 'config-template'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -81,6 +89,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '评估表单设计器',
     description: '四类子表单 / 维度 / 评估项',
     icon: FileStackIcon
+  },
+  {
+    key: 'config-template',
+    title: '配置模板编辑器',
+    description: '评级 / 约束 / 绑定 / 日程通知',
+    icon: SlidersHorizontalIcon
   }
 ]
 
@@ -453,12 +467,93 @@ const FormTemplateEditorPreview = () => {
   )
 }
 
+const CONFIG_TEMPLATE_PREVIEW_VALUE: PerfConfigTemplateVersion = {
+  id: 9101,
+  templateId: 910,
+  name: '标准半年度配置',
+  description: '组件实验台本地草稿，不会发起接口请求。',
+  version: 1,
+  status: 'DRAFT',
+  updatedAt: '2026-07-14T12:00:00.000Z',
+  stageModes: { SELF: 'DIRECT_RATING', PEER: 'WEIGHTED_RATING', MANAGER: 'WEIGHTED_SCORE', AI: 'DIRECT_RATING' },
+  ratings: [
+    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
+    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
+    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
+    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+  ],
+  constraintProfiles: {
+    WEIGHTED_RATING: [
+      { id: 'rating-core-force', type: 'CORE_RATING_FORCE', enabled: true, triggerRating: 'C', targetLevel: 'C' },
+      { id: 'rating-core-cap', type: 'CORE_RATING_CAP', enabled: true, triggerRating: 'B', targetLevel: 'B' },
+      { id: 'rating-any-cap', type: 'ANY_RATING_CAP', enabled: true, triggerRating: 'C', targetLevel: 'B' }
+    ],
+    WEIGHTED_SCORE: [
+      { id: 'score-core-force', type: 'CORE_SCORE_FORCE', enabled: true, threshold: '60', targetLevel: 'C' },
+      { id: 'score-core-cap', type: 'CORE_SCORE_CAP', enabled: true, threshold: '80', targetLevel: 'B' },
+      { id: 'score-any-cap', type: 'ANY_SCORE_CAP', enabled: true, threshold: '60', targetLevel: 'B' }
+    ]
+  },
+  reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' },
+  formTemplateVersionIds: [9001],
+  schedulePreset: {
+    allowStageOverlap: true,
+    stages: [
+      { stage: 'SELF', startOffsetMinutes: 0, reminderDeadlineOffsetMinutes: 4320 },
+      { stage: 'PEER', startOffsetMinutes: 1440, reminderDeadlineOffsetMinutes: 7200 },
+      { stage: 'MANAGER', startOffsetMinutes: 4320, reminderDeadlineOffsetMinutes: 10080 }
+    ]
+  },
+  notificationRules: {
+    stages: (['SELF', 'PEER', 'MANAGER'] as const).map(stage => ({
+      stage,
+      taskOpened: { enabled: true, recipient: 'ASSIGNEE' as const, ccLeader: true, ccHr: false },
+      reminder: {
+        enabled: true,
+        recipient: 'ASSIGNEE' as const,
+        ccLeader: true,
+        ccHr: false,
+        frequency: { type: 'DAILY_AFTER_DEADLINE' as const }
+      }
+    }))
+  }
+}
+
+/** Ticket 03 业务组件示例：本地受控草稿与只读发布态并排，不访问后端。 */
+const ConfigTemplateEditorPreview = () => {
+  const [draft, setDraft] = useState(CONFIG_TEMPLATE_PREVIEW_VALUE)
+
+  return (
+    <div className='flex flex-col gap-4'>
+      <Card>
+        <CardHeader>
+          <CardTitle>配置模板草稿态</CardTitle>
+          <CardDescription>验证固定 S/A/B/C、阶段模式、约束、关系权重、表单绑定与日程通知。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ConfigTemplateEditor value={draft} candidates={[FORM_TEMPLATE_PREVIEW_VALUE]} editable onChange={setDraft} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>配置模板只读态</CardTitle>
+          <CardDescription>模拟发布版本，确认受控配置不会原地修改。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ConfigTemplateEditor value={{ ...draft, status: 'PUBLISHED' }} candidates={[FORM_TEMPLATE_PREVIEW_VALUE]} editable={false} onChange={() => {}} />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
+  if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
 
   return <DateTimePreview />
 }

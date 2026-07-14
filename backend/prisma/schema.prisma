@@ -68,7 +68,7 @@ model LarkUser {
 /// 字段名与 SDK 响应保持一致；枚举对象（{ enum_name, display[] }）与嵌套结构存 JSONB。
 /// 日期类字段 CoreHR 返回 "YYYY-MM-DD" 字符串，原样存储不做转换。
 model LarkCorehrEmployee {
-  open_id                     String  @id /// = 响应中的 employment_id（请求固定 user_id_type=open_id），关联 lark_users
+  open_id                     String   @id /// = 响应中的 employment_id（请求固定 user_id_type=open_id），关联 lark_users
   employment_id_v2            String? /// 雇佣 ID（V2 版本）
   employee_number             String? /// 工号
   employee_type_id            String? /// 人员类型 ID
@@ -355,6 +355,24 @@ enum PerfFormTemplateVersionStatus {
   @@schema("performance")
 }
 
+/// 配置模板版本生命周期；发布版本作为周期配置来源，不允许原地改写。
+enum PerfConfigTemplateVersionStatus {
+  DRAFT /// 草稿：允许编辑，但不能创建周期
+  PUBLISHED /// 已发布：内容不可变，可供 HR 选择
+  ARCHIVED /// 已归档：仅保留历史，不再用于新的周期
+
+  @@schema("performance")
+}
+
+/// 评估阶段结果模式；各阶段允许的模式由数据库 CHECK 与发布校验共同限制。
+enum PerfStageResultMode {
+  DIRECT_RATING /// 直接选择 S/A/B/C，不参与加权计算
+  WEIGHTED_RATING /// 评级映射为计算分后加权
+  WEIGHTED_SCORE /// 直接使用 0～100 分进行加权
+
+  @@schema("performance")
+}
+
 /// 系统当前支持的职级前缀；参与者按职级快照前缀匹配表单版本。
 enum PerfJobLevelPrefix {
   D /// 普通岗位
@@ -443,8 +461,11 @@ model PerfFormTemplateVersion {
   sourceVersion   PerfFormTemplateVersion?  @relation("PerfFormTemplateVersionSource", fields: [sourceVersionId], references: [id], onDelete: Restrict)
   derivedVersions PerfFormTemplateVersion[] @relation("PerfFormTemplateVersionSource")
   subforms        PerfFormSubform[]
+  configBindings  PerfConfigFormBinding[]
 
   @@unique([templateId, version])
+  /// 供配置模板绑定使用；冗余职级前缀进入复合外键，防止绑定记录伪造适用前缀。
+  @@unique([id, jobLevelPrefix])
   @@index([templateId, status])
   @@index([status, jobLevelPrefix])
   @@index([sourceVersionId])
@@ -513,6 +534,81 @@ model PerfFormItem {
 
   @@unique([dimensionId, sortOrder])
   @@map("perf_form_items")
+  @@schema("performance")
+}
+
+/// 配置模板的稳定标识；名称、计算规则与表单组合均保存在不可变版本中。
+model PerfConfigTemplate {
+  id              Int      @id @default(autoincrement()) /// 内部自增主键
+  systemKey       String?  @unique @map("system_key") /// 内置模板幂等键；管理员自建模板为空
+  createdByOpenId String   @map("created_by_open_id") /// 创建人飞书 open_id
+  createdAt       DateTime @default(now()) @map("created_at") /// 创建时间
+  updatedAt       DateTime @updatedAt @map("updated_at") /// 最近更新时间
+
+  versions PerfConfigTemplateVersion[]
+
+  @@map("perf_config_templates")
+  @@schema("performance")
+}
+
+/// 配置模板版本；发布后由数据库触发器保护，规则与表单绑定均不可原地修改。
+model PerfConfigTemplateVersion {
+  id                 Int                             @id @default(autoincrement()) /// 内部自增主键
+  templateId         Int                             @map("template_id") /// 所属稳定配置模板
+  version            Int /// 模板内递增版本号，从 1 开始
+  status             PerfConfigTemplateVersionStatus @default(DRAFT) /// 版本生命周期
+  name               String /// 版本名称；作为发布内容的一部分保持不可变
+  description        String? /// 版本说明
+  sourceVersionId    Int?                            @map("source_version_id") /// 从哪个已发布版本复制出的草稿；首版为空
+  selfStageMode      PerfStageResultMode             @default(DIRECT_RATING) @map("self_stage_mode") /// 自评固定直接评级
+  peerStageMode      PerfStageResultMode             @default(WEIGHTED_RATING) @map("peer_stage_mode") /// 360°默认加权评级
+  managerStageMode   PerfStageResultMode             @default(WEIGHTED_SCORE) @map("manager_stage_mode") /// 上级评估默认加权评分
+  aiStageMode        PerfStageResultMode             @default(DIRECT_RATING) @map("ai_stage_mode") /// AI固定直接评级
+  ratings            Json                            @default("[]") /// 固定 S/A/B/C 顺序的等级名称、区间、映射分与评语要求
+  constraintProfiles Json                            @default("{}") @map("constraint_profiles") /// 按 WEIGHTED_RATING / WEIGHTED_SCORE 模式保存的受控等级约束，不允许公式或脚本
+  orgOwnerWeight     Decimal                         @default(30) @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
+  projectOwnerWeight Decimal                         @default(30) @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
+  peerWeight         Decimal                         @default(25) @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
+  crossDeptWeight    Decimal                         @default(15) @map("cross_dept_weight") @db.Decimal(5, 2) /// 跨部门协作方基础权重
+  schedulePreset     Json                            @default("{}") @map("schedule_preset") /// 相对计划启动时间的任务开放与软提醒预设
+  notificationRules  Json                            @default("{}") @map("notification_rules") /// 飞书通知事件、接收人、抄送人与提醒频率
+  createdByOpenId    String                          @map("created_by_open_id") /// 创建版本的管理员 open_id
+  updatedByOpenId    String                          @map("updated_by_open_id") /// 最近修改版本的管理员 open_id
+  publishedByOpenId  String?                         @map("published_by_open_id") /// 发布人 open_id
+  publishedAt        DateTime?                       @map("published_at") /// 发布时间
+  archivedByOpenId   String?                         @map("archived_by_open_id") /// 归档人 open_id
+  archivedAt         DateTime?                       @map("archived_at") /// 归档时间
+  createdAt          DateTime                        @default(now()) @map("created_at") /// 创建时间
+  updatedAt          DateTime                        @updatedAt @map("updated_at") /// 最近更新时间
+
+  template        PerfConfigTemplate          @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  sourceVersion   PerfConfigTemplateVersion?  @relation("PerfConfigTemplateVersionSource", fields: [sourceVersionId], references: [id], onDelete: Restrict)
+  derivedVersions PerfConfigTemplateVersion[] @relation("PerfConfigTemplateVersionSource")
+  formBindings    PerfConfigFormBinding[]
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@index([status])
+  @@index([sourceVersionId])
+  @@map("perf_config_template_versions")
+  @@schema("performance")
+}
+
+/// 配置版本对已发布评估表单版本的精确绑定；职级前缀由复合外键保证与表单版本一致。
+model PerfConfigFormBinding {
+  id                    Int                @id @default(autoincrement()) /// 内部自增主键
+  configVersionId       Int                @map("config_version_id") /// 所属配置模板版本
+  formTemplateVersionId Int                @map("form_template_version_id") /// 被绑定的评估表单模板版本
+  jobLevelPrefix        PerfJobLevelPrefix @map("job_level_prefix") /// 冗余职级前缀；配置版本内每个前缀只能绑定一次
+  createdAt             DateTime           @default(now()) @map("created_at") /// 创建时间
+  updatedAt             DateTime           @updatedAt @map("updated_at") /// 最近更新时间
+
+  configVersion       PerfConfigTemplateVersion @relation(fields: [configVersionId], references: [id], onDelete: Cascade)
+  formTemplateVersion PerfFormTemplateVersion   @relation(fields: [formTemplateVersionId, jobLevelPrefix], references: [id, jobLevelPrefix], onDelete: Restrict)
+
+  @@unique([configVersionId, jobLevelPrefix])
+  @@index([formTemplateVersionId])
+  @@map("perf_config_form_bindings")
   @@schema("performance")
 }
 
@@ -919,13 +1015,13 @@ model AuditLog {
 /// RBAC 显式授权（产品 §3.8）：仅维护 HR 与超级管理员；
 /// EMPLOYEE/REVIEWER/LEADER 由 participant/assignment/leader 快照派生，不入本表
 model RoleGrant {
-  id              Int       @id @default(autoincrement()) /// 内部自增主键
-  userOpenId      String    @map("user_open_id") /// 被授权人飞书 open_id
-  role            PerfRole  @map("role") /// 授予角色（实际使用 HR/ADMIN）
-  orgScope        String[]  @default([]) @map("org_scope") /// 授权部门范围（open_department_id 列表，含子树）；ADMIN 留空表示全局
-  grantedByOpenId String?   @map("granted_by_open_id") /// 授权人 open_id
-  createdAt       DateTime  @default(now()) @map("created_at") /// 授权时间
-  updatedAt       DateTime  @updatedAt @map("updated_at") /// 最近更新时间（调整 org_scope）
+  id              Int      @id @default(autoincrement()) /// 内部自增主键
+  userOpenId      String   @map("user_open_id") /// 被授权人飞书 open_id
+  role            PerfRole @map("role") /// 授予角色（实际使用 HR/ADMIN）
+  orgScope        String[] @default([]) @map("org_scope") /// 授权部门范围（open_department_id 列表，含子树）；ADMIN 留空表示全局
+  grantedByOpenId String?  @map("granted_by_open_id") /// 授权人 open_id
+  createdAt       DateTime @default(now()) @map("created_at") /// 授权时间
+  updatedAt       DateTime @updatedAt @map("updated_at") /// 最近更新时间（调整 org_scope）
 
   @@unique([userOpenId, role]) /// 同人同角色仅一条授权，撤销为物理删除并写审计
   @@map("role_grants")

@@ -377,6 +377,209 @@ export const createPerfFormTemplateDraft = (versionId: number) =>
 export const archivePerfFormTemplateVersion = (versionId: number) =>
   apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}/archive`, { method: 'POST' })
 
+// ===== 版本化配置模板 =====
+
+export type PerfConfigTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+export type PerfConfigStageMode = 'DIRECT_RATING' | 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
+export type PerfPerformanceLevel = 'S' | 'A' | 'B' | 'C'
+export type PerfConfigReviewerRelation = 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT'
+export type PerfConfigScheduleStage = 'SELF' | 'PEER' | 'MANAGER'
+
+export type PerfConfigTemplateRating = {
+  symbol: PerfPerformanceLevel
+  name: string
+  description?: string | null
+  minScore: string
+  maxScore: string
+  mappingScore: string
+  commentRequired: boolean
+}
+
+export type PerfConfigRatingConstraint = {
+  id: string
+  type: 'CORE_RATING_FORCE' | 'CORE_RATING_CAP' | 'ANY_RATING_CAP'
+  enabled: boolean
+  triggerRating: PerfPerformanceLevel
+  targetLevel: PerfPerformanceLevel
+}
+
+export type PerfConfigScoreConstraint = {
+  id: string
+  type: 'CORE_SCORE_FORCE' | 'CORE_SCORE_CAP' | 'ANY_SCORE_CAP'
+  enabled: boolean
+  threshold: string
+  targetLevel: PerfPerformanceLevel
+}
+
+export type PerfConfigConstraintProfiles = {
+  WEIGHTED_RATING: PerfConfigRatingConstraint[]
+  WEIGHTED_SCORE: PerfConfigScoreConstraint[]
+}
+
+export type PerfConfigSchedulePreset = {
+  allowStageOverlap: boolean
+  stages: Array<{
+    stage: PerfConfigScheduleStage
+    startOffsetMinutes: number
+    reminderDeadlineOffsetMinutes: number
+  }>
+}
+
+export type PerfConfigNotificationRules = {
+  stages: Array<{
+    stage: PerfConfigScheduleStage
+    taskOpened: {
+      enabled: boolean
+      recipient: 'ASSIGNEE'
+      ccLeader: boolean
+      ccHr: boolean
+    }
+    reminder: {
+      enabled: boolean
+      recipient: 'ASSIGNEE'
+      ccLeader: boolean
+      ccHr: boolean
+      frequency: {
+        type: 'ONCE_AT_DEADLINE' | 'DAILY_AFTER_DEADLINE' | 'EVERY_N_DAYS_AFTER_DEADLINE'
+        intervalDays?: number
+      }
+    }
+  }>
+}
+
+export type ConfigTemplateValidationIssue = {
+  code: string
+  message: string
+  path?: string
+}
+
+export type PerfConfigFormBinding = {
+  id?: number
+  formTemplateVersionId: number
+  jobLevelPrefix: PerfJobLevelPrefix
+  formTemplateVersion?: PerfFormTemplateVersion
+  status?: PerfFormTemplateVersionStatus
+  subforms?: PerfFormTemplateSubform[]
+}
+
+export type PerfConfigTemplateVersionSummary = {
+  id: number
+  templateId: number
+  systemKey?: string | null
+  name: string
+  description?: string | null
+  version: number
+  status: PerfConfigTemplateVersionStatus
+  sourceVersionId?: number | null
+  publishedAt?: string | null
+  archivedAt?: string | null
+  updatedAt: string
+  available?: boolean
+  isUsable?: boolean
+  publicationIssues?: ConfigTemplateValidationIssue[]
+  publishIssues?: ConfigTemplateValidationIssue[]
+  unavailableReasons?: Array<ConfigTemplateValidationIssue | string>
+  formBindings?: PerfConfigFormBinding[]
+}
+
+export type PerfConfigTemplateVersion = PerfConfigTemplateVersionSummary & {
+  createdByOpenId?: string
+  updatedByOpenId?: string
+  publishedByOpenId?: string | null
+  archivedByOpenId?: string | null
+  createdAt?: string
+  stageModes: {
+    SELF: 'DIRECT_RATING'
+    PEER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
+    MANAGER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
+    AI: 'DIRECT_RATING'
+  }
+  ratings: PerfConfigTemplateRating[]
+  constraintProfiles: PerfConfigConstraintProfiles
+  reviewerRelationWeights: Record<PerfConfigReviewerRelation, string>
+  formTemplateVersionIds: number[]
+  formBindings?: PerfConfigFormBinding[]
+  schedulePreset: PerfConfigSchedulePreset
+  notificationRules: PerfConfigNotificationRules
+}
+
+export type CreatePerfConfigTemplateInput = {
+  name: string
+  description?: string
+}
+
+export type UpdatePerfConfigTemplateVersionInput = Pick<
+  PerfConfigTemplateVersion,
+  | 'name'
+  | 'description'
+  | 'stageModes'
+  | 'ratings'
+  | 'constraintProfiles'
+  | 'reviewerRelationWeights'
+  | 'formTemplateVersionIds'
+  | 'schedulePreset'
+  | 'notificationRules'
+>
+
+export type PerfConfigCalculationPreviewInput = {
+  stage: 'SELF' | 'PEER' | 'MANAGER' | 'AI'
+  jobLevelPrefix: PerfJobLevelPrefix
+  directRating?: PerfPerformanceLevel
+  dimensions?: Array<{
+    dimensionId: number
+    relations: Array<{
+      type: 'LEADER' | PerfConfigReviewerRelation
+      rawValues: string[]
+    }>
+  }>
+}
+
+export type PerfConfigCalculationPreviewResponse<T = Record<string, unknown>> =
+  | { status: 'READY'; result: T }
+  | { status: 'UNAVAILABLE'; issues: ConfigTemplateValidationIssue[] }
+
+export const listPerfConfigTemplates = () =>
+  apiFetch<ListResponse<PerfConfigTemplateVersionSummary>>('/config-templates')
+
+export const createPerfConfigTemplate = (input: CreatePerfConfigTemplateInput) =>
+  apiFetch<PerfConfigTemplateVersion>('/config-templates', { method: 'POST', body: JSON.stringify(input) })
+
+export const listPerfConfigTemplateVersions = (templateId: number) =>
+  apiFetch<ListResponse<PerfConfigTemplateVersionSummary>>(`/config-templates/${templateId}/versions`)
+
+export const getPerfConfigTemplateVersion = (versionId: number) =>
+  apiFetch<PerfConfigTemplateVersion>(`/config-templates/versions/${versionId}`)
+
+export const updatePerfConfigTemplateVersion = (versionId: number, input: UpdatePerfConfigTemplateVersionInput) =>
+  apiFetch<PerfConfigTemplateVersion>(`/config-templates/versions/${versionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const validatePerfConfigTemplateVersion = (versionId: number) =>
+  apiFetch<{ valid: boolean; issues: ConfigTemplateValidationIssue[] }>(
+    `/config-templates/versions/${versionId}/validate`,
+    { method: 'POST' }
+  )
+
+export const publishPerfConfigTemplateVersion = (versionId: number) =>
+  apiFetch<PerfConfigTemplateVersion>(`/config-templates/versions/${versionId}/publish`, { method: 'POST' })
+
+export const createPerfConfigTemplateDraft = (versionId: number) =>
+  apiFetch<PerfConfigTemplateVersion>(`/config-templates/versions/${versionId}/new-draft`, { method: 'POST' })
+
+export const archivePerfConfigTemplateVersion = (versionId: number) =>
+  apiFetch<PerfConfigTemplateVersion>(`/config-templates/versions/${versionId}/archive`, { method: 'POST' })
+
+export const previewPerfConfigTemplateCalculation = <T = Record<string, unknown>>(
+  versionId: number,
+  input: PerfConfigCalculationPreviewInput
+) =>
+  apiFetch<PerfConfigCalculationPreviewResponse<T>>(`/config-templates/versions/${versionId}/calculation-preview`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+
 // ===== 小工具 =====
 
 /** 头像 URL 提取（LarkUser.avatar JSONB） */
