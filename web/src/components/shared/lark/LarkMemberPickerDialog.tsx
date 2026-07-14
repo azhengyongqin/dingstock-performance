@@ -125,7 +125,7 @@ const LarkMemberPickerDialog = ({
         </DialogHeader>
 
         <div className='flex min-h-0 flex-1 flex-col gap-4'>
-          <LarkMemberSelector className='w-full' placeholder={searchPlaceholder} onSelect={handleSelect} />
+          <LarkMemberSelector fluid placeholder={searchPlaceholder} onSelect={handleSelect} />
 
           {/* 本次新增的待确认区：有内容时出现，取消/确认后收起 */}
           {pending.length > 0 && (

@@ -343,7 +343,9 @@ const MemberPickerPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>协作者管理式弹窗</CardTitle>
-          <CardDescription>顶部飞书搜索 → 本次新增待确认区（取消/确认）→ 已选成员列表（可移除）</CardDescription>
+          <CardDescription>
+            顶部飞书搜索（自适应弹窗宽度）→ 本次新增待确认区（取消/确认）→ 已选成员列表（可移除）
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Button onClick={() => setOpen(true)}>打开人员选择弹窗</Button>

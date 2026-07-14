@@ -37,8 +37,11 @@ export type LarkMemberSelectorProps = {
   placeholder?: string
   className?: string
 
-  /** 搜索框宽度（px） */
+  /** 搜索框宽度（px），fluid 为 true 时仅作为 SDK 初始宽度 */
   triggerWidth?: number
+
+  /** 是否忽略飞书 SDK 的固定触发器宽度，横向铺满父容器 */
+  fluid?: boolean
 
   /** 下拉面板宽度/高度（px） */
   panelWidth?: number
@@ -58,6 +61,7 @@ const LarkMemberSelector = ({
   placeholder = '搜索人员',
   className,
   triggerWidth = 240,
+  fluid = false,
   panelWidth = 320,
   panelHeight = 400
 }: LarkMemberSelectorProps) => {
@@ -114,7 +118,16 @@ const LarkMemberSelector = ({
   }, [placeholder, triggerWidth, panelWidth, panelHeight])
 
   return (
-    <div className={cn('relative min-h-9', className)} style={{ width: triggerWidth }}>
+    <div
+      className={cn(
+        'relative min-h-9',
+
+        // 飞书 SDK 会给搜索触发器写入固定宽度，流式布局下需要显式覆盖。
+        fluid && 'w-full [&_.larkw-selector-container]:!w-full',
+        className
+      )}
+      style={fluid ? undefined : { width: triggerWidth }}
+    >
       <div ref={containerRef} className={cn(status !== 'ready' && 'invisible')} />
 
       {status === 'loading' && <Skeleton className='absolute inset-0 h-9 rounded-md' />}
