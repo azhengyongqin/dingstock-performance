@@ -6,6 +6,7 @@ import {
   CalendarClockIcon,
   CheckCircle2Icon,
   ComponentIcon,
+  FileStackIcon,
   Layers3Icon,
   PanelLeftIcon,
   SlidersHorizontalIcon,
@@ -32,8 +33,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/u
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import type { PerfFormTemplateVersion } from '@/lib/perf-api'
+import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 
-type ComponentKey = 'date-time' | 'buttons' | 'form-controls' | 'feedback' | 'member-picker'
+type ComponentKey = 'date-time' | 'buttons' | 'form-controls' | 'feedback' | 'member-picker' | 'form-template'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -72,6 +75,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '人员选择弹窗',
     description: 'LarkMemberPickerDialog',
     icon: UsersIcon
+  },
+  {
+    key: 'form-template',
+    title: '评估表单设计器',
+    description: '四类子表单 / 维度 / 评估项',
+    icon: FileStackIcon
   }
 ]
 
@@ -382,11 +391,74 @@ const MemberPickerPreview = () => {
   )
 }
 
+const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
+  id: 9001,
+  templateId: 900,
+  name: 'D 普通岗评估表单',
+  description: '组件实验台示例，不会调用后端或保存数据。',
+  version: 1,
+  status: 'DRAFT',
+  jobLevelPrefix: 'D',
+  sourceVersionId: null,
+  updatedAt: '2026-07-14T12:00:00.000Z',
+  subforms: [
+    { type: 'SELF', title: '员工自评', sortOrder: 0, dimensions: [] },
+    {
+      type: 'PEER',
+      title: '360°评估',
+      sortOrder: 1,
+      dimensions: [
+        {
+          kind: 'REGULAR',
+          audience: 'REVIEWER',
+          name: '工作贡献与责任担当',
+          description: '仅评价同级协作中能够观察到的行为。',
+          weight: 35,
+          isCore: true,
+          sortOrder: 0,
+          items: [{ type: 'RATING', title: '请选择该维度评级', required: true, sortOrder: 0 }]
+        }
+      ]
+    },
+    { type: 'MANAGER', title: '上级评估', sortOrder: 2, dimensions: [] },
+    { type: 'PROMOTION', title: '晋升评估', sortOrder: 3, dimensions: [] }
+  ]
+}
+
+/** 业务级组件示例：可编辑草稿与已发布只读态并排验证。 */
+const FormTemplateEditorPreview = () => {
+  const [draft, setDraft] = useState(FORM_TEMPLATE_PREVIEW_VALUE)
+
+  return (
+    <div className='flex flex-col gap-4'>
+      <Card>
+        <CardHeader>
+          <CardTitle>草稿编辑态</CardTitle>
+          <CardDescription>验证四个 Tab、维度排序、核心标记与受控评估项编辑。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplateEditor value={draft} editable onChange={setDraft} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>已发布只读态</CardTitle>
+          <CardDescription>发布版本不可原地修改，所有基础控件均为只读。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplateEditor value={{ ...draft, status: 'PUBLISHED' }} editable={false} onChange={() => {}} />
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
+  if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
 
   return <DateTimePreview />
 }

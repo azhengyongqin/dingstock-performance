@@ -164,6 +164,12 @@ export const navItems: NavItem[] = [
         roles: ['HR', 'ADMIN']
       },
       {
+        icon: 'FileStack',
+        label: '评估表单模板',
+        href: '/settings/form-templates',
+        roles: ['HR', 'ADMIN']
+      },
+      {
         icon: 'Settings',
         label: '系统配置',
         href: '/settings',

@@ -1,6 +1,8 @@
 // 绩效业务域 API 类型与常量：与后端 NestJS 接口/Prisma 枚举一一对应。
 // 所有请求统一走 lib/api.ts 的 apiFetch（自动带 Bearer token）。
 
+import { apiFetch } from './api'
+
 // ===== 枚举（与 backend/prisma schema 对齐） =====
 
 export type PerfCycleStatus =
@@ -33,6 +35,36 @@ export type PerfRole = 'EMPLOYEE' | 'REVIEWER' | 'LEADER' | 'HR' | 'ADMIN'
 export type PerfReviewStatus = 'DRAFT' | 'SUBMITTED'
 export type PerfSelfReviewStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED'
 export type PerfAppealStatus = 'PENDING' | 'IN_INTERVIEW' | 'RESOLVED'
+export type PerfFormTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+export type PerfJobLevelPrefix = 'D' | 'M'
+export type PerfFormSubformType = 'SELF' | 'PEER' | 'MANAGER' | 'PROMOTION'
+export type PerfFormDimensionKind = 'REGULAR' | 'TEXT' | 'PROMOTION'
+export type PerfFormAudience = 'EMPLOYEE' | 'REVIEWER' | 'LEADER'
+export type PerfFormItemType =
+  | 'RATING'
+  | 'SCORE'
+  | 'SHORT_TEXT'
+  | 'LONG_TEXT'
+  | 'MARKDOWN'
+  | 'SINGLE_SELECT'
+  | 'MULTI_SELECT'
+  | 'ATTACHMENT'
+  | 'LINK'
+
+export type PerfFormItemOption = { value: string; label: string }
+
+export type PerfFormItemConfig = {
+  minLength?: number
+  maxLength?: number
+  defaultValue?: string
+  options?: PerfFormItemOption[]
+  minSelections?: number
+  maxSelections?: number
+  maxFiles?: number
+  maxSizeMb?: number
+  allowedExtensions?: string[]
+  allowedProtocols?: string[]
+}
 
 // ===== 中文文案映射 =====
 
@@ -220,7 +252,130 @@ export type PerfTemplate = {
 
 export type PerfDimensionTemplateItem = Omit<PerfDimension, 'cycleId'> & { templateId: number }
 
+// ===== 版本化评估表单模板 =====
+
+export type PerfFormTemplateItem = {
+  id?: number
+  dimensionId?: number
+  type: PerfFormItemType
+  title: string
+  description?: string | null
+  placeholder?: string | null
+  required: boolean
+  sortOrder: number
+  config?: PerfFormItemConfig | null
+}
+
+export type PerfFormTemplateDimension = {
+  id?: number
+  subformId?: number
+  kind: PerfFormDimensionKind
+  audience: PerfFormAudience
+  name: string
+  description?: string | null
+  weight?: string | number | null
+  isCore: boolean
+  sortOrder: number
+  items: PerfFormTemplateItem[]
+}
+
+export type PerfFormTemplateSubform = {
+  id?: number
+  versionId?: number
+  type: PerfFormSubformType
+  title: string
+  description?: string | null
+  sortOrder: number
+  dimensions: PerfFormTemplateDimension[]
+}
+
+export type PerfFormTemplateVersionSummary = {
+  id: number
+  templateId: number
+  systemKey?: string | null
+  name: string
+  description?: string | null
+  version: number
+  status: PerfFormTemplateVersionStatus
+  jobLevelPrefix: PerfJobLevelPrefix
+  sourceVersionId?: number | null
+  publishedAt?: string | null
+  archivedAt?: string | null
+  updatedAt: string
+  subformCount?: number
+}
+
+export type PerfFormTemplateVersion = PerfFormTemplateVersionSummary & {
+  createdByOpenId?: string
+  updatedByOpenId?: string
+  publishedByOpenId?: string | null
+  archivedByOpenId?: string | null
+  createdAt?: string
+  subforms: PerfFormTemplateSubform[]
+}
+
+export type FormTemplateValidationIssue = {
+  code: string
+  message: string
+  path?: string
+}
+
+export type FormTemplatePrefixCoverage = {
+  complete: boolean
+  matches: Record<PerfJobLevelPrefix, number[]>
+  issues: Array<{
+    code: 'PREFIX_MISSING' | 'PREFIX_DUPLICATE'
+    prefix: PerfJobLevelPrefix
+    versionIds: number[]
+    message: string
+  }>
+}
+
+export type CreatePerfFormTemplateInput = {
+  name: string
+  description?: string
+  jobLevelPrefix: PerfJobLevelPrefix
+}
+
+export type UpdatePerfFormTemplateVersionInput = Pick<
+  PerfFormTemplateVersion,
+  'name' | 'description' | 'jobLevelPrefix' | 'subforms'
+>
+
 export type ListResponse<T> = { items: T[]; total: number }
+
+/** 版本化评估表单模板 API：视图只调用这些明确操作，避免散落拼接生命周期路径。 */
+export const listPerfFormTemplates = () => apiFetch<ListResponse<PerfFormTemplateVersionSummary>>('/form-templates')
+
+export const createPerfFormTemplate = (input: CreatePerfFormTemplateInput) =>
+  apiFetch<PerfFormTemplateVersion>('/form-templates', { method: 'POST', body: JSON.stringify(input) })
+
+export const analyzePerfFormTemplatePrefixCoverage = (versionIds: number[]) =>
+  apiFetch<FormTemplatePrefixCoverage>('/form-templates/prefix-coverage', {
+    method: 'POST',
+    body: JSON.stringify({ versionIds })
+  })
+
+export const listPerfFormTemplateVersions = (templateId: number) =>
+  apiFetch<ListResponse<PerfFormTemplateVersionSummary>>(`/form-templates/${templateId}/versions`)
+
+export const getPerfFormTemplateVersion = (versionId: number) =>
+  apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}`)
+
+export const updatePerfFormTemplateVersion = (versionId: number, input: UpdatePerfFormTemplateVersionInput) =>
+  apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const publishPerfFormTemplateVersion = (versionId: number) =>
+  apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}/publish`, { method: 'POST' })
+
+export const createPerfFormTemplateDraft = (versionId: number) =>
+  apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}/new-draft`, { method: 'POST' })
+
+export const archivePerfFormTemplateVersion = (versionId: number) =>
+  apiFetch<PerfFormTemplateVersion>(`/form-templates/versions/${versionId}/archive`, { method: 'POST' })
 
 // ===== 小工具 =====
 

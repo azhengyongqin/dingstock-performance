@@ -18,6 +18,7 @@
     "prisma:studio": "prisma studio",
     "lark:play": "ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\",\"resolvePackageJsonExports\":false}' src/scripts/lark-playground.ts",
     "seed:template": "pnpm build && node dist/src/scripts/seed-default-template.js",
+    "seed:form-templates": "pnpm build && node dist/src/scripts/seed-default-form-templates.js",
     "test": "pnpm prisma:generate && jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",

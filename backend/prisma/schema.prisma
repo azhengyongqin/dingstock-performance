@@ -346,6 +346,176 @@ enum ReportExportStatus {
   @@schema("performance")
 }
 
+/// 评估表单模板版本生命周期；只有 DRAFT 可修改表单结构。
+enum PerfFormTemplateVersionStatus {
+  DRAFT /// 草稿：允许编辑，不能被配置模板引用
+  PUBLISHED /// 已发布：内容不可变，可供配置模板选择
+  ARCHIVED /// 已归档：仅保留历史，不再用于新配置
+
+  @@schema("performance")
+}
+
+/// 系统当前支持的职级前缀；参与者按职级快照前缀匹配表单版本。
+enum PerfJobLevelPrefix {
+  D /// 普通岗位
+  M /// 管理岗位
+
+  @@schema("performance")
+}
+
+/// 一个评估表单版本固定包含的四类子表单。
+enum PerfFormSubformType {
+  SELF /// 员工自评
+  PEER /// 360°评估
+  MANAGER /// 上级评估
+  PROMOTION /// 晋升评估
+
+  @@schema("performance")
+}
+
+/// 表单维度类型；常规计分、文本内容和晋升内容分别处理。
+enum PerfFormDimensionKind {
+  REGULAR /// 常规评估维度，可参与阶段计算
+  TEXT /// 非计分文本/说明维度
+  PROMOTION /// 晋升评估维度
+
+  @@schema("performance")
+}
+
+/// 维度内容的填写对象；晋升内容只允许 EMPLOYEE 与 LEADER。
+enum PerfFormAudience {
+  EMPLOYEE /// 被考核员工
+  REVIEWER /// 360°评审员
+  LEADER /// 考核 Leader
+
+  @@schema("performance")
+}
+
+/// 受控评估项组件目录；禁止保存任意 HTML、脚本或自定义组件类型。
+enum PerfFormItemType {
+  RATING /// S/A/B/C 评级选择
+  SCORE /// 0～100 分数输入
+  SHORT_TEXT /// 单行文本
+  LONG_TEXT /// 多行文本
+  MARKDOWN /// Markdown 内容
+  SINGLE_SELECT /// 单选
+  MULTI_SELECT /// 多选
+  ATTACHMENT /// 文件附件
+  LINK /// 链接
+
+  @@schema("performance")
+}
+
+/// 评估表单模板的稳定标识；名称、适用职级与表单内容都保存在不可变版本中。
+model PerfFormTemplate {
+  id              Int      @id @default(autoincrement()) /// 内部自增主键
+  systemKey       String?  @unique @map("system_key") /// 内置模板幂等键（如 DEFAULT_D）；管理员自建模板为空
+  createdByOpenId String   @map("created_by_open_id") /// 创建人飞书 open_id
+  createdAt       DateTime @default(now()) @map("created_at") /// 创建时间
+  updatedAt       DateTime @updatedAt @map("updated_at") /// 最近更新时间
+
+  versions PerfFormTemplateVersion[]
+
+  @@map("perf_form_templates")
+  @@schema("performance")
+}
+
+/// 评估表单模板版本；发布后由数据库触发器保护，结构与内容不可原地修改。
+model PerfFormTemplateVersion {
+  id                Int                           @id @default(autoincrement()) /// 内部自增主键
+  templateId        Int                           @map("template_id") /// 所属稳定模板
+  version           Int /// 模板内递增版本号，从 1 开始
+  status            PerfFormTemplateVersionStatus @default(DRAFT) /// 版本生命周期
+  name              String /// 版本名称；作为发布内容的一部分保持不可变
+  description       String? /// 版本说明
+  jobLevelPrefix    PerfJobLevelPrefix            @map("job_level_prefix") /// 唯一适用的系统职级前缀
+  sourceVersionId   Int?                          @map("source_version_id") /// 从哪个已发布版本复制出的草稿；首版为空
+  createdByOpenId   String                        @map("created_by_open_id") /// 创建版本的管理员 open_id
+  updatedByOpenId   String                        @map("updated_by_open_id") /// 最近修改版本的管理员 open_id
+  publishedByOpenId String?                       @map("published_by_open_id") /// 发布人 open_id
+  publishedAt       DateTime?                     @map("published_at") /// 发布时间
+  archivedByOpenId  String?                       @map("archived_by_open_id") /// 归档人 open_id
+  archivedAt        DateTime?                     @map("archived_at") /// 归档时间
+  createdAt         DateTime                      @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime                      @updatedAt @map("updated_at") /// 最近更新时间
+
+  template        PerfFormTemplate          @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  sourceVersion   PerfFormTemplateVersion?  @relation("PerfFormTemplateVersionSource", fields: [sourceVersionId], references: [id], onDelete: Restrict)
+  derivedVersions PerfFormTemplateVersion[] @relation("PerfFormTemplateVersionSource")
+  subforms        PerfFormSubform[]
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@index([status, jobLevelPrefix])
+  @@index([sourceVersionId])
+  @@map("perf_form_template_versions")
+  @@schema("performance")
+}
+
+/// 表单版本下的子表单；同一版本每种类型只能存在一份，发布校验要求四类齐全。
+model PerfFormSubform {
+  id          Int                 @id @default(autoincrement()) /// 内部自增主键
+  versionId   Int                 @map("version_id") /// 所属评估表单模板版本
+  type        PerfFormSubformType /// SELF / PEER / MANAGER / PROMOTION
+  title       String /// 子表单标题
+  description String? /// 填写说明
+  sortOrder   Int                 @default(0) @map("sort_order") /// 版本内展示顺序，必须非负且唯一
+  createdAt   DateTime            @default(now()) @map("created_at") /// 创建时间
+  updatedAt   DateTime            @updatedAt @map("updated_at") /// 最近更新时间
+
+  version    PerfFormTemplateVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  dimensions PerfFormDimension[]
+
+  @@unique([versionId, type])
+  @@unique([versionId, sortOrder])
+  @@map("perf_form_subforms")
+  @@schema("performance")
+}
+
+/// 子表单维度；权重与核心标记只属于维度，评估项不设置第二层权重。
+model PerfFormDimension {
+  id          Int                   @id @default(autoincrement()) /// 内部自增主键
+  subformId   Int                   @map("subform_id") /// 所属子表单
+  kind        PerfFormDimensionKind @default(REGULAR) /// 常规、文本或晋升维度
+  audience    PerfFormAudience /// 填写对象；发布校验限制各子表单允许的对象
+  name        String /// 维度名称
+  description String? /// 维度说明与评价边界
+  weight      Decimal?              @db.Decimal(5, 2) /// 常规加权维度权重（百分比）；非加权维度为空
+  isCore      Boolean               @default(false) @map("is_core") /// 是否核心维度；加权子表单发布时恰好一个
+  sortOrder   Int                   @default(0) @map("sort_order") /// 同一填写对象内展示顺序，必须非负且唯一
+  createdAt   DateTime              @default(now()) @map("created_at") /// 创建时间
+  updatedAt   DateTime              @updatedAt @map("updated_at") /// 最近更新时间
+
+  subform PerfFormSubform @relation(fields: [subformId], references: [id], onDelete: Cascade)
+  items   PerfFormItem[]
+
+  @@unique([subformId, audience, sortOrder])
+  @@index([subformId, kind])
+  @@map("perf_form_dimensions")
+  @@schema("performance")
+}
+
+/// 受控评估项；类型专属选项、长度与数量限制存入经服务层校验的 config JSONB。
+model PerfFormItem {
+  id          Int              @id @default(autoincrement()) /// 内部自增主键
+  dimensionId Int              @map("dimension_id") /// 所属表单维度
+  type        PerfFormItemType /// 受控组件类型
+  title       String /// 评估项标题
+  description String? /// 评估项说明
+  placeholder String? /// 输入占位提示
+  required    Boolean          @default(false) /// 是否为正式提交必填项
+  sortOrder   Int              @default(0) @map("sort_order") /// 维度内展示顺序，必须非负且唯一
+  config      Json? /// 类型专属配置；不允许存任意脚本或 HTML
+  createdAt   DateTime         @default(now()) @map("created_at") /// 创建时间
+  updatedAt   DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+
+  dimension PerfFormDimension @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
+
+  @@unique([dimensionId, sortOrder])
+  @@map("perf_form_items")
+  @@schema("performance")
+}
+
 /// 绩效配置模板（产品 §9.5/§9.6「固定模版」）：评估规则 + 维度集的跨周期复用母本。
 /// 创建周期时从模板复制到 perf_evaluation_rules / perf_dimensions 生成该周期的快照实例；
 /// 之后修改模板不影响已创建的周期，周期内微调也不回写模板（复制隔离，保证历史不可变）。

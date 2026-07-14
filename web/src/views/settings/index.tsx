@@ -2,7 +2,7 @@
 import Link from 'next/link'
 
 // Third-party Imports
-import { ArrowRightIcon, BellIcon, LinkIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ArrowRightIcon, BellIcon, FileStackIcon, LinkIcon, SlidersHorizontalIcon } from 'lucide-react'
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
@@ -30,6 +30,14 @@ const SETTING_SECTIONS = [
     items: ['默认模板：标准半年度评估模板', '默认评级：S[90,100] / A[80,90) / B[60,80) / C[0,60)', '评语必填评级：S / C'],
     href: '/settings/templates',
     linkLabel: '前往模板管理'
+  },
+  {
+    icon: FileStackIcon,
+    title: '评估表单模板',
+    description: '按 D/M 职级前缀维护四类评估子表单，并发布不可变版本',
+    items: ['员工自评', '360°评估', '上级评估', '晋升评估'],
+    href: '/settings/form-templates',
+    linkLabel: '管理评估表单'
   },
   {
     icon: BellIcon,

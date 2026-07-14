@@ -263,7 +263,9 @@ describe('LarkMemberSelector', () => {
     render(<LarkMemberSelector onSelect={vi.fn()} />)
 
     await waitFor(() => expect(input).toHaveValue('GT'))
-    fireEvent.input(input as HTMLInputElement, { target: { value: '赵俊' } })
+
+    // 输入框由外部组件回调赋值，TypeScript 无法跨异步回调收窄这里的类型。
+    fireEvent.input(input as unknown as HTMLInputElement, { target: { value: '赵俊' } })
     expect(window.localStorage.getItem('dingstock_lark_member_selector_query_v1')).toBe('赵俊')
 
     const handleSelect = acquireLarkSelectorMock.mock.calls[0][1]

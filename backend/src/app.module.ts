@@ -12,6 +12,7 @@ import { validationSchema } from './config/validation.schema';
 import { ContactModule } from './contact/contact.module';
 import { CycleModule } from './cycle/cycle.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { FormTemplateModule } from './form-template/form-template.module';
 import { NotificationModule } from './notification/notification.module';
 import { ParticipantModule } from './participant/participant.module';
 import { RbacModule } from './rbac/rbac.module';
@@ -39,6 +40,7 @@ import { SharedModule } from './shared/shared.module';
     AppealModule,
     NotificationModule,
     DashboardModule,
+    FormTemplateModule,
   ],
   controllers: [AppController],
   providers: [AppService],
