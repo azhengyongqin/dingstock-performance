@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 // Third-party Imports
 import { CircleAlertIcon } from 'lucide-react'
@@ -37,10 +37,10 @@ export type LarkMemberSelectorProps = {
   placeholder?: string
   className?: string
 
-  /** 搜索框宽度（px），fluid 为 true 时仅作为 SDK 初始宽度 */
+  /** 搜索框宽度（px），fluid 为 true 时仅作为测量失败时的兜底值 */
   triggerWidth?: number
 
-  /** 是否忽略飞书 SDK 的固定触发器宽度，横向铺满父容器 */
+  /** 是否让搜索框和结果面板一起横向铺满父容器 */
   fluid?: boolean
 
   /** 下拉面板宽度/高度（px） */
@@ -73,14 +73,50 @@ const LarkMemberSelector = ({
   })
 
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [status, setStatus] = useState<LarkMountStatus>('loading')
+  const [fluidWidth, setFluidWidth] = useState<number | null>(null)
 
   useLarkThemeSync()
+
+  const setRootElement = useCallback(
+    (node: HTMLDivElement | null) => {
+      resizeObserverRef.current?.disconnect()
+
+      if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
+      if (!node || !fluid) return
+
+      const width = Math.round(node.getBoundingClientRect().width)
+
+      // SDK 的 panelWidth 只接受数字，因此挂载时将容器实际宽度同时传给触发器和结果面板。
+      setFluidWidth(width > 0 ? width : triggerWidth)
+
+      resizeObserverRef.current = new ResizeObserver(entries => {
+        const nextWidth = Math.round(entries[0]?.contentRect.width ?? 0)
+
+        if (nextWidth <= 0) return
+
+        // 窗口拖拽过程中会高频触发，稍作合并可避免反复重建 SDK 实例。
+        if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current)
+
+        resizeTimerRef.current = setTimeout(() => {
+          setFluidWidth(current => (current === nextWidth ? current : nextWidth))
+          resizeTimerRef.current = null
+        }, 100)
+      })
+      resizeObserverRef.current.observe(node)
+    },
+    [fluid, triggerWidth]
+  )
 
   useEffect(() => {
     const mountPoint = containerRef.current
 
-    if (!mountPoint) return
+    if (!mountPoint || (fluid && fluidWidth === null)) return
+
+    const resolvedTriggerWidth = fluid ? (fluidWidth ?? triggerWidth) : triggerWidth
+    const resolvedPanelWidth = fluid ? (fluidWidth ?? panelWidth) : panelWidth
 
     let cancelled = false
 
@@ -92,8 +128,8 @@ const LarkMemberSelector = ({
         searchEntityTypes: [1],
         placeholder,
         showSearchIcon: true,
-        triggerWidth,
-        panelWidth,
+        triggerWidth: resolvedTriggerWidth,
+        panelWidth: resolvedPanelWidth,
         panelHeight
       },
       option => onSelectRef.current(option as LarkSelectorOption),
@@ -115,10 +151,11 @@ const LarkMemberSelector = ({
       cancelled = true
       release()
     }
-  }, [placeholder, triggerWidth, panelWidth, panelHeight])
+  }, [placeholder, triggerWidth, fluid, fluidWidth, panelWidth, panelHeight])
 
   return (
     <div
+      ref={setRootElement}
       className={cn(
         'relative min-h-9',
 
