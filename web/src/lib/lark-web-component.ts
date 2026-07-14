@@ -273,15 +273,17 @@ export type LarkSelectorHandle = {
 
 /**
  * 把（池化的）人员搜索组件挂到 mountPoint 下。
- * renderProps 必须可 JSON 序列化且键序稳定（不含函数）；相同签名的空闲实例直接复用，
+ * renderProps 默认必须可 JSON 序列化且键序稳定（不含函数）；相同签名的空闲实例直接复用，
  * 不会重新 render。同签名并发挂载时各占一个池条目，互不抢占。
+ * 若属性中包含会原地更新的引用数据（例如 recommendList），可传稳定 poolKey 避免重复创建实例。
  */
 export const acquireLarkSelector = (
   renderProps: Record<string, unknown>,
   onSelect: (option: Record<string, unknown>) => void,
-  mountPoint: HTMLElement
+  mountPoint: HTMLElement,
+  poolKey?: string
 ): LarkSelectorHandle => {
-  const signature = JSON.stringify(renderProps)
+  const signature = poolKey ?? JSON.stringify(renderProps)
 
   let entry = selectorPool.find(item => item.signature === signature && !item.inUse)
 

@@ -10,12 +10,27 @@ import { CircleAlertIcon } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Util Imports
+import { getStoredUser } from '@/lib/api'
 import { acquireLarkSelector } from '@/lib/lark-web-component'
 import { cn } from '@/lib/utils'
 
 import { useLarkThemeSync, type LarkMountStatus } from './use-lark-component-mount'
 
 const LARK_SELECTOR_DROPDOWN_SELECTOR = '.larkw-selector-container__dropdown'
+const RECENT_STORAGE_KEY = 'dingstock_lark_member_selector_recent_v1'
+const QUERY_STORAGE_KEY = 'dingstock_lark_member_selector_query_v1'
+const RECENT_LIMIT = 10
+const USER_SUBTITLE_TYPE_EMAIL = 1
+const USER_DESCRIPTION_TYPE_DEPARTMENT = 1
+
+const MEMBER_OPTION_CONFIG = {
+  chatter: {
+    subtitleType: USER_SUBTITLE_TYPE_EMAIL,
+    descriptionType: USER_DESCRIPTION_TYPE_DEPARTMENT,
+    hasTag: true
+  }
+}
+
 const dropdownMutationListeners = new Set<() => void>()
 let sharedDropdownObserver: MutationObserver | null = null
 
@@ -118,17 +133,109 @@ const syncVisibleDropdownWidth = (trigger: HTMLElement, width: number) => {
 /** 飞书搜索组件选中条目（OptionData）：不同实体字段略有差异，这里只声明常用字段 */
 export type LarkSelectorOption = {
   id?: string
+  title?: string
   name?: string
   label?: string
   avatarUrl?: string
 
   /** 飞书 Selector 的实际人员资料载体。 */
   entity?: {
+    id?: string
     name?: string
     avatarUrl?: string
-  }
-  type?: number
+    mail?: string
+    department?: string
+  } & Record<string, unknown>
+  type?: 'unknown' | 'user' | 'chat' | 'doc' | 'wiki'
 } & Record<string, unknown>
+
+const recentOptionsCache = new Map<string, LarkSelectorOption[]>()
+
+/** 同一浏览器切换账号时按 openId 隔离人员搜索历史。 */
+const getStorageScope = () => getStoredUser()?.openId ?? 'anonymous'
+
+const getScopedStorageKey = (baseKey: string, scope: string) =>
+  scope === 'anonymous' ? baseKey : `${baseKey}:${encodeURIComponent(scope)}`
+
+const loadRecentOptions = (scope: string) => {
+  // 每次挂载都从存储校准内容，但保留数组引用供已池化的 SDK 实例继续使用。
+  const options = recentOptionsCache.get(scope) ?? []
+  const storedOptions: LarkSelectorOption[] = []
+
+  try {
+    const raw = window.localStorage.getItem(getScopedStorageKey(RECENT_STORAGE_KEY, scope))
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+
+    if (Array.isArray(parsed)) {
+      storedOptions.push(
+        ...parsed
+          .filter(
+            (option): option is LarkSelectorOption =>
+              typeof option === 'object' && option !== null && typeof option.id === 'string' && option.id.length > 0
+          )
+          .slice(0, RECENT_LIMIT)
+      )
+    }
+  } catch {
+    // 本地数据损坏或浏览器禁用存储时，退化为空推荐列表，不影响正常搜索。
+  }
+
+  options.splice(0, options.length, ...storedOptions)
+  recentOptionsCache.set(scope, options)
+
+  return options
+}
+
+/** 原地更新数组，确保已池化的飞书 Selector 能读取到最新推荐记录。 */
+const rememberRecentOption = (scope: string, options: LarkSelectorOption[], option: LarkSelectorOption) => {
+  if (!option.id) return
+
+  const nextOptions = [option, ...options.filter(item => item.id !== option.id)].slice(0, RECENT_LIMIT)
+
+  options.splice(0, options.length, ...nextOptions)
+
+  try {
+    window.localStorage.setItem(getScopedStorageKey(RECENT_STORAGE_KEY, scope), JSON.stringify(options))
+  } catch {
+    // 存储空间不足时仍保留当前页面内的最近记录。
+  }
+}
+
+const readLastQuery = (scope: string) => {
+  try {
+    return window.localStorage.getItem(getScopedStorageKey(QUERY_STORAGE_KEY, scope)) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+const writeLastQuery = (scope: string, query: string) => {
+  try {
+    const key = getScopedStorageKey(QUERY_STORAGE_KEY, scope)
+
+    if (query) {
+      window.localStorage.setItem(key, query)
+    } else {
+      window.localStorage.removeItem(key)
+    }
+  } catch {
+    // 浏览器禁用存储时只保留组件本次生命周期内的输入。
+  }
+}
+
+const restoreSelectorQuery = (mountPoint: HTMLElement, query: string) => {
+  if (!query) return
+
+  const input = mountPoint.querySelector<HTMLInputElement>('input')
+
+  if (!input || input.value === query) return
+
+  // 使用原生 setter 并派发 input，让 SDK 内部搜索状态与视觉值保持一致。
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+
+  valueSetter?.call(input, query)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
 
 export type LarkMemberSelectorProps = {
 
@@ -176,7 +283,12 @@ const LarkMemberSelector = ({
   const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const dropdownMutationCleanupRef = useRef<(() => void) | null>(null)
   const resizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const queryRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const fluidWidthRef = useRef<number | null>(null)
+  const [storageScope] = useState(getStorageScope)
+  const [recommendList] = useState(() => loadRecentOptions(storageScope))
+  const [initialQuery] = useState(() => readLastQuery(storageScope))
+  const lastQueryRef = useRef(initialQuery)
   const [status, setStatus] = useState<LarkMountStatus>('loading')
   const [fluidWidth, setFluidWidth] = useState<number | null>(null)
 
@@ -235,23 +347,63 @@ const LarkMemberSelector = ({
 
     setStatus('loading')
 
+    const scheduleQueryRestore = () => {
+      if (queryRestoreTimerRef.current) clearTimeout(queryRestoreTimerRef.current)
+      if (!lastQueryRef.current) return
+
+      // SDK 会在初始化和选中后重置输入框，延后一拍恢复最后一次搜索词。
+      queryRestoreTimerRef.current = setTimeout(() => {
+        restoreSelectorQuery(mountPoint, lastQueryRef.current)
+        queryRestoreTimerRef.current = null
+      }, 0)
+    }
+
+    const handleInput = (event: Event) => {
+      if (!(event.target instanceof HTMLInputElement)) return
+
+      lastQueryRef.current = event.target.value
+      writeLastQuery(storageScope, event.target.value)
+    }
+
+    mountPoint.addEventListener('input', handleInput)
+
+    const renderProps = {
+      // searchEntityTypes: 1 表示“人”，本组件固定只搜人员
+      searchEntityTypes: [1],
+      placeholder,
+      showSearchIcon: true,
+      triggerWidth: resolvedTriggerWidth,
+      panelWidth: resolvedPanelWidth,
+      panelHeight,
+      optionConfig: MEMBER_OPTION_CONFIG,
+      recommendList
+    }
+
+    // recommendList 会原地更新；稳定 key 避免每次选择后产生新的 SDK 监听。
+    const poolKey = JSON.stringify({
+      ...renderProps,
+      recommendList: `member-history:${storageScope}`
+    })
+
     const { ready, release } = acquireLarkSelector(
-      {
-        // searchEntityTypes: 1 表示“人”，本组件固定只搜人员
-        searchEntityTypes: [1],
-        placeholder,
-        showSearchIcon: true,
-        triggerWidth: resolvedTriggerWidth,
-        panelWidth: resolvedPanelWidth,
-        panelHeight
+      renderProps,
+      option => {
+        const selectedOption = option as LarkSelectorOption
+
+        rememberRecentOption(storageScope, recommendList, selectedOption)
+        onSelectRef.current(selectedOption)
+        scheduleQueryRestore()
       },
-      option => onSelectRef.current(option as LarkSelectorOption),
-      mountPoint
+      mountPoint,
+      poolKey
     )
 
     ready
       .then(() => {
-        if (!cancelled) setStatus('ready')
+        if (!cancelled) {
+          setStatus('ready')
+          scheduleQueryRestore()
+        }
       })
       .catch(error => {
         if (!cancelled) {
@@ -262,9 +414,11 @@ const LarkMemberSelector = ({
 
     return () => {
       cancelled = true
+      mountPoint.removeEventListener('input', handleInput)
+      if (queryRestoreTimerRef.current) clearTimeout(queryRestoreTimerRef.current)
       release()
     }
-  }, [placeholder, triggerWidth, fluid, fluidWidth, panelWidth, panelHeight])
+  }, [placeholder, triggerWidth, fluid, fluidWidth, panelWidth, panelHeight, recommendList, storageScope])
 
   return (
     <div

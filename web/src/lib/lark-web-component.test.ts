@@ -96,6 +96,26 @@ describe('acquireLarkSelector 实例池', () => {
     b.release()
   })
 
+  it('推荐列表原地更新时可用稳定 poolKey 复用同一实例', async () => {
+    const { mod, render } = await loadModule()
+    const mountPoint = document.createElement('div')
+    const recommendList = [{ id: 'ou_1', title: '成员 1', type: 'user' }]
+    const renderProps = { ...RENDER_PROPS, recommendList }
+
+    const first = mod.acquireLarkSelector(renderProps, () => undefined, mountPoint, 'member-selector')
+
+    await first.ready
+    first.release()
+    recommendList.unshift({ id: 'ou_2', title: '成员 2', type: 'user' })
+
+    const second = mod.acquireLarkSelector(renderProps, () => undefined, mountPoint, 'member-selector')
+
+    await second.ready
+    second.release()
+
+    expect(render).toHaveBeenCalledTimes(1)
+  })
+
   it('onSelect 路由到当前持有者，release 后不再触发旧回调', async () => {
     const { mod, render } = await loadModule()
     const mountPoint = document.createElement('div')

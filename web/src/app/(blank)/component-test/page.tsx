@@ -344,7 +344,8 @@ const MemberPickerPreview = () => {
         <CardHeader>
           <CardTitle>协作者管理式弹窗</CardTitle>
           <CardDescription>
-            顶部飞书搜索（自适应弹窗宽度）→ 本次新增待确认区（取消/确认）→ 已选成员列表（可移除）
+            顶部飞书搜索（丰富用户信息、最近 10 条、保留搜索词、自适应宽度）→ 本次新增待确认区（取消/确认）→
+            已选成员列表（可移除）
           </CardDescription>
         </CardHeader>
         <CardContent>

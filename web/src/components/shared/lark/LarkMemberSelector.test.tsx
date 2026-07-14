@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { acquireLarkSelector } from '@/lib/lark-web-component'
@@ -13,6 +13,18 @@ let resizeCallbacks: ResizeObserverCallback[]
 
 describe('LarkMemberSelector', () => {
   beforeEach(() => {
+    const storage = new Map<string, string>()
+
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
+      clear: () => storage.clear(),
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() {
+        return storage.size
+      }
+    })
     acquireLarkSelectorMock.mockReset()
     acquireLarkSelectorMock.mockReturnValue({ ready: Promise.resolve(), release: vi.fn() })
     resizeCallbacks = []
@@ -55,7 +67,8 @@ describe('LarkMemberSelector', () => {
       expect(acquireLarkSelectorMock).toHaveBeenCalledWith(
         expect.objectContaining({ triggerWidth: 624, panelWidth: 624 }),
         expect.any(Function),
-        expect.any(HTMLElement)
+        expect.any(HTMLElement),
+        expect.any(String)
       )
     })
   })
@@ -173,5 +186,93 @@ describe('LarkMemberSelector', () => {
 
     await waitFor(() => expect(validDropdown).toHaveStyle({ width: '300px', minWidth: '300px' }))
     expect(invalidDropdown).not.toHaveStyle({ width: '300px' })
+  })
+
+  it('使用 optionConfig 展示邮箱和部门，并把最近选择传给 recommendList', async () => {
+    const recentOptions = [
+      {
+        id: 'ou_recent',
+        title: '最近成员',
+        type: 'user',
+        entity: { id: 'ou_recent', name: '最近成员', mail: 'recent@example.com', department: '研发部' }
+      }
+    ]
+
+    window.localStorage.setItem('dingstock_lark_member_selector_recent_v1', JSON.stringify(recentOptions))
+    render(<LarkMemberSelector onSelect={vi.fn()} />)
+
+    await waitFor(() => {
+      expect(acquireLarkSelectorMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          optionConfig: {
+            chatter: { subtitleType: 1, descriptionType: 1, hasTag: true }
+          },
+          recommendList: recentOptions
+        }),
+        expect.any(Function),
+        expect.any(HTMLElement),
+        expect.any(String)
+      )
+    })
+  })
+
+  it('选中人员后最新置顶、按 id 去重并只保留 10 条', async () => {
+    render(<LarkMemberSelector onSelect={vi.fn()} />)
+    await waitFor(() => expect(acquireLarkSelectorMock).toHaveBeenCalledTimes(1))
+
+    const handleSelect = acquireLarkSelectorMock.mock.calls[0][1]
+
+    act(() => {
+      Array.from({ length: 12 }, (_, index) => ({
+        id: `ou_${index}`,
+        title: `成员 ${index}`,
+        type: 'user',
+        entity: { id: `ou_${index}`, name: `成员 ${index}` }
+      })).forEach(handleSelect)
+      handleSelect({ id: 'ou_5', title: '成员 5', type: 'user', entity: { id: 'ou_5', name: '成员 5' } })
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem('dingstock_lark_member_selector_recent_v1') ?? '[]')
+
+    expect(stored).toHaveLength(10)
+    expect(stored.map((option: { id: string }) => option.id)).toEqual([
+      'ou_5',
+      'ou_11',
+      'ou_10',
+      'ou_9',
+      'ou_8',
+      'ou_7',
+      'ou_6',
+      'ou_4',
+      'ou_3',
+      'ou_2'
+    ])
+  })
+
+  it('重新挂载及选中人员后保留上次输入的搜索词', async () => {
+    let input: HTMLInputElement | null = null
+
+    window.localStorage.setItem('dingstock_lark_member_selector_query_v1', 'GT')
+    acquireLarkSelectorMock.mockImplementation((_props, _onSelect, mountPoint) => {
+      input = document.createElement('input')
+      mountPoint.appendChild(input)
+
+      return { ready: Promise.resolve(), release: vi.fn() }
+    })
+
+    render(<LarkMemberSelector onSelect={vi.fn()} />)
+
+    await waitFor(() => expect(input).toHaveValue('GT'))
+    fireEvent.input(input as HTMLInputElement, { target: { value: '赵俊' } })
+    expect(window.localStorage.getItem('dingstock_lark_member_selector_query_v1')).toBe('赵俊')
+
+    const handleSelect = acquireLarkSelectorMock.mock.calls[0][1]
+
+    act(() => {
+      handleSelect({ id: 'ou_zhao', title: '赵俊', type: 'user', entity: { id: 'ou_zhao', name: '赵俊' } })
+      ;(input as HTMLInputElement).value = ''
+    })
+
+    await waitFor(() => expect(input).toHaveValue('赵俊'))
   })
 })
