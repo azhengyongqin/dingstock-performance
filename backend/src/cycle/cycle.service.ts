@@ -119,7 +119,9 @@ export class CycleService {
   private async collectDataImpact(cycleId: number) {
     const [selfReviews, reviews, managerReviews, calibrations, results] =
       await Promise.all([
-        this.prisma.perfSelfReview.count({ where: { participant: { cycleId } } }),
+        this.prisma.perfSelfReview.count({
+          where: { participant: { cycleId } },
+        }),
         this.prisma.perfReview.count({ where: { participant: { cycleId } } }),
         this.prisma.perfManagerReview.count({
           where: { participant: { cycleId } },
@@ -154,7 +156,13 @@ export class CycleService {
 
   /** 比对维度变更，识别破坏性项（删除、改权重/计分方式/类型） */
   private detectDimensionDestructiveChanges(
-    existing: { id: number; name: string; weight: unknown; scoringMethod: string; type: string }[],
+    existing: {
+      id: number;
+      name: string;
+      weight: unknown;
+      scoringMethod: string;
+      type: string;
+    }[],
     items: DimensionItemDto[],
     keptIds: Set<number>,
   ): string[] {

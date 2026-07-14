@@ -335,7 +335,10 @@ describe('AuthService', () => {
           en_name: null,
           avatar: { avatar_240: 'http://a/hr.png' },
           job_title: 'HRBP',
-          department_path: [{ department_name: '总部' }, { department_name: '人力资源部' }],
+          department_path: [
+            { department_name: '总部' },
+            { department_name: '人力资源部' },
+          ],
           leader_user_id: null,
           is_tenant_manager: false,
         },

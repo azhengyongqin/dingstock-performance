@@ -18,13 +18,17 @@ import { avatarUrlOf, formatDateTime } from '@/lib/perf-api'
 /** 评审任务行 = 后端 GET /review-tasks 的 item（360° 与上级评估共用任务模型） */
 export type ReviewTask = ReviewTaskItem
 
-/** 任务关系 → 中文标签 */
+/**
+ * 任务关系 → 中文标签（词表对齐 CONTEXT.md「评审员关系」五类）。
+ * 360° 任务统一加「360°·」前缀，与同列表的「上级评估」任务消歧：
+ * 「360°·直属上级」是 360° 评审任务（评审人恰为直属上级），不是上级评估环节。
+ */
 const RELATION_LABEL: Record<string, string> = {
-  LEADER: '直属上级',
-  PEER: '同事互评',
-  CROSS_DEPT: '跨部门协作评估',
-  ORG_OWNER: '组织负责人',
-  PROJECT_OWNER: '项目负责人'
+  LEADER: '360°·直属上级',
+  ORG_OWNER: '360°·组织负责人',
+  PROJECT_OWNER: '360°·项目负责人',
+  PEER: '360°·同部门同事',
+  CROSS_DEPT: '360°·跨部门协作方'
 }
 
 /** 填写页链接：按任务类型区分 */

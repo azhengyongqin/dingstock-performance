@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import type Redis from 'ioredis';
 import {
@@ -45,12 +46,23 @@ function renderText(
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+  /** 飞书通知发送开关（lark.notification.enabled）：关闭时通知只落库不外发 */
+  private readonly sendEnabled: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly larkService: LarkService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-  ) {}
+    configService: ConfigService,
+  ) {
+    this.sendEnabled =
+      configService.get<boolean>('lark.notification.enabled') ?? true;
+    if (!this.sendEnabled) {
+      this.logger.warn(
+        '飞书通知发送已关闭（lark.notification.enabled=false），通知将只落库不外发',
+      );
+    }
+  }
 
   /** 手动催办：按模板给一批人落通知记录 */
   async remind(
@@ -89,6 +101,9 @@ export class NotificationService {
   /** 每分钟扫描待发送/重试中的通知 */
   @Cron(CronExpression.EVERY_MINUTE)
   async sendPendingBatch() {
+    // 发送开关关闭时不外发：记录保持 PENDING，开关打开后可继续发送
+    if (!this.sendEnabled) return;
+
     // Redis 锁：多实例/并发触发下保证单执行者
     const locked = await this.redis.set(SEND_LOCK_KEY, '1', 'EX', 55, 'NX');
     if (!locked) return;

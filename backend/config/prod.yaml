@@ -11,6 +11,9 @@ redis:
 lark:
   appId: ''
   appSecret: ''
+  # 生产默认发送飞书通知（显式声明，防止误关）。
+  notification:
+    enabled: true
 
 auth:
   # 生产环境显式关闭开发快速登录（双保险，防止误开）。

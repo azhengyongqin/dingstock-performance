@@ -126,6 +126,9 @@ const ReviewerAssign = () => {
 
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [selected, setSelected] = useState<SelectedReviewer[]>([])
+
+  /** 考核 Leader 快照：不可被指派为 360°评审员（选人时即时拦截，服务端另有硬校验兜底） */
+  const [leaderOpenId, setLeaderOpenId] = useState<string | null>(null)
   const [knownAssignmentIds, setKnownAssignmentIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -146,12 +149,15 @@ const ReviewerAssign = () => {
     setError(null)
 
     try {
-      const data = await apiFetch<{ assignments: Assignment[]; recommendations: Recommendation[] }>(
-        `/participants/${participantId}/reviewers`
-      )
+      const data = await apiFetch<{
+        leaderOpenId?: string | null
+        assignments: Assignment[]
+        recommendations: Recommendation[]
+      }>(`/participants/${participantId}/reviewers`)
 
       const active = (data.assignments ?? []).filter(assignment => assignment.status !== 'REPLACED')
 
+      setLeaderOpenId(data.leaderOpenId ?? null)
       setRecommendations(data.recommendations ?? [])
       setKnownAssignmentIds(active.map(assignment => assignment.id))
       setSelected(
@@ -179,6 +185,13 @@ const ReviewerAssign = () => {
 
   const addReviewer = (item: { openId?: string; relation?: string; name?: string; avatarUrl?: string }) => {
     if (!item.openId) return
+
+    // 考核 Leader 不进 360°名单（只挡新增，存量指派不受影响）
+    if (leaderOpenId && item.openId === leaderOpenId) {
+      toast.error('考核 Leader 不可被指派为 360°评审员：上级的评价由上级评估环节承载')
+
+      return
+    }
 
     setSelected(prev => {
       if (prev.some(entry => entry.reviewerOpenId === item.openId)) {

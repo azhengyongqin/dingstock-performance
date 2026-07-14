@@ -20,6 +20,8 @@ export const validationSchema = Joi.object({
   LARK_OAUTH_WEB_REDIRECT_URL: Joi.string().uri({
     scheme: ['http', 'https'],
   }),
+  // 飞书通知发送开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时生产默认开启、非生产默认关闭。
+  LARK_NOTIFICATION_ENABLED: Joi.string(),
   AUTH_JWT_SECRET: Joi.string(),
   AUTH_JWT_EXPIRES_IN: Joi.string(),
   // 开发环境快速登录开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时非生产默认开启。

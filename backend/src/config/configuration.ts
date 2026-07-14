@@ -17,6 +17,9 @@ export type RawConfig = {
   };
   lark?: Record<string, unknown> & {
     oauth?: Record<string, unknown>;
+    notification?: {
+      enabled?: boolean;
+    };
   };
   auth?: {
     jwt?: Record<string, unknown>;
@@ -51,6 +54,10 @@ export type AppConfig = {
     appId?: unknown;
     appSecret?: unknown;
     oauth: LarkOauthConfig;
+    /** 飞书通知发送开关：关闭时通知只落库不外发 */
+    notification: {
+      enabled: boolean;
+    };
   };
   auth: {
     jwt: {
@@ -130,6 +137,12 @@ export const loadAppConfig = (): AppConfig => {
     Record<'secret' | 'expiresIn', string>
   >;
 
+  // 飞书通知发送开关优先级：环境变量 > YAML > 默认（生产默认发送，非生产默认不发送）。
+  const larkNotificationEnabled =
+    parseBoolEnv(process.env.LARK_NOTIFICATION_ENABLED) ??
+    yamlConfig.lark?.notification?.enabled ??
+    process.env.NODE_ENV === 'production';
+
   // 开发登录开关优先级：环境变量 > YAML > 默认（非生产环境默认开启）。
   const devLoginEnabled =
     parseBoolEnv(process.env.AUTH_DEV_LOGIN_ENABLED) ??
@@ -172,6 +185,9 @@ export const loadAppConfig = (): AppConfig => {
           process.env.LARK_OAUTH_WEB_REDIRECT_URL ??
           yamlOauth.webRedirectUrl ??
           'http://localhost:3001/auth/callback',
+      },
+      notification: {
+        enabled: larkNotificationEnabled,
       },
     },
     auth: {

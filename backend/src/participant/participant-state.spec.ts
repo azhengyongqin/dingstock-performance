@@ -4,7 +4,10 @@ import { assertParticipantTransition } from './participant-state';
 
 describe('参与者状态机', () => {
   const legal: [PerfParticipantStatus, PerfParticipantStatus][] = [
-    [PerfParticipantStatus.PENDING_SELF_REVIEW, PerfParticipantStatus.SELF_SUBMITTED],
+    [
+      PerfParticipantStatus.PENDING_SELF_REVIEW,
+      PerfParticipantStatus.SELF_SUBMITTED,
+    ],
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.RETURNED],
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.REVIEWED],
     [PerfParticipantStatus.RETURNED, PerfParticipantStatus.SELF_SUBMITTED],
@@ -30,7 +33,9 @@ describe('参与者状态机', () => {
     for (const from of all) {
       for (const to of all) {
         if (legalSet.has(`${from}->${to}`)) continue;
-        expect(() => assertParticipantTransition(from, to)).toThrow(ConflictException);
+        expect(() => assertParticipantTransition(from, to)).toThrow(
+          ConflictException,
+        );
       }
     }
   });

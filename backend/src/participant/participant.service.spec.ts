@@ -168,9 +168,9 @@ describe('ParticipantService', () => {
     });
     prismaMock.perfResult.count.mockResolvedValue(1);
 
-    await expect(
-      service.remove('ou_admin', 100, 9),
-    ).rejects.toThrow(ConflictException);
+    await expect(service.remove('ou_admin', 100, 9)).rejects.toThrow(
+      ConflictException,
+    );
     expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
   });
 

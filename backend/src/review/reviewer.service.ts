@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -66,7 +67,8 @@ export class ReviewerService {
         .map((a) => a.reviewerOpenId),
     );
 
-    // ---- 推荐来源：直属上级 / 组织负责人 / 同部门同事 / 历史评审关系 ----
+    // ---- 推荐来源：组织负责人 / 同部门同事 / 历史评审关系 ----
+    // 考核 Leader 快照不进候选：上级视角由上级评估环节承载（CONTEXT.md「评审员指派」）
     const recommendations: {
       openId: string;
       relation: PerfReviewerRelation;
@@ -78,16 +80,11 @@ export class ReviewerService {
       reason: string,
     ) => {
       if (!openId || openId === participant.employeeOpenId) return;
+      if (openId === participant.leaderOpenIdSnapshot) return;
       if (activeReviewerIds.has(openId)) return;
       if (recommendations.some((r) => r.openId === openId)) return;
       recommendations.push({ openId, relation, reason });
     };
-
-    push(
-      participant.leaderOpenIdSnapshot,
-      PerfReviewerRelation.LEADER,
-      '直属上级',
-    );
 
     if (participant.departmentIdSnapshot) {
       const department = await this.prisma.larkDepartment.findUnique({
@@ -142,6 +139,8 @@ export class ReviewerService {
     const userMap = new Map(users.map((u) => [u.open_id, u]));
 
     return {
+      // 供前端选人时即时拦截：考核 Leader 快照不可被指派为 360° 评审员
+      leaderOpenId: participant.leaderOpenIdSnapshot,
       assignments: assignments.map((a) => ({
         ...a,
         reviewer: userMap.get(a.reviewerOpenId) ?? null,
@@ -178,6 +177,20 @@ export class ReviewerService {
       where: { participantId, status: { not: PerfAssignmentStatus.REPLACED } },
     });
     const wanted = new Map(items.map((item) => [item.reviewerOpenId, item]));
+
+    // 硬校验（只挡增量）：考核 Leader 快照不可被新指派为 360° 评审员；
+    // 存量指派保留在名单中不拒绝（CONTEXT.md「评审员指派」）
+    if (
+      participant.leaderOpenIdSnapshot &&
+      wanted.has(participant.leaderOpenIdSnapshot) &&
+      !current.some(
+        (a) => a.reviewerOpenId === participant.leaderOpenIdSnapshot,
+      )
+    ) {
+      throw new BadRequestException(
+        '考核 Leader 不可被指派为 360°评审员：上级的评价由上级评估环节承载',
+      );
+    }
 
     // 乐观校验：只有操作者加载页面时已见过的指派，缺席才视为删除
     const known = knownAssignmentIds ? new Set(knownAssignmentIds) : null;
@@ -271,10 +284,12 @@ export class ReviewerService {
         select: { reviewerOpenId: true },
       });
       const existingIds = new Set(existing.map((a) => a.reviewerOpenId));
+      // 跳过员工本人与考核 Leader 快照（Leader 的评价由上级评估环节承载）
       const toAdd = items.filter(
         (item) =>
           !existingIds.has(item.reviewerOpenId) &&
-          item.reviewerOpenId !== participant.employeeOpenId,
+          item.reviewerOpenId !== participant.employeeOpenId &&
+          item.reviewerOpenId !== participant.leaderOpenIdSnapshot,
       );
       if (toAdd.length === 0) continue;
       await this.prisma.perfReviewerAssignment.createMany({

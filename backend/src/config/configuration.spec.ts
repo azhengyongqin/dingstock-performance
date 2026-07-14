@@ -24,6 +24,7 @@ describe('configuration loader', () => {
     delete process.env.CONFIG_FILE;
     delete process.env.DATABASE_URL;
     delete process.env.POSTGRES_URI;
+    delete process.env.LARK_NOTIFICATION_ENABLED;
   });
 
   afterEach(() => {
@@ -88,6 +89,35 @@ describe('configuration loader', () => {
       'http://localhost:3001/auth/callback',
     );
     expect(config.auth.jwt.secret).toBe('base-secret');
+  });
+
+  describe('lark notification send switch', () => {
+    it('defaults to disabled outside production', () => {
+      // 非生产（dev/test）缺省不外发飞书通知
+      expect(loadAppConfig().lark.notification.enabled).toBe(false);
+    });
+
+    it('defaults to enabled in production', () => {
+      process.env.NODE_ENV = 'production';
+      expect(loadAppConfig().lark.notification.enabled).toBe(true);
+    });
+
+    it('yaml overrides the environment default', () => {
+      writeFileSync(
+        join(tempDir, 'config', 'dev.yaml'),
+        'lark:\n  notification:\n    enabled: true\n',
+      );
+      expect(loadAppConfig().lark.notification.enabled).toBe(true);
+    });
+
+    it('environment variable overrides yaml', () => {
+      process.env.LARK_NOTIFICATION_ENABLED = 'false';
+      writeFileSync(
+        join(tempDir, 'config', 'dev.yaml'),
+        'lark:\n  notification:\n    enabled: true\n',
+      );
+      expect(loadAppConfig().lark.notification.enabled).toBe(false);
+    });
   });
 
   it('prefers explicit config file and environment database url', () => {

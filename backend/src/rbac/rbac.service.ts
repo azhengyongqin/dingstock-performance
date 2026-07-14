@@ -44,7 +44,9 @@ export class RbacService {
   async getDerivedFlags(openId: string): Promise<{ isLeader: boolean }> {
     const [subordinates, snapshotLeader] = await Promise.all([
       this.prisma.larkUser.count({ where: { leader_user_id: openId } }),
-      this.prisma.perfParticipant.count({ where: { leaderOpenIdSnapshot: openId } }),
+      this.prisma.perfParticipant.count({
+        where: { leaderOpenIdSnapshot: openId },
+      }),
     ]);
 
     return { isLeader: subordinates > 0 || snapshotLeader > 0 };

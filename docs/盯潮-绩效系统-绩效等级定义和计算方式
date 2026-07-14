@@ -1,0 +1,351 @@
+# 盯潮-绩效系统-绩效等级定义和计算方案
+
+1. **等级计算方案**：各维度直接评定等级，最终计算绩效等级。
+
+2. **打分计算方案**：各维度直接打分，最终计算绩效等级。
+
+# 一、通用等级定义
+
+## 1\.1 最终等级划分
+
+绩效评级：为体现绩效差异化,以更好地应用绩效结果,绩效评级将分为SABC以下四等
+
+- S评级：员工为表现卓越者,工作结果、成长速度等方面有重大突破和创新,价值观表现等可作团队标杆;
+
+- A评级：员工为表现优秀者，绩效目标完成情况优秀，和公司价值观统一，整体超出预期；
+
+- B评级：员工为表现良好者,绩效目标完成情况符合预期,但仍需持续改进和提升;
+
+- C评级：员工为表现不合格者,绩效目标完成情况、工作态度、价值观等不符合预期,需进行绩效改进,绩效改进不合格者，则进行绩效淘汰。
+
+|评级|名称|得分区间（0～100）|备注|
+|---|---|---|---|
+|S|卓越|\[90,100\]|工作结果、成长速度等方面有重大突破和创新,价值观表现等可作团队标杆|
+|A|优秀|\[80,90\)|绩效目标完成情况优秀，和公司价值观统一，整体超出预期|
+|B|良好|\[60,80\)|绩效目标完成情况符合预期,但仍需持续改进和提升|
+|C|不符预期|\[0,60\)|绩效目标完成情况、工作态度、价值观等不符合预期,需进行绩效改进,绩效改进不合格者，则进行绩效淘汰|
+
+![Image](https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=ZmQ5YTFkNzY2MGVhYTc2ODRhNDE1YmViYzM5NWRlNGNfODI0YTczOWUwMjM4YTA4YmVmNjE2ZTZkNWJiY2I0OGNfSUQ6NzY2MjIyNjYyOTQ5NDAxNjk4M18xNzg0MDExNjg3OjE3ODQwOTgwODdfVjM)
+
+![Image](https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=ZmQ3ZTRjYTMzYzUwOTYwMjU0MDVjMzA0ZGE3MDBhNTVfMDQxNTliOTgwMjdlOTBhZDhmNzU2NTViYjExMmE2OTJfSUQ6NzY2MjIyNjYyNzM0MjgxNDE4M18xNzg0MDExNjg3OjE3ODQwOTgwODdfVjM)
+
+
+
+# 二、方案一：等级计算方案
+
+## 2\.1 适用场景
+
+各评分维度不直接打分，而是直接评定等级：
+
+```Plain Text
+S / A / B / C
+```
+
+系统将等级转换为分值后，再按权重计算最终等级。
+
+## 2\.2 维度权重
+
+|维度|权重|
+|---|---|
+|维度一|70%|
+|维度二|20%|
+|维度三|10%|
+
+## 2\.3 等级映射分值
+
+|维度等级|映射分值|
+|---|---|
+|S|95|
+|A|85|
+|B|70|
+|C|50|
+
+## 2\.4 综合得分计算规则
+
+```Plain Text
+综合得分 = 维度一等级映射分 × 70% + 维度二等级映射分 × 20% + 维度三等级映射分 × 10%
+```
+
+即：
+
+$综合得分 = 维度一分值 \times 0.7 + 维度二分值 \times 0.2 + 维度三分值 \times 0.1$
+
+
+
+## 2\.5 初始等级计算规则
+
+|综合得分|初始等级|
+|---|---|
+|\>= 90|S|
+|\>= 80 且 \< 90|A|
+|\>= 60 且 \< 80|B|
+|\< 60|C|
+
+## 2\.6 约束规则
+
+为保证核心维度的重要性，最终等级需应用以下约束规则：
+
+```Plain Text
+1. 如果存在重大事故、严重违规或红线问题，最终等级直接为 C；
+2. 如果维度一等级为 C，最终等级为 C；
+3. 如果维度一等级为 B，最终等级最高为 B；
+4. 如果任一维度等级为 C，最终等级最高为 B。
+```
+
+## 2\.7 JS 伪代码
+
+```JavaScript
+function calculateLevelByGrade(grade1, grade2, grade3, hasViolation = false) {
+  const gradeScoreMap = {
+    S: 95,
+    A: 85,
+    B: 70,
+    C: 50
+  };
+
+  const levelRank = {
+    S: 4,
+    A: 3,
+    B: 2,
+    C: 1
+  };
+
+  const rankLevel = {
+    4: 'S',
+    3: 'A',
+    2: 'B',
+    1: 'C'
+  };
+
+  function getLevelByScore(score) {
+    if (score >= 90) return 'S';
+    if (score >= 80) return 'A';
+    if (score >= 60) return 'B';
+    return 'C';
+  }
+
+  function limitLevel(level, maxLevel) {
+    return levelRank[level] > levelRank[maxLevel] ? maxLevel : level;
+  }
+
+  // 红线规则
+  if (hasViolation) {
+    return {
+      score: null,
+      initialLevel: null,
+      finalLevel: 'C',
+      reason: '存在重大事故、严重违规或红线问题，最终等级直接为C'
+    };
+  }
+
+  const score1 = gradeScoreMap[grade1];
+  const score2 = gradeScoreMap[grade2];
+  const score3 = gradeScoreMap[grade3];
+
+  const finalScore = score1 * 0.7 + score2 * 0.2 + score3 * 0.1;
+
+  let initialLevel = getLevelByScore(finalScore);
+  let finalLevel = initialLevel;
+  let reasons = [];
+
+  // 核心维度为C，最终为C
+  if (grade1 === 'C') {
+    finalLevel = 'C';
+    reasons.push('维度一等级为C，最终等级为C');
+  }
+
+  // 核心维度为B，最终最高为B
+  if (grade1 === 'B') {
+    const beforeLevel = finalLevel;
+    finalLevel = limitLevel(finalLevel, 'B');
+
+    if (beforeLevel !== finalLevel) {
+      reasons.push('维度一等级为B，最终等级最高为B');
+    }
+  }
+
+  // 任一维度为C，最终最高为B
+  if ([grade1, grade2, grade3].includes('C')) {
+    const beforeLevel = finalLevel;
+    finalLevel = limitLevel(finalLevel, 'B');
+
+    if (beforeLevel !== finalLevel) {
+      reasons.push('存在维度等级为C，最终等级最高为B');
+    }
+  }
+
+  return {
+    score: Number(finalScore.toFixed(2)),
+    initialLevel,
+    finalLevel,
+    reason: reasons.length > 0 ? reasons.join('；') : '根据综合得分计算最终等级'
+  };
+}
+```
+
+
+
+# 三、方案二：打分计算方案
+
+## 3\.1 适用场景
+
+各评分维度直接采用 **0–100分** 打分，系统按权重计算综合得分，并转换为最终绩效等级。
+
+## 3\.2 维度权重
+
+|维度|权重|
+|---|---|
+|维度一|70%|
+|维度二|20%|
+|维度三|10%|
+
+## 3\.3 单维度评分范围
+
+```Plain Text
+每个维度评分范围：0–100分
+```
+
+
+
+## 3\.4 综合得分计算规则
+
+```Plain Text
+综合得分 = 维度一得分 × 70% + 维度二得分 × 20% + 维度三得分 × 10%
+```
+
+即：
+
+
+
+$综合得分 = 维度一得分 \times 0.7 + 维度二得分 \times 0.2 + 维度三得分 \times 0.1$
+
+## 3\.5 初始等级计算规则
+
+|综合得分|初始等级|
+|---|---|
+|\>= 90|S|
+|\>= 80 且 \< 90|A|
+|\>= 60 且 \< 80|B|
+|\< 60|C|
+
+## 3\.6 约束规则
+
+为避免关键维度过低但综合得分过高，最终等级需应用以下约束规则：
+
+```Plain Text
+1. 如果存在重大事故、严重违规或红线问题，最终等级直接为 C；
+2. 如果维度一得分 < 60，最终等级为 C；
+3. 如果维度一得分 < 80，最终等级最高为 B；
+4. 如果任一维度得分 < 60，最终等级最高为 B。
+```
+
+## 3\.7 JS 伪代码
+
+
+
+```JavaScript
+function calculateLevelByScore(score1, score2, score3, hasViolation = false) {
+  const levelRank = {
+    S: 4,
+    A: 3,
+    B: 2,
+    C: 1
+  };
+
+  function getLevelByScore(score) {
+    if (score >= 90) return 'S';
+    if (score >= 80) return 'A';
+    if (score >= 60) return 'B';
+    return 'C';
+  }
+
+  function limitLevel(level, maxLevel) {
+    return levelRank[level] > levelRank[maxLevel] ? maxLevel : level;
+  }
+
+  function validateScore(score) {
+    return typeof score === 'number' && score >= 0 && score <= 100;
+  }
+
+  if (!validateScore(score1) || !validateScore(score2) || !validateScore(score3)) {
+    throw new Error('评分必须为0到100之间的数字');
+  }
+
+  // 红线规则
+  if (hasViolation) {
+    return {
+      score: null,
+      initialLevel: null,
+      finalLevel: 'C',
+      reason: '存在重大事故、严重违规或红线问题，最终等级直接为C'
+    };
+  }
+
+  const finalScore = score1 * 0.7 + score2 * 0.2 + score3 * 0.1;
+
+  let initialLevel = getLevelByScore(finalScore);
+  let finalLevel = initialLevel;
+  let reasons = [];
+
+  // 核心维度低于60，最终为C
+  if (score1 < 60) {
+    finalLevel = 'C';
+    reasons.push('维度一得分低于60分，最终等级为C');
+  }
+
+  // 核心维度低于80，最终最高为B
+  if (score1 < 80) {
+    const beforeLevel = finalLevel;
+    finalLevel = limitLevel(finalLevel, 'B');
+
+    if (beforeLevel !== finalLevel) {
+      reasons.push('维度一得分低于80分，最终等级最高为B');
+    }
+  }
+
+  // 任一维度低于60，最终最高为B
+  if (score1 < 60 || score2 < 60 || score3 < 60) {
+    const beforeLevel = finalLevel;
+    finalLevel = limitLevel(finalLevel, 'B');
+
+    if (beforeLevel !== finalLevel) {
+      reasons.push('存在维度得分低于60分，最终等级最高为B');
+    }
+  }
+
+  return {
+    score: Number(finalScore.toFixed(2)),
+    initialLevel,
+    finalLevel,
+    reason: reasons.length > 0 ? reasons.join('；') : '根据综合得分计算最终等级'
+  };
+}
+```
+
+# 四、最终输出字段建议
+
+无论使用等级方案还是打分方案，建议系统统一输出以下字段：
+
+
+
+```JavaScript
+{
+  score: 86.5,              // 综合得分
+  initialLevel: 'A',        // 根据综合得分计算出的初始等级
+  finalLevel: 'A',          // 应用约束规则后的最终等级
+  reason: '根据综合得分计算最终等级'
+}
+```
+
+# 五、推荐使用方式
+
+
+
+```Plain Text
+如果考核人只想快速评价，可使用“等级计算方案”；
+如果需要更精细的绩效结果，可使用“打分计算方案”；
+两种方案最终都统一输出综合得分、初始等级、最终等级和计算原因。
+```
+
+
+

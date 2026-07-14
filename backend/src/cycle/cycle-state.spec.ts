@@ -25,14 +25,18 @@ describe('周期状态机', () => {
     for (const from of all) {
       for (const to of all) {
         if (legalSet.has(`${from}->${to}`)) continue;
-        expect(() => assertCycleTransition(from, to)).toThrow(ConflictException);
+        expect(() => assertCycleTransition(from, to)).toThrow(
+          ConflictException,
+        );
       }
     }
   });
 
   it('已归档周期不允许任何流转', () => {
     for (const to of Object.values(PerfCycleStatus)) {
-      expect(() => assertCycleTransition(PerfCycleStatus.ARCHIVED, to)).toThrow(ConflictException);
+      expect(() => assertCycleTransition(PerfCycleStatus.ARCHIVED, to)).toThrow(
+        ConflictException,
+      );
     }
   });
 });
