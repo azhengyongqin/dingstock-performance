@@ -142,6 +142,10 @@ const loadSdk = (): Promise<LarkWebComponentSdk> => {
         if (window.webComponent) {
           resolve(window.webComponent)
         } else {
+          // CDN 返回异常内容或 SDK 执行失败时，onload 仍可能触发。
+          // 不能缓存这个拒绝态 Promise，否则后续所有初始化都无法自愈。
+          sdkPromise = null
+          script.remove()
           reject(new Error('飞书 h5-js-sdk 加载完成但未注入 webComponent'))
         }
       }
@@ -337,9 +341,19 @@ let profileCardOpenId: string | null = null
 // 串行化 acquire 调用，避免快速连续打开两个名片时并发 render
 let profileCardQueue: Promise<unknown> = Promise.resolve()
 
+// 每次 acquire 都分配唯一令牌；release 会同步撤销当前令牌。
+// 这能阻止排队中的异步任务在 Popover 已关闭后“迟到挂载”。
+const profileCardMountTokens = new WeakMap<HTMLElement, symbol>()
+
 /** 把（单例的）成员名片挂到 mountPoint 下；openId 未变化时直接复用现有实例。 */
 export const acquireLarkProfileCard = (openId: string, mountPoint: HTMLElement): Promise<void> => {
+  const mountToken = Symbol(openId)
+
+  profileCardMountTokens.set(mountPoint, mountToken)
+
   const task = profileCardQueue.then(async () => {
+    if (profileCardMountTokens.get(mountPoint) !== mountToken) return
+
     if (!profileCardHost) {
       profileCardHost = document.createElement('div')
     }
@@ -364,6 +378,8 @@ export const acquireLarkProfileCard = (openId: string, mountPoint: HTMLElement):
 
 /** 弹层关闭时把名片宿主节点摘走（保留实例复用，不 unmount）。 */
 export const releaseLarkProfileCard = (mountPoint: HTMLElement) => {
+  profileCardMountTokens.delete(mountPoint)
+
   if (profileCardHost && profileCardHost.parentElement === mountPoint) {
     profileCardHost.remove()
   }

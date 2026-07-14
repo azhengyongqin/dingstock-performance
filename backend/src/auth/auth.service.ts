@@ -443,11 +443,24 @@ export class AuthService {
       throw new BadRequestException('url 参数不能为空（当前页面完整地址）');
     }
 
+    let normalizedUrl: string;
+    try {
+      const parsedUrl = new URL(url);
+
+      // 飞书规定签名 URL 不得包含 query/hash。服务端再做一次归一化，
+      // 避免其他调用方绕过前端清洗后生成永远无法通过 config 的签名。
+      parsedUrl.search = '';
+      parsedUrl.hash = '';
+      normalizedUrl = parsedUrl.toString();
+    } catch {
+      throw new BadRequestException('url 参数必须是有效的绝对地址');
+    }
+
     const appId = this.configService.getOrThrow<string>('lark.appId');
     const ticket = await this.getUserJsapiTicket(user.open_id);
     const nonceStr = randomBytes(16).toString('hex');
     const timestamp = Date.now();
-    const verification = `jsapi_ticket=${ticket}&noncestr=${nonceStr}&timestamp=${timestamp}&url=${url}`;
+    const verification = `jsapi_ticket=${ticket}&noncestr=${nonceStr}&timestamp=${timestamp}&url=${normalizedUrl}`;
     const signature = createHash('sha1').update(verification).digest('hex');
 
     return {

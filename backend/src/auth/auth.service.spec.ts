@@ -228,6 +228,27 @@ describe('AuthService', () => {
       expect(result.signature).toBe(expected);
     });
 
+    it('服务端会剔除 URL 的查询参数和 hash，避免签名值与组件 config 不一致', async () => {
+      redisMock.get.mockResolvedValue('cached-ticket');
+      const rawUrl = `${pageUrl}?tab=members#selector`;
+
+      const result = await service.buildJsapiSignature(rawUrl, user);
+      const expected = createHash('sha1')
+        .update(
+          `jsapi_ticket=cached-ticket&noncestr=${result.nonceStr}&timestamp=${result.timestamp}&url=${pageUrl}`,
+        )
+        .digest('hex');
+
+      expect(result.signature).toBe(expected);
+    });
+
+    it('非法绝对 URL 会在获取 ticket 前直接拒绝', async () => {
+      await expect(
+        service.buildJsapiSignature('/relative/path', user),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(redisMock.get).not.toHaveBeenCalled();
+    });
+
     it('无缓存时以 user_access_token 换取 ticket 并按用户缓存', async () => {
       redisMock.get.mockImplementation((key: string) => {
         if (key === 'auth:lark:user-token:ou_1') {

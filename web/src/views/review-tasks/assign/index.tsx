@@ -7,25 +7,16 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Third-party Imports
-import { ChevronDownIcon, InfoIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
+import { InfoIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
-import { LarkMemberSelector, UserAvatar } from '@/components/shared/lark'
+import { LarkMemberPickerDialog, UserAvatar, type LarkPickerMember } from '@/components/shared/lark'
 import PageHeader from '@/components/shared/PageHeader'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 
 // Util Imports
@@ -33,7 +24,6 @@ import { ApiError, apiFetch } from '@/lib/api'
 import type { LarkUserBrief } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
 import { groupReviewersByRelation, RELATION_LABEL } from './group-reviewers'
-import { reviewerFromMemberOption } from './reviewer-selection'
 
 // ===== 类型（GET /participants/:pid/reviewers 响应） =====
 
@@ -63,58 +53,31 @@ type SelectedReviewer = {
   submitted?: boolean
 }
 
-const RELATION_KEYS = Object.keys(RELATION_LABEL)
+/** 评审员 → 弹窗成员：已提交锁定不可移除 */
+const pickerMemberOf = (entry: SelectedReviewer): LarkPickerMember => ({
+  openId: entry.reviewerOpenId,
+  name: entry.name,
+  avatarUrl: entry.avatarUrl,
+  badge: entry.submitted ? '已提交' : undefined,
+  removable: !entry.submitted
+})
 
-/** 成员 pill：姓名处下拉可「移至其他分组」，未提交可移除；已提交锁定 */
-const MemberPill = ({
-  entry,
-  onRemove,
-  onChangeRelation
-}: {
-  entry: SelectedReviewer
-  onRemove: (openId: string) => void
-  onChangeRelation: (openId: string, relation: string) => void
-}) => (
+/** 成员 pill：未提交可移除，已提交锁定 */
+const MemberPill = ({ entry, onRemove }: { entry: SelectedReviewer; onRemove: (openId: string) => void }) => (
   <div className='bg-muted/60 flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-1'>
     <UserAvatar openId={entry.reviewerOpenId} name={entry.name} avatarUrl={entry.avatarUrl} size='sm' />
+    <span className='text-sm'>{entry.name ?? entry.reviewerOpenId}</span>
     {entry.submitted ? (
-      <>
-        <span className='text-sm'>{entry.name ?? entry.reviewerOpenId}</span>
-        <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>
-      </>
+      <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>
     ) : (
-      <>
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={<button className='hover:text-primary flex items-center gap-0.5 text-sm' type='button' />}
-          >
-            {entry.name ?? entry.reviewerOpenId}
-            <ChevronDownIcon className='text-muted-foreground size-3' />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align='start'>
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>移至分组</DropdownMenuLabel>
-              {RELATION_KEYS.filter(relation => relation !== entry.relation).map(relation => (
-                <DropdownMenuItem key={relation} onClick={() => onChangeRelation(entry.reviewerOpenId, relation)}>
-                  {RELATION_LABEL[relation]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem variant='destructive' onClick={() => onRemove(entry.reviewerOpenId)}>
-              移除
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
-          type='button'
-          aria-label={`移除 ${entry.name ?? entry.reviewerOpenId}`}
-          className='text-muted-foreground hover:text-destructive'
-          onClick={() => onRemove(entry.reviewerOpenId)}
-        >
-          <XIcon className='size-3.5' />
-        </button>
-      </>
+      <button
+        type='button'
+        aria-label={`移除 ${entry.name ?? entry.reviewerOpenId}`}
+        className='text-muted-foreground hover:text-destructive'
+        onClick={() => onRemove(entry.reviewerOpenId)}
+      >
+        <XIcon className='size-3.5' />
+      </button>
     )}
   </div>
 )
@@ -150,8 +113,9 @@ const RecommendationChip = ({
 )
 
 /**
- * 评审人推荐与指定页（产品 §7.8）：
- * 飞书弹窗式分组表排版——banner → 推荐 chips → 搜索 → 关系分组表格行（五类分组默认全部展示）。
+ * 评审人推荐与指定页（产品 §7.8）：分组直邀交互——
+ * 推荐 chips 一键采纳；五类关系分组行尾「+」打开 LarkMemberPickerDialog，
+ * 弹窗内搜索确认后直接以该组关系入组，无需二次调整分组。
  * 保存 = 覆盖式 PUT + knownAssignmentIds 乐观校验：
  * 加载后他人新增的指派不会被本次保存挤掉；移除已提交者会被服务端整单拒绝（409）。
  */
@@ -166,6 +130,9 @@ const ReviewerAssign = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  /** 分组直邀弹窗当前作用的关系分组；null = 关闭 */
+  const [inviteRelation, setInviteRelation] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     if (!participantId) {
@@ -236,10 +203,6 @@ const ReviewerAssign = () => {
     setSelected(prev => prev.filter(item => item.reviewerOpenId !== openId))
   }
 
-  const changeRelation = (openId: string, relation: string) => {
-    setSelected(prev => prev.map(item => (item.reviewerOpenId === openId ? { ...item, relation } : item)))
-  }
-
   const handleSave = async () => {
     setSaving(true)
 
@@ -289,6 +252,8 @@ const ReviewerAssign = () => {
   // 五类关系分组默认全部展示（含空组）
   const groups = groupReviewersByRelation(selected, { includeEmpty: true })
 
+  const inviteLabel = inviteRelation ? (RELATION_LABEL[inviteRelation] ?? inviteRelation) : ''
+
   return (
     <div className='flex flex-col gap-6'>
       <PageHeader
@@ -334,16 +299,11 @@ const ReviewerAssign = () => {
             </div>
           )}
 
-          <LarkMemberSelector
-            placeholder='通过姓名搜索添加评审员'
-            onSelect={option => addReviewer(reviewerFromMemberOption(option))}
-          />
-
-          {/* 关系分组表格行：左标签列 + 成员 pills */}
+          {/* 关系分组表格行：左标签列 + 成员 pills + 行尾分组直邀入口 */}
           <div className='overflow-hidden rounded-lg border'>
             {groups.map((group, groupIndex) => (
-              <div key={group.relation} className='grid grid-cols-[7.5rem_1fr]'>
-                {groupIndex > 0 && <Separator className='col-span-2' />}
+              <div key={group.relation} className='grid grid-cols-[7.5rem_1fr_auto]'>
+                {groupIndex > 0 && <Separator className='col-span-3' />}
                 <div className='bg-muted/40 text-muted-foreground flex items-start px-3 py-2.5 text-sm'>
                   {group.label}
                 </div>
@@ -352,14 +312,19 @@ const ReviewerAssign = () => {
                     <span className='text-muted-foreground/60 text-sm'>暂无评审员</span>
                   ) : (
                     group.entries.map(entry => (
-                      <MemberPill
-                        key={entry.reviewerOpenId}
-                        entry={entry}
-                        onRemove={removeReviewer}
-                        onChangeRelation={changeRelation}
-                      />
+                      <MemberPill key={entry.reviewerOpenId} entry={entry} onRemove={removeReviewer} />
                     ))
                   )}
+                </div>
+                <div className='flex items-start px-2 py-1.5'>
+                  <Button
+                    variant='ghost'
+                    size='icon-sm'
+                    aria-label={`邀请${group.label}`}
+                    onClick={() => setInviteRelation(group.relation)}
+                  >
+                    <PlusIcon className='size-4' />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -376,6 +341,29 @@ const ReviewerAssign = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* 分组直邀弹窗：确认后直接以该组关系入组 */}
+      <LarkMemberPickerDialog
+        open={inviteRelation !== null}
+        onOpenChange={open => {
+          if (!open) setInviteRelation(null)
+        }}
+        title={`邀请「${inviteLabel}」评估人`}
+        searchPlaceholder='通过姓名搜索添加评审员'
+        members={selected.filter(entry => entry.relation === inviteRelation).map(pickerMemberOf)}
+        membersLabel={`「${inviteLabel}」分组当前成员`}
+        onConfirm={added => {
+          for (const member of added)
+            addReviewer({
+              openId: member.openId,
+              relation: inviteRelation ?? undefined,
+              name: member.name,
+              avatarUrl: member.avatarUrl
+            })
+          setInviteRelation(null)
+        }}
+        onRemoveMember={member => removeReviewer(member.openId)}
+      />
     </div>
   )
 }

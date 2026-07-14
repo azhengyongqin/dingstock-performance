@@ -163,4 +163,82 @@ describe('ensureLarkWebComponent 主题初始化', () => {
       document.documentElement.classList.remove('dark')
     }
   })
+
+  it('鉴权期间切换主题时，鉴权完成后会立即补同步', async () => {
+    vi.resetModules()
+
+    let finishConfig: (() => void) | undefined
+
+    const sdk = {
+      config: vi.fn(
+        () =>
+          new Promise<void>(resolve => {
+            finishConfig = resolve
+          })
+      ),
+      update: vi.fn(),
+      render: vi.fn()
+    }
+
+    window.webComponent = sdk as unknown as typeof window.webComponent
+    const mod = await import('./lark-web-component')
+    const configuring = mod.ensureLarkWebComponent()
+
+    await vi.waitFor(() => expect(sdk.config).toHaveBeenCalledTimes(1))
+    mod.setLarkWebComponentTheme('dark')
+    finishConfig?.()
+    await configuring
+
+    expect(sdk.update).toHaveBeenCalledWith({ theme: 'dark' })
+  })
+
+  it('SDK 脚本加载后未注入 webComponent 时，下次调用应重新加载', async () => {
+    vi.resetModules()
+    delete window.webComponent
+
+    const appendedScripts: HTMLScriptElement[] = []
+
+    const appendChild = vi.spyOn(document.body, 'appendChild').mockImplementation(node => {
+      appendedScripts.push(node as HTMLScriptElement)
+
+      return node
+    })
+
+    try {
+      const mod = await import('./lark-web-component')
+      const first = mod.ensureLarkWebComponent()
+
+      appendedScripts[0].onload?.(new Event('load'))
+      await expect(first).rejects.toThrow('未注入 webComponent')
+
+      const second = mod.ensureLarkWebComponent()
+
+      expect(appendedScripts).toHaveLength(2)
+
+      window.webComponent = {
+        config: vi.fn().mockResolvedValue(undefined),
+        update: vi.fn(),
+        render: vi.fn()
+      } as unknown as typeof window.webComponent
+      appendedScripts[1].onload?.(new Event('load'))
+      await second
+    } finally {
+      appendChild.mockRestore()
+    }
+  })
+})
+
+describe('acquireLarkProfileCard 异步生命周期', () => {
+  it('弹层在鉴权完成前关闭时，不应在已关闭容器中迟到挂载名片', async () => {
+    const { mod, render } = await loadModule()
+    const mountPoint = document.createElement('div')
+    const acquiring = mod.acquireLarkProfileCard('ou_slow', mountPoint)
+
+    // 模拟用户在排队的 SDK 初始化任务执行前立即关闭 Popover。
+    mod.releaseLarkProfileCard(mountPoint)
+    await acquiring
+
+    expect(render).not.toHaveBeenCalled()
+    expect(mountPoint.childElementCount).toBe(0)
+  })
 })
