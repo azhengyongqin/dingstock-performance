@@ -198,16 +198,62 @@ describe('CycleSetupService', () => {
       'endDate',
     );
     const snapshotData = tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
+    // 阶段模式、评级、约束、四个关系权重、日程预设、通知规则均须与来源模板版本一致地复制到周期快照。
     expect(snapshotData).toMatchObject({
       cycleId: 9,
       sourceConfigTemplateVersionId: 30,
+      selfStageMode: 'DIRECT_RATING',
+      peerStageMode: 'WEIGHTED_RATING',
+      managerStageMode: 'WEIGHTED_SCORE',
+      aiStageMode: 'DIRECT_RATING',
       ratings: [{ symbol: 'S', mappingScore: '95' }],
+      constraintProfiles: {},
+      orgOwnerWeight: 30,
+      projectOwnerWeight: 30,
+      peerWeight: 25,
+      crossDeptWeight: 15,
+      schedulePreset: source.schedulePreset,
+      notificationRules: source.notificationRules,
     });
     expect(snapshotData.formSnapshots.create).toHaveLength(2);
-    expect(snapshotData.formSnapshots.create[0].content).toMatchObject({
-      schemaVersion: 1,
+    expect(snapshotData.formSnapshots.create[0]).toMatchObject({
       jobLevelPrefix: 'D',
-      subforms: expect.any(Array),
+      sourceFormTemplateVersionId: 100,
+      content: {
+        schemaVersion: 1,
+        name: 'D 表单',
+        jobLevelPrefix: 'D',
+        subforms: [
+          expect.objectContaining({
+            type: 'SELF',
+            title: '自评',
+            dimensions: [
+              expect.objectContaining({
+                kind: 'REGULAR',
+                audience: 'EMPLOYEE',
+                name: '业绩',
+                weight: '100',
+                isCore: true,
+                items: [
+                  expect.objectContaining({
+                    type: 'RATING',
+                    title: '评级',
+                    required: true,
+                  }),
+                ],
+              }),
+            ],
+          }),
+        ],
+      },
+    });
+    expect(snapshotData.formSnapshots.create[1]).toMatchObject({
+      jobLevelPrefix: 'M',
+      sourceFormTemplateVersionId: 101,
+      content: expect.objectContaining({
+        jobLevelPrefix: 'M',
+        name: 'M 表单',
+      }),
     });
     expect(tx.perfCycle.update).toHaveBeenCalledWith({
       where: { id: 9 },
@@ -229,6 +275,57 @@ describe('CycleSetupService', () => {
       }),
     ).rejects.toThrow(BadRequestException);
     expect(tx.perfCycle.create).not.toHaveBeenCalled();
+  });
+
+  it('草稿状态配置版本同样不能创建周期，并返回可读中文错误', async () => {
+    tx.perfConfigTemplateVersion.findUnique.mockResolvedValue({
+      ...structuredClone(source),
+      status: 'DRAFT',
+    });
+
+    await expect(
+      service.createFromPublishedConfig('ou_hr', {
+        name: '2026 上半年绩效评定',
+        configTemplateVersionId: 30,
+        plannedStartAt: '2026-07-14T09:00:00+08:00',
+      }),
+    ).rejects.toThrow('配置模板版本未发布或已不可用');
+    expect(tx.perfCycle.create).not.toHaveBeenCalled();
+  });
+
+  it('创建周期后修改来源模板版本的评级与表单内容，不影响已写入事务的周期快照', async () => {
+    // 独立可变的来源对象：模拟运营在创建周期之后继续编辑同一份模板版本。
+    const mutableSource = structuredClone(source);
+    tx.perfConfigTemplateVersion.findUnique.mockResolvedValue(mutableSource);
+
+    await service.createFromPublishedConfig('ou_hr', {
+      name: '2026 上半年绩效评定',
+      configTemplateVersionId: 30,
+      plannedStartAt: '2026-07-14T09:00:00+08:00',
+    });
+
+    const snapshotData = tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
+    const capturedRatingScore = snapshotData.ratings[0].mappingScore;
+    const capturedDimensionName =
+      snapshotData.formSnapshots.create[0].content.subforms[0].dimensions[0]
+        .name;
+
+    // 创建周期之后再修改来源模板版本对象（评级与 D 表单维度名称）。
+    mutableSource.ratings[0].mappingScore = '10';
+    mutableSource.formBindings[0].formTemplateVersion.subforms[0].dimensions[0].name =
+      '篡改后的维度';
+
+    // 事务中已写入的快照数据必须仍等于创建时刻的值，证明是值复制而非共享引用。
+    expect(snapshotData.ratings[0].mappingScore).toBe(capturedRatingScore);
+    expect(snapshotData.ratings[0].mappingScore).toBe('95');
+    expect(
+      snapshotData.formSnapshots.create[0].content.subforms[0].dimensions[0]
+        .name,
+    ).toBe(capturedDimensionName);
+    expect(
+      snapshotData.formSnapshots.create[0].content.subforms[0].dimensions[0]
+        .name,
+    ).toBe('业绩');
   });
 
   it('迁移后的旧草稿可原子补齐基础信息、配置与 D/M 表单快照', async () => {
