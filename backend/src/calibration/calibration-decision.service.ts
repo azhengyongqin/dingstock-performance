@@ -410,6 +410,9 @@ export class CalibrationDecisionService {
     if (participant.status === PerfParticipantStatus.NO_RESULT) {
       throw new ConflictException('当前周期无绩效结果的参与者不能校准');
     }
+    if (participant.status === PerfParticipantStatus.WITHDRAWN) {
+      throw new ConflictException('已中途退出的参与者不能校准');
+    }
     // 申诉中的重新校准仍复用同一双修订边界，但必须确有未关闭申诉；
     // 再次确认和归档则永久关闭校准写入口。
     if (
@@ -420,6 +423,7 @@ export class CalibrationDecisionService {
     }
     const closedStatuses = new Set<PerfParticipantStatus>([
       PerfParticipantStatus.RE_CONFIRMING,
+      PerfParticipantStatus.WITHDRAWN,
       PerfParticipantStatus.ARCHIVED,
     ]);
     if (closedStatuses.has(participant.status)) {

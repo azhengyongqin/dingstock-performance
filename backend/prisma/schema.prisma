@@ -206,6 +206,7 @@ enum PerfParticipantStatus {
   APPEALING /// 申诉中
   RE_CONFIRMING /// 申诉处理后再次确认中
   NO_RESULT /// 当前周期无绩效结果：始终缺失必需自评，不生成校准或最终结果，归档前可撤销
+  WITHDRAWN /// 中途退出：与无绩效结果区分，归档后作为历史事实永久只读
   ARCHIVED /// 已归档
 
   @@schema("performance")
@@ -818,11 +819,30 @@ model PerfCycle {
   stageResults          PerfStageResult[]
   exportTasks           ReportExportTask[]
   rollbacks             PerfCycleRollback[]
+  archive               PerfCycleArchive?
 
   @@index([status, plannedStartAt])
   @@index([deletedAt])
   @@index([templateId])
   @@map("perf_cycles")
+  @@schema("performance")
+}
+
+/// 周期归档的不可变快照；保存用户确认过的关闭统计、全量检查结果与操作者。
+/// archivedAt 即该 append-only 事实的创建时间，因此不另设 updatedAt / deletedAt。
+model PerfCycleArchive {
+  id             Int      @id @default(autoincrement()) /// 内部自增主键
+  cycleId        Int      @unique @map("cycle_id") /// 被归档周期；一周期至多一条归档事实
+  operatorOpenId String   @map("operator_open_id") /// 执行归档的 Admin 或覆盖全员的 HR open_id
+  summary        Json     /// 归档时关闭统计快照：总人数、确认/无结果/退出人数、等级分布
+  checkResult    Json     @map("check_result") /// 全量关闭检查快照：revision 与 blockers（成功时为空数组）
+  archivedAt     DateTime @default(now()) @map("archived_at") /// 永久归档发生时间
+
+  cycle PerfCycle @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+
+  @@index([operatorOpenId])
+  @@index([archivedAt])
+  @@map("perf_cycle_archives")
   @@schema("performance")
 }
 

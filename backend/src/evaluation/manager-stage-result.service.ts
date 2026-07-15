@@ -60,6 +60,57 @@ export type ManagerStageResultView = {
 export class ManagerStageResultService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * 读取当前配置版本已持久化的权威结果。查询不触发重算，
+   * 因此归档周期可以继续查看历史，也不会突破永久写冻结。
+   */
+  async getCurrent(
+    participantId: number,
+  ): Promise<ManagerStageResultView | null> {
+    const participant = await this.prisma.perfParticipant.findUnique({
+      where: { id: participantId },
+      select: {
+        cycle: { select: { deletedAt: true, currentConfigVersionId: true } },
+      },
+    });
+    if (!participant || participant.cycle.deletedAt) {
+      throw new NotFoundException('参与者不存在');
+    }
+    const cycleConfigVersionId = participant.cycle.currentConfigVersionId;
+    if (!cycleConfigVersionId) return null;
+    const result = await this.prisma.perfStageResult.findUnique({
+      where: {
+        participantId_stage_cycleConfigVersionId: {
+          participantId,
+          stage: PerfEvaluationTaskType.MANAGER,
+          cycleConfigVersionId,
+        },
+      },
+    });
+    if (!result) return null;
+    const detail = result.calculationDetail as unknown as {
+      inputSummary?: ManagerStageResultView['inputSummary'];
+      dimensions?: StageDimensionResult[];
+    };
+    return {
+      participantId,
+      cycleConfigVersionId,
+      status: result.status,
+      mode: result.mode,
+      reviewerCount: result.reviewerCount,
+      compositeScore: result.compositeScore?.toFixed(2) ?? null,
+      initialLevel: result.initialLevel,
+      stageLevel: result.stageLevel,
+      constraintReasons:
+        result.constraintReasons as unknown as MatchedConstraint[],
+      dimensions: detail.dimensions ?? [],
+      inputSummary: detail.inputSummary ?? {
+        effectiveSubmissionId: null,
+        reviewerOpenId: null,
+      },
+    } as ManagerStageResultView;
+  }
+
   /** 可传事务 client，使正式提交、任务完成与权威阶段结果原子生效。 */
   async recalculate(
     participantId: number,

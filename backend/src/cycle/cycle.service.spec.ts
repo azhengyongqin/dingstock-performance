@@ -316,6 +316,18 @@ describe('CycleService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
+  it('通用状态推进不能绕过关闭检查直接进入 ARCHIVED', async () => {
+    prismaMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'ACTIVE',
+    });
+
+    await expect(
+      service.advanceCycle('ou_admin', 100, { to: 'ARCHIVED' }),
+    ).rejects.toThrow(ConflictException);
+    expect(auditMock.record).not.toHaveBeenCalled();
+  });
+
   it('新版周期调用旧配置写接口时明确拒绝，避免静默写入 legacy 字段', async () => {
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
@@ -327,22 +339,5 @@ describe('CycleService', () => {
       service.updateNotificationRules('ou_hr', 100, { stages: [] }),
     ).rejects.toThrow(ConflictException);
     expect(txMock.perfCycle.update).not.toHaveBeenCalled();
-  });
-
-  it('周期归档不改写 NO_RESULT 参与者终态且不会要求其生成绩效结果', async () => {
-    prismaMock.perfCycle.findFirst
-      .mockResolvedValueOnce({ id: 100, status: 'ACTIVE' })
-      .mockResolvedValueOnce({ id: 100, status: 'ARCHIVED' });
-
-    await service.closeCycle('ou_admin', 100);
-
-    expect(txMock.perfParticipant.updateMany).toHaveBeenCalledWith({
-      where: { cycleId: 100, status: { not: 'NO_RESULT' } },
-      data: { status: 'ARCHIVED' },
-    });
-    expect(txMock.perfResult.updateMany).toHaveBeenCalledWith({
-      where: { participant: { cycleId: 100 }, archivedAt: null },
-      data: { archivedAt: expect.any(Date) },
-    });
   });
 });

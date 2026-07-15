@@ -169,7 +169,10 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
   const taskAccess = { openIfDue: jest.fn(), ensureWritable: jest.fn() };
   const audit = { record: jest.fn() };
   const peerStageResult = { recalculate: jest.fn() };
-  const managerStageResult = { recalculate: jest.fn() };
+  const managerStageResult = {
+    recalculate: jest.fn(),
+    getCurrent: jest.fn(),
+  };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = { lockHumanWrite: jest.fn() };
   let service: ManagerEvaluationSubmissionService;
@@ -225,6 +228,11 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       constraintReasons: [],
       dimensions: [],
     });
+    managerStageResult.getCurrent.mockResolvedValue({
+      status: 'READY',
+      compositeScore: '88.00',
+      stageLevel: 'A',
+    });
     const submissionPolicy = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
@@ -268,6 +276,19 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       ForbiddenException,
     );
     expect(taskAccess.openIfDue).toHaveBeenCalledTimes(1);
+  });
+
+  it('查看归档历史只读取持久化权威结果，不触发重算写入', async () => {
+    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      cycle: { ...participant.cycle, status: 'ARCHIVED' },
+    });
+
+    await expect(
+      service.getManagerResult('ou_leader', 7),
+    ).resolves.toMatchObject({ status: 'READY', stageLevel: 'A' });
+    expect(managerStageResult.getCurrent).toHaveBeenCalledWith(7);
+    expect(managerStageResult.recalculate).not.toHaveBeenCalled();
   });
 
   it('校准事务已锁定参与者时，旧上级评估页面不能继续提交', async () => {

@@ -40,6 +40,35 @@ export class ParticipantService {
     return cycle;
   }
 
+  /** 参与者写入与周期归档共用 cycle → participant 锁顺序。 */
+  private async lockParticipantCycle(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    const rows = await tx.$queryRaw<
+      Array<{
+        participant_id: number;
+        cycle_id: number;
+        cycle_status: PerfCycleStatus;
+      }>
+    >`
+      SELECT participant."id" AS participant_id,
+        cycle."id" AS cycle_id,
+        cycle."status" AS cycle_status
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+        AND cycle."deleted_at" IS NULL
+      FOR UPDATE OF cycle, participant
+    `;
+    if (rows.length !== 1) throw new NotFoundException('参与者不存在');
+    if (rows[0].cycle_status === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，参与者信息不可修改');
+    }
+    return rows[0];
+  }
+
   /** 参与者列表：join 员工/部门主数据供前端直接展示 */
   async list(cycleId: number) {
     await this.requireCycle(cycleId);
@@ -538,8 +567,14 @@ export class ParticipantService {
       await this.assertRemovable(participantId, confirm);
     }
     try {
-      await this.prisma.perfParticipant.delete({
-        where: { id: participantId },
+      await this.prisma.$transaction(async (tx) => {
+        const locked = await this.lockParticipantCycle(tx, participantId);
+        if (locked.cycle_id !== cycleId) {
+          throw new NotFoundException('参与者不存在');
+        }
+        await tx.perfParticipant.delete({
+          where: { id: participantId },
+        });
       });
     } catch (error) {
       // 外键约束兜底（P2003）：仍有 Restrict 关系数据时给出友好提示
@@ -568,14 +603,23 @@ export class ParticipantService {
     participantId: number,
     isPromotionEnabled: boolean,
   ) {
-    const participant = await this.prisma.perfParticipant.findFirst({
-      where: { id: participantId, cycleId },
-    });
-    if (!participant) throw new NotFoundException('参与者不存在');
-    const updated = await this.prisma.perfParticipant.update({
-      where: { id: participantId },
-      data: { isPromotionEnabled },
-    });
+    const { participant, updated } = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await this.lockParticipantCycle(tx, participantId);
+        if (locked.cycle_id !== cycleId) {
+          throw new NotFoundException('参与者不存在');
+        }
+        const participant = await tx.perfParticipant.findUnique({
+          where: { id: participantId },
+        });
+        if (!participant) throw new NotFoundException('参与者不存在');
+        const updated = await tx.perfParticipant.update({
+          where: { id: participantId },
+          data: { isPromotionEnabled },
+        });
+        return { participant, updated };
+      },
+    );
     await this.auditService.record({
       operatorOpenId,
       action: 'participant.update',
@@ -594,15 +638,21 @@ export class ParticipantService {
     to: PerfParticipantStatus,
     reason?: string,
   ) {
-    const participant = await this.prisma.perfParticipant.findUnique({
-      where: { id: participantId },
-    });
-    if (!participant) throw new NotFoundException('参与者不存在');
-    assertParticipantTransition(participant.status, to);
-    const updated = await this.prisma.perfParticipant.update({
-      where: { id: participantId },
-      data: { status: to },
-    });
+    const { participant, updated } = await this.prisma.$transaction(
+      async (tx) => {
+        await this.lockParticipantCycle(tx, participantId);
+        const participant = await tx.perfParticipant.findUnique({
+          where: { id: participantId },
+        });
+        if (!participant) throw new NotFoundException('参与者不存在');
+        assertParticipantTransition(participant.status, to);
+        const updated = await tx.perfParticipant.update({
+          where: { id: participantId },
+          data: { status: to },
+        });
+        return { participant, updated };
+      },
+    );
     await this.auditService.record({
       operatorOpenId,
       action: 'participant.transition',

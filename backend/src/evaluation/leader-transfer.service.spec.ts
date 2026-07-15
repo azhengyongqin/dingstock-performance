@@ -17,6 +17,7 @@ jest.mock(
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfEvaluationTaskType: { MANAGER: 'MANAGER' },
     PerfNotificationChannel: { BOT_DM: 'BOT_DM' },
+    PerfParticipantStatus: { WITHDRAWN: 'WITHDRAWN' },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
@@ -38,6 +39,7 @@ describe('LeaderTransferService 直属 Leader 职责转移', () => {
     },
   };
   const tx = {
+    $queryRaw: jest.fn(),
     perfParticipant: { updateMany: jest.fn() },
     perfCalibration: { findFirst: jest.fn() },
     perfEvaluationSubmission: {
@@ -62,6 +64,7 @@ describe('LeaderTransferService 直属 Leader 职责转移', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    tx.$queryRaw.mockResolvedValue([{ status: 'ACTIVE' }]);
     prisma.perfParticipant.findUnique.mockResolvedValue(participant);
     prisma.larkUser.findUnique.mockResolvedValue({
       open_id: 'ou_new_leader',

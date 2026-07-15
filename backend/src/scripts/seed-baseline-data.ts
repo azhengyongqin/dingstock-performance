@@ -95,6 +95,16 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
  */
 async function cleanupBaseline(prisma: PrismaClient) {
   await prisma.$transaction(async (tx) => {
+    const historicalArchive = await tx.perfCycleArchive.findFirst({
+      where: { cycle: { name: CYCLE_NAME } },
+      select: { id: true, cycleId: true },
+    });
+    if (historicalArchive) {
+      // 已归档周期属于正式绩效档案；seed 不能借幂等清理绕过永久不可变边界。
+      throw new Error(
+        `基线周期 #${historicalArchive.cycleId} 已归档（记录 #${historicalArchive.id}），不能由 seed 清理；请使用新的周期名称`,
+      );
+    }
     const historicalRollback = await tx.perfCycleRollback.findFirst({
       where: { cycle: { name: CYCLE_NAME } },
       select: { id: true, cycleId: true },

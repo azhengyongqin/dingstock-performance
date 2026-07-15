@@ -7,12 +7,15 @@ import {
 } from '@nestjs/common';
 import {
   PerfAssignmentStatus,
+  PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfNotificationChannel,
   PerfReviewerRelation,
   PerfReviewerSource,
   PerfRole,
+  PerfParticipantStatus,
 } from '../generated/prisma/enums';
+import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
@@ -39,6 +42,25 @@ export class ReviewerService {
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
+  /** 与周期归档共用 cycle -> participant 锁顺序，防止子对象写在 ARCHIVED 后提交。 */
+  private async lockWritableCycle(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    const cycles = await tx.$queryRaw<Array<{ status: PerfCycleStatus }>>`
+      SELECT cycle."status"
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+      FOR UPDATE OF cycle
+    `;
+    if (cycles.length !== 1) throw new NotFoundException('参与者不存在');
+    if (cycles[0].status === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，评审员指派不可修改');
+    }
+  }
+
   private async requireParticipant(participantId: number) {
     const participant = await this.prisma.perfParticipant.findUnique({
       where: { id: participantId },
@@ -46,6 +68,12 @@ export class ReviewerService {
     });
     if (!participant || participant.cycle.deletedAt) {
       throw new NotFoundException('参与者不存在');
+    }
+    if (participant.cycle.status === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，评审员指派不可修改');
+    }
+    if (participant.status === PerfParticipantStatus.WITHDRAWN) {
+      throw new ConflictException('参与者已中途退出，评审员指派不可修改');
     }
     return participant;
   }
@@ -255,6 +283,7 @@ export class ReviewerService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockWritableCycle(tx, participantId);
       // 评审关系会改变 PEER 的有效人工输入，必须与首次校准竞争同一参与人行锁。
       await this.participantEvaluationLockService.lockHumanWrite(
         tx,
@@ -374,6 +403,7 @@ export class ReviewerService {
         ? PerfReviewerSource.HR_ASSIGNED
         : PerfReviewerSource.LEADER_ASSIGNED;
     return this.prisma.$transaction(async (tx) => {
+      await this.lockWritableCycle(tx, participantId);
       await this.participantEvaluationLockService.lockHumanWrite(
         tx,
         participantId,

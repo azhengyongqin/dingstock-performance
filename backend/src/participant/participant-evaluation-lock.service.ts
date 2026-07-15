@@ -4,7 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import { PerfParticipantStatus } from '../generated/prisma/enums';
+import {
+  PerfCycleStatus,
+  PerfParticipantStatus,
+} from '../generated/prisma/enums';
 
 /**
  * 参与者评估写入行锁。
@@ -27,13 +30,17 @@ export class ParticipantEvaluationLockService {
         id: number;
         employee_open_id: string;
         status: PerfParticipantStatus;
+        cycle_status: PerfCycleStatus;
         evaluation_locked_at: Date | null;
       }>
     >`
-      SELECT "id", "employee_open_id", "status", "evaluation_locked_at"
-      FROM "performance"."perf_participants"
-      WHERE "id" = ${participantId}
-      FOR UPDATE
+      SELECT participant."id", participant."employee_open_id", participant."status",
+             participant."evaluation_locked_at", cycle."status" AS cycle_status
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+      FOR UPDATE OF cycle, participant
     `;
     if (
       rows.length !== 1 ||
@@ -42,6 +49,12 @@ export class ParticipantEvaluationLockService {
         rows[0].employee_open_id !== employeeOpenId)
     ) {
       throw new NotFoundException('你不在本周期考核名单中');
+    }
+    if (
+      rows[0].cycle_status &&
+      rows[0].cycle_status !== PerfCycleStatus.ACTIVE
+    ) {
+      throw new ConflictException('周期已归档或暂停，人工评估不可修改');
     }
     if (rows[0].evaluation_locked_at || this.isClosedStatus(rows[0].status)) {
       throw new ConflictException({
@@ -68,6 +81,7 @@ export class ParticipantEvaluationLockService {
       PerfParticipantStatus.APPEALING,
       PerfParticipantStatus.RE_CONFIRMING,
       PerfParticipantStatus.NO_RESULT,
+      PerfParticipantStatus.WITHDRAWN,
       PerfParticipantStatus.ARCHIVED,
     ]).has(status);
   }

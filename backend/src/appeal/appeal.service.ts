@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   PerfAppealStatus,
+  PerfCycleStatus,
   PerfInterviewType,
   PerfParticipantStatus,
   PerfRole,
@@ -28,6 +29,14 @@ export class AppealService {
     private readonly rbacService: RbacService,
   ) {}
 
+  private assertCycleWritable(participant: {
+    cycle?: { status: PerfCycleStatus };
+  }) {
+    if (participant.cycle?.status === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，申诉和面谈记录不可修改');
+    }
+  }
+
   /** 员工只能针对当前未确认结果版本发起一次申诉。 */
   async create(
     employeeOpenId: string,
@@ -43,6 +52,7 @@ export class AppealService {
       const participant = await tx.perfParticipant.findUnique({
         where: { id: participantId },
         include: {
+          cycle: { select: { status: true } },
           resultVersions: {
             where: { supersededAt: null, invalidatedAt: null },
             orderBy: { version: 'desc' },
@@ -64,6 +74,7 @@ export class AppealService {
       if (!participant || participant.employeeOpenId !== employeeOpenId) {
         throw new NotFoundException('结果尚未发布，无法申诉');
       }
+      this.assertCycleWritable(participant);
       if (participant.appeals.length > 0) {
         throw new ConflictException('每人每周期只能发起一次申诉');
       }
@@ -267,18 +278,29 @@ export class AppealService {
 
   /** 指派处理人 */
   async assign(operatorOpenId: string, id: number, handlerOpenId: string) {
-    const appeal = await this.prisma.perfAppeal.findUnique({
-      where: { id },
-      include: { participant: true },
-    });
-    if (!appeal) throw new NotFoundException('申诉不存在');
-    if (appeal.invalidatedAt) {
-      throw new ConflictException('申诉已因周期整体退回而失效');
-    }
-    await this.assertCanManage(operatorOpenId, appeal.participant);
-    const updated = await this.prisma.perfAppeal.update({
-      where: { id },
-      data: { handlerOpenId },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const identity = await tx.perfAppeal.findUnique({
+        where: { id },
+        select: { participantId: true },
+      });
+      if (!identity) throw new NotFoundException('申诉不存在');
+      await this.lockAppealAggregate(tx, identity.participantId);
+      const appeal = await tx.perfAppeal.findUnique({
+        where: { id },
+        include: {
+          participant: { include: { cycle: { select: { status: true } } } },
+        },
+      });
+      if (!appeal) throw new NotFoundException('申诉不存在');
+      if (appeal.invalidatedAt) {
+        throw new ConflictException('申诉已因周期整体退回而失效');
+      }
+      this.assertCycleWritable(appeal.participant);
+      await this.assertCanManage(operatorOpenId, appeal.participant);
+      return tx.perfAppeal.update({
+        where: { id },
+        data: { handlerOpenId },
+      });
     });
     await this.auditService.record({
       operatorOpenId,
@@ -310,12 +332,15 @@ export class AppealService {
       await this.lockAppealAggregate(tx, identity.participantId);
       const appeal = await tx.perfAppeal.findUnique({
         where: { id: appealId },
-        include: { participant: true },
+        include: {
+          participant: { include: { cycle: { select: { status: true } } } },
+        },
       });
       if (!appeal) throw new NotFoundException('申诉不存在');
       if (appeal.invalidatedAt) {
         throw new ConflictException('申诉已因周期整体退回而失效');
       }
+      this.assertCycleWritable(appeal.participant);
       await this.assertCanManage(operatorOpenId, appeal.participant);
       if (appeal.status === PerfAppealStatus.RESOLVED) {
         throw new ConflictException('申诉已处理完成');
@@ -359,20 +384,26 @@ export class AppealService {
       conclusion?: string;
     },
   ) {
-    const participant = await this.prisma.perfParticipant.findUnique({
-      where: { id: participantId },
-    });
-    if (!participant) throw new NotFoundException('参与者不存在');
-    await this.assertCanManage(operatorOpenId, participant);
+    const interview = await this.prisma.$transaction(async (tx) => {
+      // 选择性面谈也与归档共用 cycle 行锁，避免归档检查后插入新记录。
+      await this.lockAppealAggregate(tx, participantId);
+      const participant = await tx.perfParticipant.findUnique({
+        where: { id: participantId },
+        include: { cycle: { select: { status: true } } },
+      });
+      if (!participant) throw new NotFoundException('参与者不存在');
+      this.assertCycleWritable(participant);
+      await this.assertCanManage(operatorOpenId, participant);
 
-    const interview = await this.prisma.perfInterview.create({
-      data: {
-        participantId,
-        type: PerfInterviewType.OPTIONAL,
-        participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
-        content: input.content,
-        conclusion: input.conclusion,
-      },
+      return tx.perfInterview.create({
+        data: {
+          participantId,
+          type: PerfInterviewType.OPTIONAL,
+          participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
+          content: input.content,
+          conclusion: input.conclusion,
+        },
+      });
     });
     await this.auditService.record({
       operatorOpenId,
@@ -406,12 +437,15 @@ export class AppealService {
       await this.lockAppealAggregate(tx, identity.participantId);
       const appeal = await tx.perfAppeal.findUnique({
         where: { id },
-        include: { participant: true },
+        include: {
+          participant: { include: { cycle: { select: { status: true } } } },
+        },
       });
       if (!appeal) throw new NotFoundException('申诉不存在');
       if (appeal.invalidatedAt) {
         throw new ConflictException('申诉已因周期整体退回而失效');
       }
+      this.assertCycleWritable(appeal.participant);
       if (appeal.status === PerfAppealStatus.RESOLVED) {
         throw new ConflictException('申诉已处理');
       }

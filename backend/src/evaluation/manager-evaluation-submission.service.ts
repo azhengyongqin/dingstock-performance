@@ -192,7 +192,8 @@ export class ManagerEvaluationSubmissionService {
   /** 权威结果查询同样只允许当前 Leader，避免管理角色借查询接口扩大代填边界。 */
   async getManagerResult(leaderOpenId: string, participantId: number) {
     await this.requireManagedParticipant(leaderOpenId, participantId);
-    return this.managerStageResultService.recalculate(participantId);
+    // 读接口只返回提交事务已生成的权威结果，归档后不得因查询暗中重算写库。
+    return this.managerStageResultService.getCurrent(participantId);
   }
 
   /** 保存不完整的独立更新草稿，不覆盖当前生效答卷和权威阶段结果。 */

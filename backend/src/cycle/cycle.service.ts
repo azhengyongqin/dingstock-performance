@@ -5,10 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import {
-  PerfCycleStatus,
-  PerfParticipantStatus,
-} from '../generated/prisma/enums';
+import { PerfCycleStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
@@ -62,6 +59,7 @@ export class CycleService {
           orderBy: { sortOrder: 'asc' },
         },
         template: { select: { id: true, name: true } },
+        archive: true,
         _count: { select: { participants: true } },
       },
     });
@@ -621,6 +619,9 @@ export class CycleService {
     dto: AdvanceCycleDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
+    if (dto.to === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期归档必须使用全员关闭检查与确认接口');
+    }
     if (
       cycle.status === PerfCycleStatus.ACTIVE &&
       (dto.to === PerfCycleStatus.DRAFT || dto.to === PerfCycleStatus.SCHEDULED)
@@ -643,40 +644,5 @@ export class CycleService {
       reason: dto.reason,
     });
     return updated;
-  }
-
-  /** 归档周期：参与者全部置 ARCHIVED，结果表落 archived_at（此后结果不可变） */
-  async closeCycle(operatorOpenId: string, cycleId: number) {
-    const cycle = await this.requireCycle(cycleId);
-    assertCycleTransition(cycle.status, PerfCycleStatus.ARCHIVED);
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.perfCycle.update({
-        where: { id: cycleId },
-        data: { status: PerfCycleStatus.ARCHIVED },
-      });
-      await tx.perfParticipant.updateMany({
-        // NO_RESULT 是参与者自己的结果终态；周期归档只令其永久不可撤销，不改写语义。
-        where: {
-          cycleId,
-          status: { not: PerfParticipantStatus.NO_RESULT },
-        },
-        data: { status: PerfParticipantStatus.ARCHIVED },
-      });
-      await tx.perfResult.updateMany({
-        where: { participant: { cycleId }, archivedAt: null },
-        data: { archivedAt: new Date() },
-      });
-    });
-
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'cycle.close',
-      targetType: 'perf_cycle',
-      targetId: String(cycleId),
-      before: { status: cycle.status },
-      after: { status: PerfCycleStatus.ARCHIVED },
-    });
-    return this.getCycle(cycleId);
   }
 }

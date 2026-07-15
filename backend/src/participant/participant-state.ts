@@ -3,7 +3,7 @@ import { PerfParticipantStatus } from '../generated/prisma/enums';
 
 /**
  * 参与者状态机（研发文档 §8.2）。映射表即文档，非法流转抛 409。
- * 归档（周期 close）走批量 updateMany，不经过本状态机。
+ * 周期归档不改写参与者状态；CONFIRMED / NO_RESULT / WITHDRAWN 随周期统一只读。
  */
 const PARTICIPANT_TRANSITIONS: Record<
   PerfParticipantStatus,
@@ -43,7 +43,8 @@ const PARTICIPANT_TRANSITIONS: Record<
   // 每人每周期限一次申诉，再次确认阶段不能重新进入申诉。
   RE_CONFIRMING: [PerfParticipantStatus.CONFIRMED],
   NO_RESULT: [],
-  CONFIRMED: [PerfParticipantStatus.ARCHIVED],
+  WITHDRAWN: [],
+  CONFIRMED: [],
   ARCHIVED: [],
 };
 

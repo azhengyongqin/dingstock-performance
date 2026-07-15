@@ -27,11 +27,20 @@ describe('参与者状态机', () => {
     [PerfParticipantStatus.APPEALING, PerfParticipantStatus.RESULT_PUBLISHED],
     [PerfParticipantStatus.APPEALING, PerfParticipantStatus.RE_CONFIRMING],
     [PerfParticipantStatus.RE_CONFIRMING, PerfParticipantStatus.CONFIRMED],
-    [PerfParticipantStatus.CONFIRMED, PerfParticipantStatus.ARCHIVED],
   ];
 
   it.each(legal)('允许 %s → %s', (from, to) => {
     expect(() => assertParticipantTransition(from, to)).not.toThrow();
+  });
+
+  it.each([
+    PerfParticipantStatus.CONFIRMED,
+    PerfParticipantStatus.NO_RESULT,
+    PerfParticipantStatus.WITHDRAWN,
+  ])('周期归档不再改写参与者终态 %s', (status) => {
+    expect(() =>
+      assertParticipantTransition(status, PerfParticipantStatus.ARCHIVED),
+    ).toThrow(ConflictException);
   });
 
   it('拒绝所有映射表之外的流转', () => {

@@ -20,6 +20,7 @@ jest.mock(
       SUCCESS: 'SUCCESS',
       FAILED: 'FAILED',
     },
+    PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfEvaluationTaskType: {
       SELF: 'SELF',
       PEER: 'PEER',
@@ -88,7 +89,7 @@ describe('AiReportService 独立异步参考', () => {
       cycleId: 1,
       leaderOpenIdSnapshot: 'ou_leader',
       departmentIdSnapshot: 'od_1',
-      cycle: { deletedAt: null, currentConfigVersionId: 3 },
+      cycle: { deletedAt: null, status: 'ACTIVE', currentConfigVersionId: 3 },
     });
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([
       submitted(1, 'SELF', { text: '已生效自评' }),
@@ -311,5 +312,39 @@ describe('AiReportService 独立异步参考', () => {
     await expect(service.retry('ou_leader', 7)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  it('归档周期的 AI 报告保持历史只读，不能刷新或人工重试', async () => {
+    prisma.perfParticipant.findUnique.mockResolvedValue({
+      id: 7,
+      cycleId: 1,
+      leaderOpenIdSnapshot: 'ou_leader',
+      departmentIdSnapshot: 'od_1',
+      cycle: {
+        deletedAt: null,
+        status: 'ARCHIVED',
+        currentConfigVersionId: 3,
+      },
+    });
+    prisma.perfAiReport.findUnique.mockResolvedValue({
+      id: 9,
+      participantId: 7,
+      status: 'SUCCESS',
+      referenceLevel: 'A',
+      summary: '归档前生成的历史参考',
+    });
+
+    await expect(service.getForManager('ou_leader', 7)).resolves.toMatchObject({
+      status: 'SUCCESS',
+      referenceLevel: 'A',
+    });
+
+    await expect(
+      service.requestGeneration('ou_leader', 7),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.retry('ou_leader', 7)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.perfAiReport.update).not.toHaveBeenCalled();
   });
 });

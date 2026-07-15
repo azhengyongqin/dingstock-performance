@@ -41,6 +41,7 @@ jest.mock('./cycle-progress.service', () => ({
 jest.mock('./active-cycle-rollback.service', () => ({
   ActiveCycleRollbackService: class {},
 }));
+jest.mock('./cycle-archive.service', () => ({ CycleArchiveService: class {} }));
 
 describe('CycleController 四步创建 API', () => {
   const cycleService = {
@@ -62,11 +63,13 @@ describe('CycleController 四步创建 API', () => {
   };
   const progressService = { getProgress: jest.fn() };
   const rollbackService = { preview: jest.fn(), rollback: jest.fn() };
+  const archiveService = { preview: jest.fn(), archive: jest.fn() };
   const controller = new CycleController(
     cycleService as never,
     setupService as never,
     progressService as never,
     rollbackService as never,
+    archiveService as never,
   );
   const request = { user: { open_id: 'ou_hr' } } as never;
 
@@ -133,7 +136,7 @@ describe('CycleController 四步创建 API', () => {
 
   it('整体退回预览与确认执行均传递超级管理员和影响修订', async () => {
     await controller.previewRollback(request, 9, {
-      targetStatus: 'DRAFT' as never,
+      targetStatus: 'DRAFT',
     });
     const dto = {
       targetStatus: 'DRAFT',
@@ -145,6 +148,18 @@ describe('CycleController 四步创建 API', () => {
 
     expect(rollbackService.preview).toHaveBeenCalledWith('ou_hr', 9, 'DRAFT');
     expect(rollbackService.rollback).toHaveBeenCalledWith('ou_hr', 9, dto);
+  });
+
+  it('归档预览与确认执行均传递当前操作者和检查修订', async () => {
+    await controller.previewArchive(request, 9);
+    const dto = {
+      expectedRevision: 'b'.repeat(64),
+      confirmed: true,
+    };
+    await controller.archive(request, 9, dto);
+
+    expect(archiveService.preview).toHaveBeenCalledWith('ou_hr', 9);
+    expect(archiveService.archive).toHaveBeenCalledWith('ou_hr', 9, dto);
   });
 
   it('旧草稿初始化接口原样转发配置选择与基础信息', async () => {

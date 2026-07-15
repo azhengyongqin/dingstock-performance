@@ -36,6 +36,8 @@ jest.mock(
       CONFIRMED: 'CONFIRMED',
       APPEALING: 'APPEALING',
       RE_CONFIRMING: 'RE_CONFIRMING',
+      NO_RESULT: 'NO_RESULT',
+      WITHDRAWN: 'WITHDRAWN',
       ARCHIVED: 'ARCHIVED',
     },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },

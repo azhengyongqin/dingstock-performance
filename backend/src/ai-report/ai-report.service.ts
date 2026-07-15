@@ -8,6 +8,7 @@ import {
 import { Prisma, type PerfAiReport } from '../generated/prisma/client';
 import {
   PerfAiReportStatus,
+  PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfRatingSymbol,
   PerfRole,
@@ -52,6 +53,13 @@ export class AiReportService {
       WHERE "id" = ${participantId}
       FOR UPDATE
     `;
+    const participant = await db.perfParticipant.findUnique({
+      where: { id: participantId },
+      select: { cycle: { select: { status: true } } },
+    });
+    if (participant?.cycle.status !== PerfCycleStatus.ACTIVE) {
+      throw new ConflictException('周期已归档或暂停，不能生成或刷新 AI 参考');
+    }
     const input = await this.inputBuilder.build(participantId, db);
     const existing = await db.perfAiReport.findUnique({
       where: { participantId },
@@ -97,6 +105,7 @@ export class AiReportService {
         attemptCount: { lt: MAX_AUTOMATIC_ATTEMPTS },
         inputRevision: { not: null },
         inputSnapshot: { not: Prisma.DbNull },
+        participant: { cycle: { status: PerfCycleStatus.ACTIVE } },
       },
       orderBy: [{ availableAt: 'asc' }, { id: 'asc' }],
     });
@@ -138,6 +147,7 @@ export class AiReportService {
           status: PerfAiReportStatus.GENERATING,
           inputRevision: revision,
           processingRevision: revision,
+          participant: { cycle: { status: PerfCycleStatus.ACTIVE } },
         },
         data: {
           status: PerfAiReportStatus.SUCCESS,
@@ -207,6 +217,7 @@ export class AiReportService {
         status: PerfAiReportStatus.GENERATING,
         inputRevision: revision,
         processingRevision: revision,
+        participant: { cycle: { status: PerfCycleStatus.ACTIVE } },
       },
       data: {
         status: PerfAiReportStatus.FAILED,
@@ -231,6 +242,7 @@ export class AiReportService {
       where: {
         status: PerfAiReportStatus.GENERATING,
         startedAt: { lt: new Date(now.getTime() - timeoutMs) },
+        participant: { cycle: { status: PerfCycleStatus.ACTIVE } },
       },
       data: {
         status: PerfAiReportStatus.FAILED,
@@ -244,6 +256,7 @@ export class AiReportService {
 
   async requestGeneration(operatorOpenId: string, participantId: number) {
     await this.assertCanView(operatorOpenId, participantId);
+    await this.assertCycleWritable(participantId);
     const report = await this.refreshForParticipant(participantId);
     if (!report) {
       throw new ConflictException('上级评估尚未生效，暂不能生成 AI 参考');
@@ -253,6 +266,7 @@ export class AiReportService {
 
   async retry(operatorOpenId: string, participantId: number) {
     await this.assertCanView(operatorOpenId, participantId);
+    await this.assertCycleWritable(participantId);
     const report = await this.prisma.perfAiReport.findUnique({
       where: { participantId },
     });
@@ -300,7 +314,7 @@ export class AiReportService {
       select: {
         leaderOpenIdSnapshot: true,
         departmentIdSnapshot: true,
-        cycle: { select: { deletedAt: true } },
+        cycle: { select: { deletedAt: true, status: true } },
       },
     });
     if (!participant || participant.cycle.deletedAt) {
@@ -323,6 +337,18 @@ export class AiReportService {
         !scope.includes(participant.departmentIdSnapshot))
     ) {
       throw new ForbiddenException('该参与者不在你的 HR 授权组织范围内');
+    }
+  }
+
+  /** 只在生成、重试等写入入口校验；归档后仍允许查看历史 AI 参考。 */
+  private async assertCycleWritable(participantId: number) {
+    const participant = await this.prisma.perfParticipant.findUnique({
+      where: { id: participantId },
+      select: { cycle: { select: { status: true } } },
+    });
+    if (!participant) throw new NotFoundException('参与者不存在');
+    if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
+      throw new ConflictException('周期非进行中，AI 参考不可修改');
     }
   }
 

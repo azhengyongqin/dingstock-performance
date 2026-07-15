@@ -10,11 +10,13 @@ import {
   PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfNotificationChannel,
+  PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
 } from '../generated/prisma/enums';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
+import type { Prisma } from '../generated/prisma/client';
 
 export type TransferLeaderInput = {
   participantId: number;
@@ -34,6 +36,25 @@ export class LeaderTransferService {
     private readonly prisma: PrismaService,
     private readonly rbacService: RbacService,
   ) {}
+
+  /** 先锁周期再改参与人，与归档事务保持同一锁顺序。 */
+  private async lockWritableCycle(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    const cycles = await tx.$queryRaw<Array<{ status: PerfCycleStatus }>>`
+      SELECT cycle."status"
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+      FOR UPDATE OF cycle
+    `;
+    if (cycles.length !== 1) throw new NotFoundException('参与者不存在');
+    if (cycles[0].status === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，不能更换考核 Leader');
+    }
+  }
 
   async transfer(operatorOpenId: string, input: TransferLeaderInput) {
     const expectedLeaderOpenId = input.expectedLeaderOpenId.trim();
@@ -57,6 +78,9 @@ export class LeaderTransferService {
     if (participant.cycle.status === PerfCycleStatus.ARCHIVED) {
       throw new ConflictException('周期已归档，不能更换考核 Leader');
     }
+    if (participant.status === PerfParticipantStatus.WITHDRAWN) {
+      throw new ConflictException('参与者已中途退出，不能更换考核 Leader');
+    }
     await this.assertCanTransfer(operatorOpenId, participant);
     if (participant.leaderOpenIdSnapshot !== expectedLeaderOpenId) {
       throw new ConflictException('考核 Leader 已变化，请刷新后重试');
@@ -71,6 +95,7 @@ export class LeaderTransferService {
     if (!newLeader) throw new NotFoundException('新 Leader 不存在');
 
     return this.prisma.$transaction(async (tx) => {
+      await this.lockWritableCycle(tx, participant.id);
       // 条件更新既是乐观并发检查，也会锁住参与者行；与 MANAGER 提交争用同一权限边界。
       const claimed = await tx.perfParticipant.updateMany({
         where: {

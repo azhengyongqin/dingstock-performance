@@ -11,7 +11,7 @@ jest.mock('../notification/notification-event.service', () => ({
 jest.mock(
   '../generated/prisma/enums',
   () => ({
-    PerfCycleStatus: { ACTIVE: 'ACTIVE' },
+    PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfEvaluationTaskType: {
       SELF: 'SELF',
       MANAGER: 'MANAGER',
@@ -559,6 +559,7 @@ describe('ResultService 不可变结果版本', () => {
       id: 7,
       employeeOpenId: 'ou_employee',
       status: 'RESULT_PUBLISHED',
+      cycle: { status: 'ACTIVE' },
       resultVersions: [{ id: 42, version: 2 }],
     });
 
@@ -595,6 +596,7 @@ describe('ResultService 不可变结果版本', () => {
       id: 7,
       employeeOpenId: 'ou_employee',
       status: 'RE_CONFIRMING',
+      cycle: { status: 'ACTIVE' },
       resultVersions: [{ id: 42, version: 2 }],
     });
 
@@ -619,5 +621,20 @@ describe('ResultService 不可变结果版本', () => {
       where: { id: 7 },
       data: { status: 'CONFIRMED' },
     });
+  });
+
+  it('归档后即使参与者仍保持 RESULT_PUBLISHED 也不能确认结果', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValue({
+      id: 7,
+      employeeOpenId: 'ou_employee',
+      status: 'RESULT_PUBLISHED',
+      cycle: { status: 'ARCHIVED' },
+      resultVersions: [{ id: 42, version: 2 }],
+    });
+
+    await expect(service.confirm('ou_employee', 7, 42)).rejects.toThrow(
+      ConflictException,
+    );
+    expect(tx.perfResultVersion.updateMany).not.toHaveBeenCalled();
   });
 });

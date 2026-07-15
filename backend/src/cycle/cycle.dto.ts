@@ -506,6 +506,16 @@ export class ApplyActiveCycleRollbackDto extends PreviewActiveCycleRollbackDto {
   plannedStartAt?: string;
 }
 
+/** Ticket 19：执行归档必须回传刚查看的全量关闭检查修订并明确确认。 */
+export class ArchiveCycleDto {
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/)
+  expectedRevision!: string;
+
+  @IsBoolean()
+  confirmed!: boolean;
+}
+
 export class CreateTemplateDto {
   @IsString()
   @MaxLength(100)

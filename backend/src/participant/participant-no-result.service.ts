@@ -170,6 +170,11 @@ export class ParticipantNoResultService {
         if (participant.status === PerfParticipantStatus.NO_RESULT) {
           throw new ConflictException('该参与者已是当前周期无绩效结果');
         }
+        if (participant.status === PerfParticipantStatus.WITHDRAWN) {
+          throw new ConflictException(
+            '中途退出与无绩效结果是不同终态，不能相互改写',
+          );
+        }
         const config = participant.cycle.currentConfigVersion;
         if (!participant.cycle.currentConfigVersionId || !config) {
           throw new ConflictException('周期缺少当前配置快照，无法收口参与者');

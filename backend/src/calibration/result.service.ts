@@ -446,6 +446,7 @@ export class ResultService {
       const participant = await tx.perfParticipant.findUnique({
         where: { id: participantId },
         include: {
+          cycle: { select: { status: true } },
           resultVersions: {
             where: { supersededAt: null, invalidatedAt: null },
             orderBy: { version: 'desc' },
@@ -456,6 +457,9 @@ export class ResultService {
       });
       if (!participant || participant.employeeOpenId !== employeeOpenId) {
         throw new NotFoundException('结果尚未发布');
+      }
+      if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
+        throw new ConflictException('周期已归档或暂停，不能确认结果');
       }
       if (
         participant.status !== PerfParticipantStatus.RESULT_PUBLISHED &&

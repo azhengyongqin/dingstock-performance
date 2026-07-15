@@ -26,6 +26,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import {
   ApplyTemplateDto,
   ApplyActiveCycleRollbackDto,
+  ArchiveCycleDto,
   CreateCycleDto,
   InitializeCycleSetupDto,
   ReapplyCycleSetupDto,
@@ -42,6 +43,7 @@ import { CycleService } from './cycle.service';
 import { CycleSetupService } from './cycle-setup.service';
 import { CycleProgressService } from './cycle-progress.service';
 import { ActiveCycleRollbackService } from './active-cycle-rollback.service';
+import { CycleArchiveService } from './cycle-archive.service';
 
 // 周期管理为 HR/ADMIN 专属操作域（产品 §3.7）；员工/评审员侧走 self-reviews、review-tasks 等接口
 @ApiTags('cycle')
@@ -55,6 +57,7 @@ export class CycleController {
     private readonly cycleSetupService: CycleSetupService,
     private readonly cycleProgressService: CycleProgressService,
     private readonly activeCycleRollbackService: ActiveCycleRollbackService,
+    private readonly cycleArchiveService: CycleArchiveService,
   ) {}
 
   @Get()
@@ -282,12 +285,22 @@ export class CycleController {
     return this.activeCycleRollbackService.rollback(req.user.open_id, id, dto);
   }
 
-  @Post(':id/close')
-  @ApiOperation({ summary: '归档周期：参与者与结果全部落 archived' })
-  close(
+  @Get(':id/archive-preview')
+  @ApiOperation({ summary: '查看周期关闭统计与逐参与者归档阻塞明细' })
+  previewArchive(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.cycleService.closeCycle(req.user.open_id, id);
+    return this.cycleArchiveService.preview(req.user.open_id, id);
+  }
+
+  @Post(':id/archive')
+  @ApiOperation({ summary: '确认全员收口摘要后永久归档周期' })
+  archive(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ArchiveCycleDto,
+  ) {
+    return this.cycleArchiveService.archive(req.user.open_id, id, dto);
   }
 }

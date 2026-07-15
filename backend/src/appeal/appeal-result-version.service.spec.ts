@@ -24,6 +24,7 @@ jest.mock(
       RESOLVED: 'RESOLVED',
     },
     PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
+    PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfParticipantStatus: {
       RESULT_PUBLISHED: 'RESULT_PUBLISHED',
       APPEALING: 'APPEALING',
@@ -58,6 +59,7 @@ describe('AppealService 结果版本申诉链', () => {
       findMany: jest.fn(),
       update: jest.fn(),
     },
+    perfParticipant: { findUnique: jest.fn() },
     larkUser: { findMany: jest.fn() },
   };
   const audit = { record: jest.fn() };
@@ -76,6 +78,7 @@ describe('AppealService 结果版本申诉链', () => {
       leaderOpenIdSnapshot: 'ou_leader',
       departmentIdSnapshot: 'od_product',
       status: 'RESULT_PUBLISHED',
+      cycle: { status: 'ACTIVE' },
       resultVersions: [
         { id: 41, version: 1, supersededAt: null, confirmedAt: null },
       ],
@@ -121,6 +124,25 @@ describe('AppealService 结果版本申诉链', () => {
       where: { id: 7 },
       data: { status: 'APPEALING' },
     });
+  });
+
+  it('归档后即使参与者状态未改写也不能再发起申诉', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValueOnce({
+      id: 7,
+      cycleId: 1,
+      employeeOpenId: 'ou_employee',
+      status: 'RESULT_PUBLISHED',
+      cycle: { status: 'ARCHIVED' },
+      resultVersions: [
+        { id: 41, version: 1, supersededAt: null, confirmedAt: null },
+      ],
+      appeals: [],
+    });
+
+    await expect(
+      service.create('ou_employee', 7, 41, '归档后申诉'),
+    ).rejects.toThrow(ConflictException);
+    expect(tx.perfAppeal.create).not.toHaveBeenCalled();
   });
 
   it('拒绝过期结果版本和二次申诉', async () => {

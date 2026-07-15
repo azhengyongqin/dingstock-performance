@@ -20,6 +20,7 @@ jest.mock(
     PerfParticipantStatus: {
       PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
       NO_RESULT: 'NO_RESULT',
+      WITHDRAWN: 'WITHDRAWN',
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfSelfReviewStatus: { SUBMITTED: 'SUBMITTED' },

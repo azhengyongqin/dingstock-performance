@@ -31,6 +31,8 @@ jest.mock(
       REPLACED: 'REPLACED',
     },
     PerfEvaluationTaskType: { PEER: 'PEER' },
+    PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
+    PerfParticipantStatus: { WITHDRAWN: 'WITHDRAWN' },
     PerfReviewerRelation: {
       LEADER: 'LEADER',
       PEER: 'PEER',
@@ -63,6 +65,7 @@ jest.mock('../audit/audit.service', () => ({
 
 describe('ReviewerService', () => {
   const txMock = {
+    $queryRaw: jest.fn(),
     perfReviewerAssignment: {
       update: jest.fn(),
       updateMany: jest.fn(),
@@ -125,6 +128,7 @@ describe('ReviewerService', () => {
     });
     txMock.perfReviewerAssignment.updateMany.mockResolvedValue({ count: 1 });
     txMock.perfReviewerAssignment.createMany.mockResolvedValue({ count: 1 });
+    txMock.$queryRaw.mockResolvedValue([{ status: 'ACTIVE' }]);
     participantEvaluationLockMock.lockHumanWrite.mockResolvedValue(undefined);
     prismaMock.larkUser.findMany.mockResolvedValue([]);
 
@@ -187,6 +191,26 @@ describe('ReviewerService', () => {
 
     await expect(service.listWithRecommendations('ou_hr', 7)).rejects.toThrow(
       ForbiddenException,
+    );
+  });
+
+  it('归档周期与中途退出参与者均不能再修改评审员指派', async () => {
+    prismaMock.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      status: 'CONFIRMED',
+      cycle: { ...participant.cycle, status: 'ARCHIVED' },
+    });
+    await expect(service.upsertReviewers('ou_leader', 7, [])).rejects.toThrow(
+      ConflictException,
+    );
+
+    prismaMock.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      status: 'WITHDRAWN',
+      cycle: { ...participant.cycle, status: 'ACTIVE' },
+    });
+    await expect(service.upsertReviewers('ou_leader', 7, [])).rejects.toThrow(
+      ConflictException,
     );
   });
 
