@@ -115,7 +115,9 @@ export class ManagerEvaluationSubmissionService {
       ) ?? null;
     const draft =
       managerSubmissions.find(
-        (submission) => submission.status === PerfReviewStatus.DRAFT,
+        (submission) =>
+          submission.status === PerfReviewStatus.DRAFT &&
+          submission.reviewerOpenId === leaderOpenId,
       ) ?? null;
     const selfEvaluation =
       submissions.find(
@@ -196,6 +198,10 @@ export class ManagerEvaluationSubmissionService {
       dto.participantId,
     );
     const content = this.submissionPolicy.requireSnapshotContent(participant);
+    const formSnapshotId = participant.formSnapshotId;
+    if (formSnapshotId === null) {
+      throw new ConflictException('参与者缺少表单快照，无法保存上级评估');
+    }
     const resolved = this.submissionPolicy.validateManagerAnswers(
       content,
       participant.isPromotionEnabled,
@@ -206,10 +212,11 @@ export class ManagerEvaluationSubmissionService {
       PerfEvaluationTaskType.MANAGER,
     );
     const rows = resolved.map((entry) =>
-      this.submissionPolicy.toItemRow(entry, participant.formSnapshotId!, null),
+      this.submissionPolicy.toItemRow(entry, formSnapshotId, null),
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await this.claimManagerWriteAuthority(tx, participant.id, leaderOpenId);
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {
           participantId: participant.id,
@@ -227,7 +234,7 @@ export class ManagerEvaluationSubmissionService {
               participantId: participant.id,
               stage: PerfEvaluationTaskType.MANAGER,
               reviewerOpenId: leaderOpenId,
-              formSnapshotId: participant.formSnapshotId!,
+              formSnapshotId,
               status: PerfReviewStatus.DRAFT,
             },
           });
@@ -251,6 +258,10 @@ export class ManagerEvaluationSubmissionService {
       dto.participantId,
     );
     const content = this.submissionPolicy.requireSnapshotContent(participant);
+    const formSnapshotId = participant.formSnapshotId;
+    if (formSnapshotId === null) {
+      throw new ConflictException('参与者缺少表单快照，无法提交上级评估');
+    }
     const allowedSubforms = this.submissionPolicy.selectManagerSubforms(
       content,
       participant.isPromotionEnabled,
@@ -269,17 +280,17 @@ export class ManagerEvaluationSubmissionService {
     const rows = resolved.map((entry) =>
       this.submissionPolicy.toItemRow(
         entry,
-        participant.formSnapshotId!,
+        formSnapshotId,
         this.submissionPolicy.calculationScoreOf(entry, ratings),
       ),
     );
     const submittedAt = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.claimManagerWriteAuthority(tx, participant.id, leaderOpenId);
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {
           participantId: participant.id,
           stage: PerfEvaluationTaskType.MANAGER,
-          reviewerOpenId: leaderOpenId,
           status: PerfReviewStatus.SUBMITTED,
         },
       });
@@ -289,7 +300,12 @@ export class ManagerEvaluationSubmissionService {
       if (existing) {
         submission = await tx.perfEvaluationSubmission.update({
           where: { id: existing.id },
-          data: { submittedAt, submittedByOpenId: leaderOpenId },
+          data: {
+            // 职责转移后的首次正式重交在同一生效行上接管归属，不保留旧答卷版本。
+            reviewerOpenId: leaderOpenId,
+            submittedAt,
+            submittedByOpenId: leaderOpenId,
+          },
         });
       } else {
         try {
@@ -299,7 +315,7 @@ export class ManagerEvaluationSubmissionService {
               participantId: participant.id,
               stage: PerfEvaluationTaskType.MANAGER,
               reviewerOpenId: leaderOpenId,
-              formSnapshotId: participant.formSnapshotId!,
+              formSnapshotId,
               status: PerfReviewStatus.SUBMITTED,
               submittedAt,
               submittedByOpenId: leaderOpenId,
@@ -318,7 +334,6 @@ export class ManagerEvaluationSubmissionService {
         where: {
           participantId: participant.id,
           stage: PerfEvaluationTaskType.MANAGER,
-          reviewerOpenId: leaderOpenId,
           status: PerfReviewStatus.DRAFT,
         },
       });
@@ -353,5 +368,32 @@ export class ManagerEvaluationSubmissionService {
       },
     });
     return { ok: true, result };
+  }
+
+  /**
+   * 在正式写事务内以“把快照更新为原值”认领参与者行锁。
+   * 转移先完成时条件更新返回 0；提交先认领时转移会等待提交完成，二者不会形成双负责人写入。
+   */
+  private async claimManagerWriteAuthority(
+    tx: {
+      perfParticipant: {
+        updateMany(args: {
+          where: { id: number; leaderOpenIdSnapshot: string };
+          data: { leaderOpenIdSnapshot: string };
+        }): Promise<{ count: number }>;
+      };
+    },
+    participantId: number,
+    leaderOpenId: string,
+  ) {
+    const claimed = await tx.perfParticipant.updateMany({
+      where: { id: participantId, leaderOpenIdSnapshot: leaderOpenId },
+      data: { leaderOpenIdSnapshot: leaderOpenId },
+    });
+    if (claimed.count !== 1) {
+      throw new ForbiddenException(
+        '考核 Leader 已发生变化，你不能继续保存或提交该员工的上级评估',
+      );
+    }
   }
 }

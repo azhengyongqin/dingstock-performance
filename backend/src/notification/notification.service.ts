@@ -41,6 +41,17 @@ function renderText(
       return `【评估任务已开放】${cycleName} 的评估任务现已开放，请前往绩效系统填写。`;
     case 'evaluation_task_reminder':
       return `【评估填写提醒】${cycleName} 的评估填写提醒时间已到。任务仍可继续填写，请尽快完成。`;
+    case 'manager_responsibility_transferred_in': {
+      const employee = displayText(payload.employeeOpenId, '该员工');
+      const postCalibration = payload.postCalibration === true;
+      return postCalibration
+        ? `【考核职责转入】${cycleName} 中员工 ${employee} 的绩效责任已转由你负责。该员工已完成首次校准，原评估与校准保持锁定；你可查看敏感明细并在需要时追加重新校准。`
+        : `【考核职责转入】${cycleName} 中员工 ${employee} 的上级评估已转由你负责。原 Leader 的有效提交继续生效，你可查看并在正式重新提交后接管当前答卷。`;
+    }
+    case 'manager_responsibility_transferred_out': {
+      const employee = displayText(payload.employeeOpenId, '该员工');
+      return `【考核职责转出】${cycleName} 中员工 ${employee} 已从你的责任范围移出。你将不能继续查看敏感明细、修改上级评估或参与后续校准。`;
+    }
     case 'cycle_start_failed': {
       const issues = Array.isArray(payload.issues)
         ? payload.issues

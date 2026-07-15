@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,11 +9,19 @@ import {
   PerfNotificationChannel,
   PerfParticipantStatus,
   PerfReviewStatus,
+  PerfRole,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
 import { hasRatingSymbol } from '../cycle/evaluation-rule';
+import type { Prisma } from '../generated/prisma/client';
+import { RbacService } from '../rbac/rbac.service';
+
+type CalibrationReadDb = Pick<
+  Prisma.TransactionClient,
+  'perfCalibration' | 'larkUser'
+>;
 
 /**
  * 校准与最终结果（产品 §5.5/§5.6）：
@@ -26,6 +35,7 @@ export class CalibrationService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
+    private readonly rbacService: RbacService,
   ) {}
 
   /** 校准工作台列表：各参与者的初评/当前评级 + 评级分布对比 */
@@ -103,37 +113,55 @@ export class CalibrationService {
     afterLevel: string,
     reason: string,
   ) {
-    const participant = await this.prisma.perfParticipant.findUnique({
-      where: { id: participantId },
-      include: {
-        cycle: { include: { evaluationRule: true } },
-        managerReview: { select: { initialLevel: true, status: true } },
-        calibrations: { orderBy: { id: 'desc' }, take: 1 },
-        result: { select: { archivedAt: true } },
+    const { record, beforeLevel } = await this.prisma.$transaction(
+      async (tx) => {
+        // 所有角色先锁住参与者、周期与既有结果，再读取可变前置条件和最新校准。
+        await this.lockCalibrationAggregate(tx, participantId);
+        const participant = await tx.perfParticipant.findUnique({
+          where: { id: participantId },
+          include: {
+            cycle: { include: { evaluationRule: true } },
+            managerReview: { select: { initialLevel: true, status: true } },
+            calibrations: { orderBy: { id: 'desc' }, take: 1 },
+            result: { select: { archivedAt: true } },
+          },
+        });
+        if (!participant || participant.cycle.deletedAt) {
+          throw new NotFoundException('参与者不存在');
+        }
+        await this.assertCanAccessParticipant(operatorOpenId, participant);
+        if (participant.result?.archivedAt) {
+          throw new ConflictException(
+            '结果已归档，任何调整必须经申诉/面谈流程',
+          );
+        }
+        if (participant.managerReview?.status !== PerfReviewStatus.SUBMITTED) {
+          throw new ConflictException('上级评估未提交，不能校准');
+        }
+        if (
+          Array.isArray(participant.cycle.evaluationRule?.levels) &&
+          !hasRatingSymbol(participant.cycle.evaluationRule.levels, afterLevel)
+        ) {
+          throw new BadRequestException(
+            `评级 ${afterLevel} 不在评估规则定义中`,
+          );
+        }
+        const currentLevel =
+          participant.calibrations[0]?.afterLevel ??
+          participant.managerReview.initialLevel ??
+          null;
+        const created = await tx.perfCalibration.create({
+          data: {
+            participantId,
+            beforeLevel: currentLevel,
+            afterLevel,
+            reason,
+            operatorOpenId,
+          },
+        });
+        return { record: created, beforeLevel: currentLevel };
       },
-    });
-    if (!participant || participant.cycle.deletedAt)
-      throw new NotFoundException('参与者不存在');
-    if (participant.result?.archivedAt) {
-      throw new ConflictException('结果已归档，任何调整必须经申诉/面谈流程');
-    }
-    if (participant.managerReview?.status !== PerfReviewStatus.SUBMITTED) {
-      throw new ConflictException('上级评估未提交，不能校准');
-    }
-    if (
-      Array.isArray(participant.cycle.evaluationRule?.levels) &&
-      !hasRatingSymbol(participant.cycle.evaluationRule?.levels, afterLevel)
-    ) {
-      throw new BadRequestException(`评级 ${afterLevel} 不在评估规则定义中`);
-    }
-
-    const beforeLevel =
-      participant.calibrations[0]?.afterLevel ??
-      participant.managerReview?.initialLevel ??
-      null;
-    const record = await this.prisma.perfCalibration.create({
-      data: { participantId, beforeLevel, afterLevel, reason, operatorOpenId },
-    });
+    );
     await this.auditService.record({
       operatorOpenId,
       action: 'calibration.adjust',
@@ -147,13 +175,13 @@ export class CalibrationService {
   }
 
   /** 校准记录历史（申诉处理/审计走查用） */
-  async history(participantId: number) {
-    const items = await this.prisma.perfCalibration.findMany({
+  async history(participantId: number, db: CalibrationReadDb = this.prisma) {
+    const items = await db.perfCalibration.findMany({
       where: { participantId },
       orderBy: { id: 'asc' },
     });
     const operatorIds = [...new Set(items.map((item) => item.operatorOpenId))];
-    const users = await this.prisma.larkUser.findMany({
+    const users = await db.larkUser.findMany({
       where: { open_id: { in: operatorIds } },
       select: { open_id: true, name: true, avatar: true },
     });
@@ -165,6 +193,87 @@ export class CalibrationService {
       })),
       total: items.length,
     };
+  }
+
+  /** 当前 Leader、授权 HR 或 Admin 的敏感校准历史读取边界。 */
+  async getHistory(operatorOpenId: string, participantId: number) {
+    return await this.prisma.$transaction(async (tx) => {
+      await this.lockCalibrationAggregate(tx, participantId);
+      const participant = await tx.perfParticipant.findUnique({
+        where: { id: participantId },
+        include: { cycle: { select: { deletedAt: true } } },
+      });
+      if (!participant || participant.cycle.deletedAt) {
+        throw new NotFoundException('参与者不存在');
+      }
+      await this.assertCanAccessParticipant(operatorOpenId, participant);
+      return this.history(participantId, tx);
+    });
+  }
+
+  /** 对象级权限始终读取当前考核 Leader 快照，职责转移后旧 Leader 立即失权。 */
+  private async assertCanAccessParticipant(
+    operatorOpenId: string,
+    participant: {
+      leaderOpenIdSnapshot: string | null;
+      departmentIdSnapshot: string | null;
+    },
+  ) {
+    if (participant.leaderOpenIdSnapshot === operatorOpenId) {
+      return;
+    }
+    const isHrOrAdmin = await this.rbacService.hasAnyRole(operatorOpenId, [
+      PerfRole.HR,
+      PerfRole.ADMIN,
+    ]);
+    if (!isHrOrAdmin) {
+      throw new ForbiddenException('无权查看或调整该员工的校准结果');
+    }
+    const scope = await this.rbacService.getOrgScope(operatorOpenId);
+    if (
+      scope !== null &&
+      (!participant.departmentIdSnapshot ||
+        !scope.includes(participant.departmentIdSnapshot))
+    ) {
+      throw new ForbiddenException('该参与者不在你的 HR 授权组织范围内');
+    }
+  }
+
+  /**
+   * 按归档流程相同的 cycle → participant → result 顺序锁住可变边界，避免反向持锁死锁；
+   * 随后必须在同一事务重新读取全部校准前置事实。
+   */
+  private async lockCalibrationAggregate(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    const cycles = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT cycle."id"
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+      FOR UPDATE OF cycle
+    `;
+    if (cycles.length !== 1) {
+      throw new NotFoundException('参与者不存在');
+    }
+    const participants = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT "id"
+      FROM "performance"."perf_participants"
+      WHERE "id" = ${participantId}
+      FOR UPDATE
+    `;
+    if (participants.length !== 1) {
+      throw new NotFoundException('参与者不存在');
+    }
+    // 结果尚未创建时返回空是合法状态；已存在时锁住该行，防止并发归档。
+    await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT "id"
+      FROM "performance"."perf_results"
+      WHERE "participant_id" = ${participantId}
+      FOR UPDATE
+    `;
   }
 
   /** 批量确认校准：选中参与者 REVIEWED/AI_DONE → CALIBRATED */

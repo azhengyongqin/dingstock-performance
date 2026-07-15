@@ -164,5 +164,58 @@ describe('NotificationService', () => {
         }),
       );
     });
+
+    it('职责转入与转出通知使用明确文案，不退化为通用绩效通知', async () => {
+      prismaMock.perfNotification.findMany.mockResolvedValue([
+        { id: 3 },
+        { id: 4 },
+      ]);
+      prismaMock.perfNotification.findUnique
+        .mockResolvedValueOnce({
+          id: 3,
+          status: 'PENDING',
+          receiverOpenId: 'ou_new_leader',
+          template: 'manager_responsibility_transferred_in',
+          payload: {
+            cycleName: '2026 上半年绩效',
+            employeeOpenId: 'ou_employee',
+            postCalibration: false,
+          },
+          retryCount: 0,
+        })
+        .mockResolvedValueOnce({
+          id: 4,
+          status: 'PENDING',
+          receiverOpenId: 'ou_old_leader',
+          template: 'manager_responsibility_transferred_out',
+          payload: {
+            cycleName: '2026 上半年绩效',
+            employeeOpenId: 'ou_employee',
+            postCalibration: true,
+          },
+          retryCount: 0,
+        });
+      larkMessageCreate.mockResolvedValue({});
+      const service = buildService(true);
+
+      await service.sendPendingBatch();
+
+      expect(larkMessageCreate).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            content: expect.stringContaining('已转由你负责'),
+          }),
+        }),
+      );
+      expect(larkMessageCreate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          data: expect.objectContaining({
+            content: expect.stringContaining('已从你的责任范围移出'),
+          }),
+        }),
+      );
+    });
   });
 });

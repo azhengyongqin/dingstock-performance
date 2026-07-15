@@ -1016,6 +1016,7 @@ model PerfManagerReview {
 /// 统一人工评估提交（ADR-0009）：SELF/PEER/MANAGER 三类人工答卷的统一父记录，AI 继续走独立异步任务不落此表。
 /// 同一 (participant, stage, reviewer) 至多一份 SUBMITTED（当前生效）与至多一份 DRAFT（编辑草稿），
 /// 由数据库部分唯一索引 perf_evaluation_submissions_active_submitted_key / _active_draft_key 保证，不建答案历史表；
+/// MANAGER 阶段还由迁移中的跨填写人部分唯一索引保证每名参与者至多一份生效提交与一份草稿；
 /// 重新提交时由 service 原子替换当前 SUBMITTED 行内容，不新增行。
 model PerfEvaluationSubmission {
   id                   Int                    @id @default(autoincrement()) /// 内部自增主键

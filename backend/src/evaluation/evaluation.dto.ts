@@ -3,6 +3,7 @@ import {
   IsArray,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -79,4 +80,25 @@ export class SaveManagerEvaluationDto {
   @ValidateNested({ each: true })
   @Type(() => EvaluationItemAnswerDto)
   items!: EvaluationItemAnswerDto[];
+}
+
+/** HR/Admin 显式转移考核 Leader；expectedLeaderOpenId 用于乐观并发检查。 */
+export class TransferManagerResponsibilityDto {
+  @IsInt()
+  participantId!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  expectedLeaderOpenId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  newLeaderOpenId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }

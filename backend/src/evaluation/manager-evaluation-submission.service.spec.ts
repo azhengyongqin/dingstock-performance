@@ -150,7 +150,11 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     perfEvaluationItemResult: { deleteMany: jest.fn(), createMany: jest.fn() },
     perfEvaluationTask: { update: jest.fn() },
     perfReviewerAssignment: { count: jest.fn() },
-    perfParticipant: { findUnique: jest.fn(), update: jest.fn() },
+    perfParticipant: {
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
     perfAiReport: { upsert: jest.fn() },
     perfStageResult: { upsert: jest.fn() },
   };
@@ -198,6 +202,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     tx.perfParticipant.findUnique.mockResolvedValue({
       status: 'SELF_SUBMITTED',
     });
+    tx.perfParticipant.updateMany.mockResolvedValue({ count: 1 });
     taskAccess.openIfDue.mockResolvedValue({ id: 21, openedAt: new Date() });
     taskAccess.ensureWritable.mockResolvedValue({
       id: 21,
@@ -290,7 +295,6 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       where: {
         participantId: 7,
         stage: 'MANAGER',
-        reviewerOpenId: 'ou_leader',
         status: 'DRAFT',
       },
     });
@@ -338,11 +342,125 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     expect(tx.perfEvaluationSubmission.update).toHaveBeenCalledWith({
       where: { id: 201 },
       data: {
+        reviewerOpenId: 'ou_leader',
         submittedAt: expect.any(Date),
         submittedByOpenId: 'ou_leader',
       },
     });
     expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
     expect(managerStageResult.recalculate).toHaveBeenCalledTimes(1);
+  });
+
+  it('职责转移后仍展示旧 Leader 生效答卷，但只展示新 Leader 自己的更新草稿', async () => {
+    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      leaderOpenIdSnapshot: 'ou_new_leader',
+    });
+    prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
+      {
+        id: 300,
+        stage: 'MANAGER',
+        reviewerOpenId: 'ou_old_leader',
+        status: 'SUBMITTED',
+        items: [],
+      },
+      {
+        id: 301,
+        stage: 'MANAGER',
+        reviewerOpenId: 'ou_old_leader',
+        status: 'DRAFT',
+        items: [],
+      },
+      {
+        id: 302,
+        stage: 'MANAGER',
+        reviewerOpenId: 'ou_new_leader',
+        status: 'DRAFT',
+        items: [],
+      },
+    ]);
+
+    const context = await service.getManagerContext('ou_new_leader', 7);
+
+    expect(context.submitted).toMatchObject({ id: 300 });
+    expect(context.draft).toMatchObject({ id: 302 });
+  });
+
+  it('新 Leader 正式重交时原子接管同一份生效答卷，不能并存两份 MANAGER 生效提交', async () => {
+    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      leaderOpenIdSnapshot: 'ou_new_leader',
+    });
+    tx.perfEvaluationSubmission.findFirst.mockResolvedValueOnce({
+      id: 201,
+      reviewerOpenId: 'ou_old_leader',
+      status: 'SUBMITTED',
+    });
+
+    await service.submitManager('ou_new_leader', {
+      participantId: 7,
+      items: [
+        {
+          subformKey: 'subform:MANAGER',
+          dimensionKey: 'dimension:performance',
+          itemKey: 'item:performance:score',
+          rawScore: 91,
+        },
+        {
+          subformKey: 'subform:MANAGER',
+          dimensionKey: 'dimension:performance',
+          itemKey: 'item:performance:comment',
+          value: '新 Leader 基于事实重新评估',
+        },
+        {
+          subformKey: 'subform:PROMOTION',
+          dimensionKey: 'dimension:promotion:leader',
+          itemKey: 'item:promotion:conclusion',
+          value: '建议晋升',
+        },
+      ],
+    });
+
+    expect(tx.perfEvaluationSubmission.update).toHaveBeenCalledWith({
+      where: { id: 201 },
+      data: {
+        reviewerOpenId: 'ou_new_leader',
+        submittedAt: expect.any(Date),
+        submittedByOpenId: 'ou_new_leader',
+      },
+    });
+    expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
+  });
+
+  it('职责转移与旧 Leader 提交并发时，事务内权限认领失败并拒绝旧提交', async () => {
+    tx.perfParticipant.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(
+      service.submitManager('ou_leader', {
+        participantId: 7,
+        items: [
+          {
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:performance',
+            itemKey: 'item:performance:score',
+            rawScore: 88,
+          },
+          {
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:performance',
+            itemKey: 'item:performance:comment',
+            value: '并发提交',
+          },
+          {
+            subformKey: 'subform:PROMOTION',
+            dimensionKey: 'dimension:promotion:leader',
+            itemKey: 'item:promotion:conclusion',
+            value: '建议晋升',
+          },
+        ],
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
+    expect(tx.perfEvaluationSubmission.update).not.toHaveBeenCalled();
   });
 });

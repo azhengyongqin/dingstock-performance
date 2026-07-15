@@ -9,6 +9,7 @@ import { EvaluationController } from './evaluation.controller';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerEvaluationSubmissionService } from './manager-evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
+import { LeaderTransferService } from './leader-transfer.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 
@@ -31,6 +32,9 @@ import { PeerStageResultService } from './peer-stage-result.service';
     EvaluationSubmissionService,
     PeerEvaluationSubmissionService,
     PeerStageResultService,
+    ManagerEvaluationSubmissionService,
+    ManagerStageResultService,
+    LeaderTransferService,
   ],
   exports: [
     EvaluationSubmissionService,

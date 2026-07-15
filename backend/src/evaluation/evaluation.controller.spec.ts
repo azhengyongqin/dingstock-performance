@@ -1,4 +1,5 @@
 import { EvaluationController } from './evaluation.controller';
+import { ROLES_KEY } from '../rbac/roles.decorator';
 
 jest.mock('../auth/jwt-auth.guard', () => ({ JwtAuthGuard: class {} }));
 jest.mock('../rbac/roles.guard', () => ({ RolesGuard: class {} }));
@@ -14,10 +15,14 @@ jest.mock('./peer-stage-result.service', () => ({
 jest.mock('./manager-evaluation-submission.service', () => ({
   ManagerEvaluationSubmissionService: class {},
 }));
+jest.mock('./leader-transfer.service', () => ({
+  LeaderTransferService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
+    PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
   { virtual: true },
 );
@@ -40,11 +45,13 @@ describe('EvaluationController 薄壳转调', () => {
     submitManager: jest.fn(),
     getManagerResult: jest.fn(),
   };
+  const leaderTransferService = { transfer: jest.fn() };
   const controller = new EvaluationController(
     service as never,
     peerService as never,
     peerStageResultService as never,
     managerService as never,
+    leaderTransferService as never,
   );
   const request = { user: { open_id: 'ou_me' } } as never;
 
@@ -105,5 +112,23 @@ describe('EvaluationController 薄壳转调', () => {
     expect(managerService.saveManagerDraft).toHaveBeenCalledWith('ou_me', dto);
     expect(managerService.submitManager).toHaveBeenCalledWith('ou_me', dto);
     expect(managerService.getManagerResult).toHaveBeenCalledWith('ou_me', 7);
+  });
+
+  it('职责转移 API 只使用 JWT 操作者身份并透传乐观并发载荷', async () => {
+    const dto = {
+      participantId: 7,
+      expectedLeaderOpenId: 'ou_old_leader',
+      newLeaderOpenId: 'ou_new_leader',
+      reason: '原 Leader 已转岗',
+    };
+
+    await controller.transferManagerResponsibility(request, dto);
+
+    expect(leaderTransferService.transfer).toHaveBeenCalledWith('ou_me', dto);
+    const handler = Object.getOwnPropertyDescriptor(
+      EvaluationController.prototype,
+      'transferManagerResponsibility',
+    )!.value as object;
+    expect(Reflect.getMetadata(ROLES_KEY, handler)).toEqual(['HR', 'ADMIN']);
   });
 });

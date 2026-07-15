@@ -17,14 +17,18 @@ import {
 } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PerfRole } from '../generated/prisma/enums';
+import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
   SaveManagerEvaluationDto,
   SavePeerEvaluationDto,
   SaveSelfEvaluationDto,
+  TransferManagerResponsibilityDto,
 } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerEvaluationSubmissionService } from './manager-evaluation-submission.service';
+import { LeaderTransferService } from './leader-transfer.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 
@@ -39,6 +43,7 @@ export class EvaluationController {
     private readonly peerEvaluationSubmissionService: PeerEvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
     private readonly managerEvaluationSubmissionService: ManagerEvaluationSubmissionService,
+    private readonly leaderTransferService: LeaderTransferService,
   ) {}
 
   @Get('self')
@@ -175,6 +180,18 @@ export class EvaluationController {
       req.user.open_id,
       dto,
     );
+  }
+
+  @Post('manager/transfer')
+  @Roles(PerfRole.HR, PerfRole.ADMIN)
+  @ApiOperation({
+    summary: 'HR/Admin 显式转移考核 Leader 职责（必填原因与预期原负责人）',
+  })
+  transferManagerResponsibility(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: TransferManagerResponsibilityDto,
+  ) {
+    return this.leaderTransferService.transfer(req.user.open_id, dto);
   }
 
   @Get('manager/result')

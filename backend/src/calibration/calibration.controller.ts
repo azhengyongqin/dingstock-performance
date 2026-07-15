@@ -69,7 +69,7 @@ export class CalibrationController {
     private readonly resultService: ResultService,
   ) {}
 
-  // ---- 校准（HR/ADMIN） ----
+  // ---- 校准（当前 Leader / 授权 HR / Admin） ----
 
   @Get('cycles/:cycleId/calibrations')
   @Roles(PerfRole.HR, PerfRole.ADMIN)
@@ -79,8 +79,9 @@ export class CalibrationController {
   }
 
   @Post('calibrations/:participantId/adjust')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '校准调整（append-only，必填原因）' })
+  @ApiOperation({
+    summary: '校准调整（当前 Leader / 授权 HR / Admin；append-only）',
+  })
   adjust(
     @Req() req: AuthenticatedRequest,
     @Param('participantId', ParseIntPipe) participantId: number,
@@ -95,10 +96,14 @@ export class CalibrationController {
   }
 
   @Get('calibrations/:participantId/history')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '校准记录历史' })
-  history(@Param('participantId', ParseIntPipe) participantId: number) {
-    return this.calibrationService.history(participantId);
+  @ApiOperation({
+    summary: '校准记录历史（当前 Leader / 授权 HR / Admin）',
+  })
+  history(
+    @Req() req: AuthenticatedRequest,
+    @Param('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.calibrationService.getHistory(req.user.open_id, participantId);
   }
 
   @Post('cycles/:cycleId/calibrations/confirm')
