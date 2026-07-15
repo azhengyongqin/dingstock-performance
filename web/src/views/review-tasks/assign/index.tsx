@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 // Third-party Imports
-import { InfoIcon, Loader2Icon, PlusIcon, XIcon } from 'lucide-react'
+import { InfoIcon, Loader2Icon, PlusIcon, RefreshCwIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
@@ -17,20 +17,33 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { Textarea } from '@/components/ui/textarea'
 
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
 import type { LarkUserBrief } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
-import { groupReviewersByRelation, RELATION_LABEL } from './group-reviewers'
+import {
+  groupReviewersByRelation,
+  RELATION_LABEL,
+  type ReviewerRelation
+} from './group-reviewers'
 
 // ===== 类型（GET /participants/:pid/reviewers 响应） =====
 
 type Assignment = {
   id: number
   reviewerOpenId: string
-  relation: string
+  relation: ReviewerRelation
   source: string
   status: 'PENDING' | 'SUBMITTED' | 'REPLACED'
   recommendReason?: string | null
@@ -39,15 +52,16 @@ type Assignment = {
 
 type Recommendation = {
   openId: string
-  relation: string
+  relation: ReviewerRelation
   reason: string
   user: LarkUserBrief | null
 }
 
 /** 本地编辑态的一条评审员选择 */
 type SelectedReviewer = {
+  assignmentId?: number
   reviewerOpenId: string
-  relation: string
+  relation: ReviewerRelation
   name?: string
   avatarUrl?: string
   submitted?: boolean
@@ -63,12 +77,30 @@ const pickerMemberOf = (entry: SelectedReviewer): LarkPickerMember => ({
 })
 
 /** 成员 pill：未提交可移除，已提交锁定 */
-const MemberPill = ({ entry, onRemove }: { entry: SelectedReviewer; onRemove: (openId: string) => void }) => (
-  <div className='bg-muted/60 flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-1'>
+const MemberPill = ({
+  entry,
+  onRemove,
+  onReplace
+}: {
+  entry: SelectedReviewer
+  onRemove: (openId: string) => void
+  onReplace: (entry: SelectedReviewer) => void
+}) => (
+  <div className='bg-muted/60 flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-0.5'>
     <UserAvatar openId={entry.reviewerOpenId} name={entry.name} avatarUrl={entry.avatarUrl} size='sm' />
     <span className='text-sm'>{entry.name ?? entry.reviewerOpenId}</span>
     {entry.submitted ? (
-      <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>
+      <>
+        <Badge className='bg-green-500/10 text-green-600'>已提交</Badge>
+        <Button
+          variant='ghost'
+          size='icon-sm'
+          aria-label={`替换 ${entry.name ?? entry.reviewerOpenId}`}
+          onClick={() => onReplace(entry)}
+        >
+          <RefreshCwIcon className='size-3.5' />
+        </Button>
+      </>
     ) : (
       <button
         type='button'
@@ -93,7 +125,7 @@ const RecommendationChip = ({
   onAdd: (item: Recommendation) => void
 }) => (
   <div
-    className='flex items-center gap-1 rounded-full border py-0.5 pl-0.5 pr-0.5 data-[added=true]:opacity-40'
+    className='flex items-center gap-1 rounded-full border py-0.5 pr-0.5 pl-0.5 data-[added=true]:opacity-40'
     data-added={added}
   >
     <UserAvatar openId={item.openId} name={item.user?.name} avatarUrl={avatarUrlOf(item.user)} size='sm' />
@@ -114,7 +146,7 @@ const RecommendationChip = ({
 
 /**
  * 评审人推荐与指定页（产品 §7.8）：分组直邀交互——
- * 推荐 chips 一键采纳；五类关系分组行尾「+」打开 LarkMemberPickerDialog，
+ * 推荐 chips 一键采纳；四类关系分组行尾「+」打开 LarkMemberPickerDialog，
  * 弹窗内搜索确认后直接以该组关系入组，无需二次调整分组。
  * 保存 = 覆盖式 PUT + knownAssignmentIds 乐观校验：
  * 加载后他人新增的指派不会被本次保存挤掉；移除已提交者会被服务端整单拒绝（409）。
@@ -135,7 +167,11 @@ const ReviewerAssign = () => {
   const [saving, setSaving] = useState(false)
 
   /** 分组直邀弹窗当前作用的关系分组；null = 关闭 */
-  const [inviteRelation, setInviteRelation] = useState<string | null>(null)
+  const [inviteRelation, setInviteRelation] = useState<ReviewerRelation | null>(null)
+  const [replaceTarget, setReplaceTarget] = useState<SelectedReviewer | null>(null)
+  const [replacementCandidate, setReplacementCandidate] = useState<LarkPickerMember | null>(null)
+  const [replaceReason, setReplaceReason] = useState('')
+  const [replacing, setReplacing] = useState(false)
 
   const fetchData = useCallback(async () => {
     if (!participantId) {
@@ -162,6 +198,7 @@ const ReviewerAssign = () => {
       setKnownAssignmentIds(active.map(assignment => assignment.id))
       setSelected(
         active.map(assignment => ({
+          assignmentId: assignment.id,
           reviewerOpenId: assignment.reviewerOpenId,
           relation: assignment.relation,
           name: assignment.reviewer?.name,
@@ -183,7 +220,12 @@ const ReviewerAssign = () => {
     return () => clearTimeout(initialLoad)
   }, [fetchData])
 
-  const addReviewer = (item: { openId?: string; relation?: string; name?: string; avatarUrl?: string }) => {
+  const addReviewer = (item: {
+    openId?: string
+    relation?: ReviewerRelation
+    name?: string
+    avatarUrl?: string
+  }) => {
     if (!item.openId) return
 
     // 考核 Leader 不进 360°名单（只挡新增，存量指派不受影响）
@@ -239,6 +281,36 @@ const ReviewerAssign = () => {
       }
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleReplace = async () => {
+    if (!replaceTarget?.assignmentId || !replacementCandidate || !replaceReason.trim()) {
+      toast.error('请选择新评审员并填写替换原因')
+
+      return
+    }
+
+    setReplacing(true)
+
+    try {
+      await apiFetch(`/participants/${participantId}/reviewers/${replaceTarget.assignmentId}/replace`, {
+        method: 'POST',
+        body: JSON.stringify({
+          reviewerOpenId: replacementCandidate.openId,
+          relation: replaceTarget.relation,
+          reason: replaceReason.trim()
+        })
+      })
+      toast.success('评审员已替换，旧评审权限已撤销')
+      setReplacementCandidate(null)
+      setReplaceTarget(null)
+      setReplaceReason('')
+      await fetchData()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : '替换评审员失败')
+    } finally {
+      setReplacing(false)
     }
   }
 
@@ -325,7 +397,12 @@ const ReviewerAssign = () => {
                     <span className='text-muted-foreground/60 text-sm'>暂无评审员</span>
                   ) : (
                     group.entries.map(entry => (
-                      <MemberPill key={entry.reviewerOpenId} entry={entry} onRemove={removeReviewer} />
+                      <MemberPill
+                        key={entry.reviewerOpenId}
+                        entry={entry}
+                        onRemove={removeReviewer}
+                        onReplace={setReplaceTarget}
+                      />
                     ))
                   )}
                 </div>
@@ -377,6 +454,71 @@ const ReviewerAssign = () => {
         }}
         onRemoveMember={member => removeReviewer(member.openId)}
       />
+
+      {/* 已提交指派不可直接删除，只能选新评审员并填写原因后走显式替换 API。 */}
+      <LarkMemberPickerDialog
+        open={replaceTarget !== null && replacementCandidate === null}
+        onOpenChange={open => {
+          if (!open && !replacementCandidate) setReplaceTarget(null)
+        }}
+        title={`替换「${replaceTarget?.name ?? replaceTarget?.reviewerOpenId ?? ''}」`}
+        searchPlaceholder='搜索新的评审员'
+        members={selected.map(pickerMemberOf)}
+        membersLabel='当前有效评审员（不可重复选择）'
+        onConfirm={added => {
+          if (added.length !== 1) {
+            toast.error('每次只能选择一名新评审员')
+
+            return
+          }
+
+          if (leaderOpenId && added[0].openId === leaderOpenId) {
+            toast.error('考核 Leader 不可成为 360°评审员')
+
+            return
+          }
+
+          setReplacementCandidate(added[0])
+        }}
+      />
+
+      <Dialog
+        open={replacementCandidate !== null}
+        onOpenChange={open => {
+          if (!open) {
+            setReplacementCandidate(null)
+            setReplaceTarget(null)
+            setReplaceReason('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认替换评审员</DialogTitle>
+            <DialogDescription>
+              {replaceTarget?.name ?? replaceTarget?.reviewerOpenId} →{' '}
+              {replacementCandidate?.name ?? replacementCandidate?.openId}
+              。旧关系和答卷会保留审计，但旧评审员立即失去访问权限。
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            aria-label='替换原因'
+            placeholder='请填写替换原因（必填）'
+            value={replaceReason}
+            maxLength={500}
+            onChange={event => setReplaceReason(event.target.value)}
+          />
+          <DialogFooter>
+            <Button variant='outline' disabled={replacing} onClick={() => setReplacementCandidate(null)}>
+              返回重选
+            </Button>
+            <Button disabled={replacing || !replaceReason.trim()} onClick={() => void handleReplace()}>
+              {replacing && <Loader2Icon className='size-4 animate-spin' />}
+              确认替换
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

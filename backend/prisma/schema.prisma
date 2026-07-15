@@ -926,13 +926,15 @@ model PerfReviewerAssignment {
   updatedAt       DateTime             @updatedAt @map("updated_at") /// 最近更新时间
 
   cycle       PerfCycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  participant PerfParticipant            @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  /// 与 cycleId 组成复合外键，数据库同时校验指派与参与者属于同一周期。
+  participant PerfParticipant            @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Cascade)
   submissions PerfEvaluationSubmission[]
 
   @@unique([id, participantId, reviewerOpenId]) /// 供 360°评估提交复合外键锁定指派归属，防止提交伪造他人的评审员指派
   @@index([reviewerOpenId, status]) /// 「我的评审任务」列表
   @@index([participantId])
   @@index([cycleId])
+  /// “未替换指派唯一”和四类关系/Leader 排除由迁移中的部分唯一索引、CHECK 与触发器保证。
   @@map("perf_reviewer_assignments")
   @@schema("performance")
 }

@@ -2,8 +2,9 @@ import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
   IsArray,
-  IsEnum,
   IsInt,
+  IsIn,
+  IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
@@ -14,10 +15,24 @@ import { PerfReviewerRelation } from '../generated/prisma/enums';
 
 export class ReviewerItemDto {
   @IsString()
+  @IsNotEmpty()
   reviewerOpenId!: string;
 
-  @IsEnum(PerfReviewerRelation)
+  @IsIn([
+    PerfReviewerRelation.ORG_OWNER,
+    PerfReviewerRelation.PROJECT_OWNER,
+    PerfReviewerRelation.PEER,
+    PerfReviewerRelation.CROSS_DEPT,
+  ])
   relation!: PerfReviewerRelation;
+}
+
+/** 已提交关系只能经显式替换入口变更；原因会与旧、新指派一并写入审计。 */
+export class ReplaceReviewerDto extends ReviewerItemDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class UpsertReviewersDto {

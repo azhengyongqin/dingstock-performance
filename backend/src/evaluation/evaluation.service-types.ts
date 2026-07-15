@@ -6,18 +6,30 @@ export type FormSnapshotItem = {
   key: string;
   type: string;
   title: string;
+  description?: string | null;
+  placeholder?: string | null;
   required: boolean;
+  sortOrder?: number;
+  config?: unknown;
 };
 
 export type FormSnapshotDimension = {
   key: string;
   audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
+  name?: string;
+  description?: string | null;
+  weight?: string | null;
+  isCore?: boolean;
+  sortOrder?: number;
   items: readonly FormSnapshotItem[];
 };
 
 export type FormSnapshotSubform = {
   key: string;
   type: 'SELF' | 'PEER' | 'MANAGER' | 'PROMOTION';
+  title?: string;
+  description?: string | null;
+  sortOrder?: number;
   dimensions: readonly FormSnapshotDimension[];
 };
 

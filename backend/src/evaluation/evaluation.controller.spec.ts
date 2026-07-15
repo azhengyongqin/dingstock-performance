@@ -5,6 +5,9 @@ jest.mock('../rbac/roles.guard', () => ({ RolesGuard: class {} }));
 jest.mock('./evaluation-submission.service', () => ({
   EvaluationSubmissionService: class {},
 }));
+jest.mock('./peer-evaluation-submission.service', () => ({
+  PeerEvaluationSubmissionService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -19,7 +22,15 @@ describe('EvaluationController 薄壳转调', () => {
     saveSelfDraft: jest.fn(),
     submitSelf: jest.fn(),
   };
-  const controller = new EvaluationController(service as never);
+  const peerService = {
+    getPeerContext: jest.fn(),
+    savePeerDraft: jest.fn(),
+    submitPeer: jest.fn(),
+  };
+  const controller = new EvaluationController(
+    service as never,
+    peerService as never,
+  );
   const request = { user: { open_id: 'ou_me' } } as never;
 
   beforeEach(() => jest.clearAllMocks());
@@ -42,5 +53,20 @@ describe('EvaluationController 薄壳转调', () => {
     const dto = { cycleId: 1, items: [] };
     await controller.submitSelf(request, dto);
     expect(service.submitSelf).toHaveBeenCalledWith('ou_me', dto);
+  });
+
+  it('360°上下文只使用 JWT 身份与 assignmentId 转调', async () => {
+    await controller.getPeerContext(request, 11);
+    expect(peerService.getPeerContext).toHaveBeenCalledWith('ou_me', 11);
+  });
+
+  it('360°草稿与正式提交转调统一提交服务', async () => {
+    const dto = { assignmentId: 11, items: [] };
+
+    await controller.savePeerDraft(request, dto);
+    await controller.submitPeer(request, dto);
+
+    expect(peerService.savePeerDraft).toHaveBeenCalledWith('ou_me', dto);
+    expect(peerService.submitPeer).toHaveBeenCalledWith('ou_me', dto);
   });
 });

@@ -58,3 +58,14 @@ export class SaveSelfEvaluationDto {
   @Type(() => EvaluationItemAnswerDto)
   items!: EvaluationItemAnswerDto[];
 }
+
+/** 360°草稿与提交共用载荷；participant/reviewer 身份只从有效 assignment 派生，禁止客户端伪造。 */
+export class SavePeerEvaluationDto {
+  @IsInt()
+  assignmentId!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EvaluationItemAnswerDto)
+  items!: EvaluationItemAnswerDto[];
+}

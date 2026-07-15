@@ -33,7 +33,7 @@ const RELATION_LABEL: Record<string, string> = {
 
 /** 填写页链接：按任务类型区分 */
 const fillHref = (task: ReviewTask) =>
-  `/review-tasks/fill?participant_id=${task.participantId}&type=${task.taskType}`
+  `/review-tasks/fill?participant_id=${task.participantId}&type=${task.taskType}${task.assignmentId ? `&assignment_id=${task.assignmentId}` : ''}`
 
 /** 评审任务列定义：待办 / 已完成两个 Tab 共用同一份 columns */
 export const reviewTaskColumns: ColumnDef<ReviewTask>[] = [
@@ -92,7 +92,7 @@ export const reviewTaskColumns: ColumnDef<ReviewTask>[] = [
     cell: ({ row }) =>
       row.original.status === 'SUBMITTED' ? (
         <Button variant='ghost' size='sm' render={<Link href={fillHref(row.original)} />} nativeButton={false}>
-          查看评估
+          查看 / 编辑
         </Button>
       ) : (
         <Button size='sm' render={<Link href={fillHref(row.original)} />} nativeButton={false}>

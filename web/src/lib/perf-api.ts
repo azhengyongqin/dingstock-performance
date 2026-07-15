@@ -255,8 +255,7 @@ export type PerfCycleProgress = {
   }>
 }
 
-export const getPerfCycleProgress = (cycleId: number) =>
-  apiFetch<PerfCycleProgress>(`/cycles/${cycleId}/progress`)
+export const getPerfCycleProgress = (cycleId: number) => apiFetch<PerfCycleProgress>(`/cycles/${cycleId}/progress`)
 
 export type PerfParticipantItem = {
   id: number
@@ -920,6 +919,44 @@ export const saveSelfEvaluationDraft = (input: SaveSelfEvaluationInput) =>
 
 export const submitSelfEvaluation = (input: SaveSelfEvaluationInput) =>
   apiFetch<{ ok: true }>('/evaluations/self/submit', { method: 'POST', body: JSON.stringify(input) })
+
+// ===== 统一评估提交（Ticket 07，360°动态表单） =====
+
+export type PerfPeerEvaluationState = PerfSelfEvaluationState
+
+export type PerfPeerEvaluationContext = {
+  assignment: { id: number; relation: string; status: 'PENDING' | 'SUBMITTED' } | null
+  participant: { id: number; cycleId: number } | null
+  cycle: {
+    id: number
+    name: string
+    status: PerfCycleStatus
+    currentConfigVersion?: { ratings: PerfConfigTemplateRating[] } | null
+  } | null
+  employee: LarkUserBrief | null
+  task: PerfSelfEvaluationTask
+  form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
+  submitted: PerfEvaluationSubmissionRecord | null
+  draft: PerfEvaluationSubmissionRecord | null
+  state: PerfPeerEvaluationState
+}
+
+export type SavePeerEvaluationInput = {
+  assignmentId: number
+  items: PerfEvaluationItemAnswer[]
+}
+
+export const getPeerEvaluationContext = (assignmentId: number) =>
+  apiFetch<PerfPeerEvaluationContext>(`/evaluations/peer?assignmentId=${assignmentId}`)
+
+export const savePeerEvaluationDraft = (input: SavePeerEvaluationInput) =>
+  apiFetch<PerfEvaluationSubmissionDraftRecord>('/evaluations/peer/draft', {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const submitPeerEvaluation = (input: SavePeerEvaluationInput) =>
+  apiFetch<{ ok: true }>('/evaluations/peer/submit', { method: 'POST', body: JSON.stringify(input) })
 
 // ===== 小工具 =====
 

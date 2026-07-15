@@ -7,10 +7,11 @@ import { RbacModule } from '../rbac/rbac.module';
 import { SharedModule } from '../shared/shared.module';
 import { EvaluationController } from './evaluation.controller';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
+import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 
 /**
  * 统一评估提交域（ADR-0009）：SELF/PEER/MANAGER 人工答卷统一落
- * PerfEvaluationSubmission。当前仅开放员工自评；写入门槛复用
+ * PerfEvaluationSubmission。当前开放员工自评与 360°评估；写入门槛复用
  * CycleModule 的 EvaluationTaskAccessService，参与者推进复用 ParticipantModule。
  */
 @Module({
@@ -23,7 +24,7 @@ import { EvaluationSubmissionService } from './evaluation-submission.service';
     CycleModule,
   ],
   controllers: [EvaluationController],
-  providers: [EvaluationSubmissionService],
-  exports: [EvaluationSubmissionService],
+  providers: [EvaluationSubmissionService, PeerEvaluationSubmissionService],
+  exports: [EvaluationSubmissionService, PeerEvaluationSubmissionService],
 })
 export class EvaluationModule {}

@@ -33,6 +33,8 @@ import type {
 } from '@/lib/perf-api'
 import { avatarUrlOf, formatDateTime } from '@/lib/perf-api'
 
+import PeerReviewFill from './peer-review-fill'
+
 // ===== 类型（GET /review-tasks/context 响应） =====
 
 type ReviewContext = {
@@ -87,6 +89,7 @@ const ReviewFill = () => {
   const participantId = Number(searchParams.get('participant_id'))
   const taskType = searchParams.get('type') === 'MANAGER_REVIEW' ? 'MANAGER_REVIEW' : 'REVIEW'
   const isManager = taskType === 'MANAGER_REVIEW'
+  const assignmentId = Number(searchParams.get('assignment_id'))
 
   const [context, setContext] = useState<ReviewContext | null>(null)
   const [loading, setLoading] = useState(true)
@@ -141,11 +144,13 @@ const ReviewFill = () => {
   }, [participantId, taskType])
 
   useEffect(() => {
+    if (!isManager) return
+
     // 延迟到宏任务，避免在 effect 内同步 setState 触发级联渲染
     const initialLoad = setTimeout(() => void fetchContext(), 0)
 
     return () => clearTimeout(initialLoad)
-  }, [fetchContext])
+  }, [fetchContext, isManager])
 
   const levels = useMemo(() => context?.evaluationRule?.levels ?? [], [context])
 
@@ -159,10 +164,7 @@ const ReviewFill = () => {
     [levels]
   )
 
-  const promotionDimension = useMemo(
-    () => context?.dimensions.find(dim => dim.type === 'PROMOTION'),
-    [context]
-  )
+  const promotionDimension = useMemo(() => context?.dimensions.find(dim => dim.type === 'PROMOTION'), [context])
 
   const updateScore = (dimensionId: number, patch: Partial<DimensionScore>) => {
     setScores(prev => ({ ...prev, [dimensionId]: { ...prev[dimensionId], dimensionId, ...patch } }))
@@ -252,6 +254,8 @@ const ReviewFill = () => {
 
   // ---- 渲染 ----
 
+  if (!isManager) return <PeerReviewFill assignmentId={assignmentId} />
+
   if (loading) {
     return (
       <div className='text-muted-foreground flex items-center justify-center gap-2 py-24'>
@@ -330,9 +334,7 @@ const ReviewFill = () => {
                 {context.participant.isPromotionEnabled && selfReview.promotionSelfReview?.text && (
                   <div>
                     <div className='mb-1 font-medium'>晋升自述</div>
-                    <p className='text-muted-foreground whitespace-pre-wrap'>
-                      {selfReview.promotionSelfReview.text}
-                    </p>
+                    <p className='text-muted-foreground whitespace-pre-wrap'>{selfReview.promotionSelfReview.text}</p>
                   </div>
                 )}
               </CardContent>
@@ -421,9 +423,7 @@ const ReviewFill = () => {
                 <div key={dim.id} className='flex flex-col gap-2'>
                   <div className='flex items-center gap-2'>
                     <span className='font-medium'>{dim.name}</span>
-                    {dim.weight != null && !isPromotion && (
-                      <Badge variant='outline'>{Number(dim.weight)}%</Badge>
-                    )}
+                    {dim.weight != null && !isPromotion && <Badge variant='outline'>{Number(dim.weight)}%</Badge>}
                     {dim.required && !isPromotion && <span className='text-destructive text-xs'>*</span>}
                     {isPromotion && (
                       <Badge className='bg-purple-500/10 text-purple-600 dark:text-purple-400'>晋升评估</Badge>

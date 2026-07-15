@@ -30,16 +30,15 @@ import type {
 export type SelfEvaluationState = 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT';
 
 /** 校验后的明细行：已定位快照评估项并完成类型匹配 */
-type ResolvedAnswer = {
+export type ResolvedAnswer = {
   answer: EvaluationItemAnswerDto;
   item: FormSnapshotItem;
 };
 
 /**
- * 统一人工评估提交（ADR-0009）：本服务是 SELF/PEER/MANAGER 三类人工答卷写入
- * PerfEvaluationSubmission + PerfEvaluationItemResult 的唯一入口。
- * 当前仅实现员工自评（SELF）全流程；PEER/MANAGER 由后续 Ticket 07/09 复用
- * validateAnswers/replaceSubmission 等边界扩展，不在此提前实现。
+ * 统一人工评估提交策略与 SELF 答卷生命周期。
+ * PEER 服务复用本类公开的快照防伪造、完整性校验和原子明细替换能力，
+ * 保证不同人工评估阶段写入同一套 PerfEvaluationSubmission 规则。
  */
 @Injectable()
 export class EvaluationSubmissionService {
@@ -321,7 +320,7 @@ export class EvaluationSubmissionService {
    * 把并发创建 DRAFT/SUBMITTED 行触发的部分唯一索引冲突（P2002）转换为业务可读中文错误。
    * 只精确匹配 indexNameFragment 对应的约束，其余异常（含其他 P2002）原样抛出，不吞错误。
    */
-  private mapDuplicateSubmissionError(
+  mapDuplicateSubmissionError(
     error: unknown,
     indexNameFragment: string,
     message: string,
@@ -356,7 +355,7 @@ export class EvaluationSubmissionService {
     return participant;
   }
 
-  private requireSnapshotContent(participant: {
+  requireSnapshotContent(participant: {
     formSnapshotId: number | null;
     formSnapshot: { content: unknown } | null;
   }) {
@@ -368,7 +367,7 @@ export class EvaluationSubmissionService {
     return content;
   }
 
-  private requireRatings(participant: {
+  requireRatings(participant: {
     cycle: { currentConfigVersion: { ratings: unknown } | null };
   }) {
     const ratings = participant.cycle.currentConfigVersion?.ratings as
@@ -400,6 +399,30 @@ export class EvaluationSubmissionService {
     return subforms;
   }
 
+  /** 360°只使用 PEER 子表单的 REVIEWER 区段；晋升子表单无条件排除（ADR-0011）。 */
+  selectPeerSubforms(content: FormSnapshotContent) {
+    return content.subforms
+      .filter((subform) => subform.type === 'PEER')
+      .map((subform) => ({
+        ...subform,
+        dimensions: subform.dimensions.filter(
+          (dimension) => dimension.audience === 'REVIEWER',
+        ),
+      }));
+  }
+
+  validatePeerAnswers(
+    content: FormSnapshotContent,
+    answers: EvaluationItemAnswerDto[],
+  ) {
+    return this.validateAnswersInSubforms(
+      content,
+      this.selectPeerSubforms(content),
+      answers,
+      '360°评审员可填范围',
+    );
+  }
+
   /**
    * 防伪造校验：每条作答的 (subformKey, dimensionKey, itemKey) 必须真实存在于
    * 员工可填的表单快照内容中，且载荷组件与评估项类型匹配。
@@ -410,6 +433,22 @@ export class EvaluationSubmissionService {
     answers: EvaluationItemAnswerDto[],
   ): ResolvedAnswer[] {
     const allowed = this.selectEmployeeSubforms(content, isPromotionEnabled);
+    return this.validateAnswersInSubforms(
+      content,
+      allowed,
+      answers,
+      '员工可填范围',
+      isPromotionEnabled,
+    );
+  }
+
+  private validateAnswersInSubforms(
+    content: FormSnapshotContent,
+    allowed: readonly FormSnapshotSubform[],
+    answers: EvaluationItemAnswerDto[],
+    scopeLabel: string,
+    isPromotionEnabled = false,
+  ): ResolvedAnswer[] {
     const seenKeys = new Set<string>();
     return answers.map((answer) => {
       const subform = content.subforms.find(
@@ -430,7 +469,7 @@ export class EvaluationSubmissionService {
       );
       if (!allowedSubform || !dimension || !item) {
         throw new BadRequestException(
-          `评估项 ${answer.itemKey} 不存在于当前表单快照的员工可填范围`,
+          `评估项 ${answer.itemKey} 不存在于当前表单快照的${scopeLabel}`,
         );
       }
       if (seenKeys.has(answer.itemKey)) {
@@ -472,15 +511,22 @@ export class EvaluationSubmissionService {
     isPromotionEnabled: boolean,
     resolved: ResolvedAnswer[],
   ) {
+    this.assertSubformsComplete(
+      this.selectEmployeeSubforms(content, isPromotionEnabled),
+      resolved,
+    );
+  }
+
+  assertSubformsComplete(
+    subforms: readonly FormSnapshotSubform[],
+    resolved: ResolvedAnswer[],
+  ) {
     const answeredKeys = new Set(
       resolved
         .filter((entry) => this.isAnswered(entry))
         .map((entry) => entry.item.key),
     );
-    for (const subform of this.selectEmployeeSubforms(
-      content,
-      isPromotionEnabled,
-    )) {
+    for (const subform of subforms) {
       for (const dimension of subform.dimensions) {
         for (const item of dimension.items) {
           if (item.required && !answeredKeys.has(item.key)) {
@@ -512,7 +558,7 @@ export class EvaluationSubmissionService {
    * 计算分（ADR-0008/0018）：RATING = 周期配置快照中该评级的映射分；
    * SCORE = 原始分数；非计分项无计算分。
    */
-  private calculationScoreOf(
+  calculationScoreOf(
     { answer, item }: ResolvedAnswer,
     ratings: Array<{ symbol: string; mappingScore: string }>,
   ): string | number | null {
@@ -533,7 +579,7 @@ export class EvaluationSubmissionService {
     return null;
   }
 
-  private toItemRow(
+  toItemRow(
     { answer, item }: ResolvedAnswer,
     formSnapshotId: number,
     calculationScore: string | number | null,
@@ -555,7 +601,7 @@ export class EvaluationSubmissionService {
   }
 
   /** 明细整体替换：先清空该提交的全部明细再批量写入（同一事务内调用） */
-  private async replaceItems(
+  async replaceItems(
     tx: Prisma.TransactionClient,
     submissionId: number,
     rows: Array<ReturnType<EvaluationSubmissionService['toItemRow']>>,

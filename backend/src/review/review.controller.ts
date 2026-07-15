@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -23,9 +24,9 @@ import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
   BatchAddReviewersDto,
+  ReplaceReviewerDto,
   ReturnSelfReviewDto,
   SaveManagerReviewDto,
-  SaveReviewDto,
   SaveSelfReviewDto,
   SubmitByParticipantDto,
   SubmitSelfReviewDto,
@@ -51,8 +52,14 @@ export class ReviewController {
 
   @Get('participants/:participantId/reviewers')
   @ApiOperation({ summary: '评审员指派列表 + 系统推荐（Leader/HR）' })
-  listReviewers(@Param('participantId', ParseIntPipe) participantId: number) {
-    return this.reviewerService.listWithRecommendations(participantId);
+  listReviewers(
+    @Req() req: AuthenticatedRequest,
+    @Param('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.reviewerService.listWithRecommendations(
+      req.user.open_id,
+      participantId,
+    );
   }
 
   @Put('participants/:participantId/reviewers')
@@ -67,6 +74,24 @@ export class ReviewController {
       participantId,
       dto.items,
       dto.knownAssignmentIds,
+    );
+  }
+
+  @Post('participants/:participantId/reviewers/:assignmentId/replace')
+  @ApiOperation({
+    summary: '显式替换评审员（保留旧关系审计并撤销旧评审员权限）',
+  })
+  replaceReviewer(
+    @Req() req: AuthenticatedRequest,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Param('assignmentId', ParseIntPipe) assignmentId: number,
+    @Body() dto: ReplaceReviewerDto,
+  ) {
+    return this.reviewerService.replaceReviewer(
+      req.user.open_id,
+      participantId,
+      assignmentId,
+      dto,
     );
   }
 
@@ -145,36 +170,26 @@ export class ReviewController {
 
   @Get('review-tasks/context')
   @ApiOperation({
-    summary:
-      '评估填写上下文（自评/维度/评估规则/我的草稿；上级评估含 360° 汇总与历史绩效）',
+    summary: '上级评估填写上下文（含自评、360°汇总与历史绩效）',
   })
   @ApiQuery({ name: 'participant_id', required: true })
   @ApiQuery({
     name: 'type',
     required: true,
-    enum: ['REVIEW', 'MANAGER_REVIEW'],
+    enum: ['MANAGER_REVIEW'],
   })
   getContext(
     @Req() req: AuthenticatedRequest,
     @Query('participant_id', ParseIntPipe) participantId: number,
     @Query('type') type: string,
   ) {
+    // 360°已迁移至 /evaluations/peer，旧固定维度接口不再对外提供。
+    if (type !== 'MANAGER_REVIEW') {
+      throw new BadRequestException(
+        '360°评估请使用 /evaluations/peer 动态表单接口',
+      );
+    }
     return this.reviewService.getContext(req.user.open_id, participantId, type);
-  }
-
-  @Put('reviews/draft')
-  @ApiOperation({ summary: '保存 360° 评估草稿' })
-  saveReview(@Req() req: AuthenticatedRequest, @Body() dto: SaveReviewDto) {
-    return this.reviewService.saveReviewDraft(req.user.open_id, dto);
-  }
-
-  @Post('reviews/submit')
-  @ApiOperation({ summary: '提交 360° 评估' })
-  submitReview(
-    @Req() req: AuthenticatedRequest,
-    @Body() dto: SubmitByParticipantDto,
-  ) {
-    return this.reviewService.submitReview(req.user.open_id, dto.participantId);
   }
 
   @Put('manager-reviews/draft')

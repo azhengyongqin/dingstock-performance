@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  ParseIntPipe,
   Post,
   Put,
   Query,
@@ -17,8 +18,9 @@ import {
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
-import { SaveSelfEvaluationDto } from './evaluation.dto';
+import { SavePeerEvaluationDto, SaveSelfEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
+import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 
 /** 统一评估提交（ADR-0009）：当前开放员工自评；身份取自 JWT，对象级鉴权在 service 层 */
 @ApiTags('evaluation')
@@ -28,6 +30,7 @@ import { EvaluationSubmissionService } from './evaluation-submission.service';
 export class EvaluationController {
   constructor(
     private readonly evaluationSubmissionService: EvaluationSubmissionService,
+    private readonly peerEvaluationSubmissionService: PeerEvaluationSubmissionService,
   ) {}
 
   @Get('self')
@@ -67,5 +70,46 @@ export class EvaluationController {
     @Body() dto: SaveSelfEvaluationDto,
   ) {
     return this.evaluationSubmissionService.submitSelf(req.user.open_id, dto);
+  }
+
+  @Get('peer')
+  @ApiOperation({
+    summary: '我的 360°评估上下文（仅有效指派与 PEER 动态子表单）',
+  })
+  @ApiQuery({ name: 'assignmentId', required: true })
+  getPeerContext(
+    @Req() req: AuthenticatedRequest,
+    @Query('assignmentId', ParseIntPipe) assignmentId: number,
+  ) {
+    return this.peerEvaluationSubmissionService.getPeerContext(
+      req.user.open_id,
+      assignmentId,
+    );
+  }
+
+  @Put('peer/draft')
+  @ApiOperation({ summary: '保存 360°评估更新草稿（允许不完整）' })
+  savePeerDraft(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: SavePeerEvaluationDto,
+  ) {
+    return this.peerEvaluationSubmissionService.savePeerDraft(
+      req.user.open_id,
+      dto,
+    );
+  }
+
+  @Post('peer/submit')
+  @ApiOperation({
+    summary: '提交/重新提交 360°评估（原子替换当前生效答卷）',
+  })
+  submitPeer(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: SavePeerEvaluationDto,
+  ) {
+    return this.peerEvaluationSubmissionService.submitPeer(
+      req.user.open_id,
+      dto,
+    );
   }
 }

@@ -70,6 +70,14 @@ export class ReviewService {
       include: {
         participant: true,
         cycle: { select: { id: true, name: true, status: true } },
+        submissions: {
+          where: {
+            stage: PerfEvaluationTaskType.PEER,
+            status: PerfReviewStatus.SUBMITTED,
+          },
+          select: { submittedAt: true },
+          take: 1,
+        },
       },
       orderBy: { id: 'desc' },
     });
@@ -138,6 +146,7 @@ export class ReviewService {
           assignment.status === PerfAssignmentStatus.SUBMITTED
             ? 'SUBMITTED'
             : 'PENDING',
+        submittedAt: assignment.submissions[0]?.submittedAt ?? null,
         task: taskMap.get(`${assignment.participantId}:PEER`) ?? null,
         cycle: assignment.cycle,
         employee: userMap.get(assignment.participant.employeeOpenId) ?? null,

@@ -47,6 +47,7 @@ import type {
   PerfCycleSetupParticipant,
   PerfEvalFormSubform,
   PerfFormTemplateVersion,
+  PerfPeerEvaluationContext,
   PerfParticipantPrefixCheck
 } from '@/lib/perf-api'
 import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboard'
@@ -57,6 +58,7 @@ import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-type
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
+import PeerReviewFill from '@/views/review-tasks/fill/peer-review-fill'
 
 type ComponentKey =
   | 'date-time'
@@ -965,6 +967,70 @@ const EvaluationFormDisabledPreview = () => (
   />
 )
 
+/** Ticket 07 业务组件示例：PEER 仅展示 REVIEWER 可观察行为维度，不包含 SELF/PROMOTION 内容。 */
+const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
+  {
+    key: 'subform:PEER',
+    type: 'PEER',
+    title: '360°评估',
+    sortOrder: 0,
+    dimensions: [
+      {
+        key: 'dimension:PEER:REVIEWER:0',
+        audience: 'REVIEWER',
+        name: '协作与责任担当',
+        description: '只评价在协作中能够直接观察到的行为。',
+        isCore: true,
+        sortOrder: 0,
+        items: [
+          { key: 'item:peer-rating', type: 'RATING', title: '协作表现评级', required: true, sortOrder: 0 },
+          { key: 'item:peer-comment', type: 'LONG_TEXT', title: '具体行为事例', required: true, sortOrder: 1 }
+        ]
+      }
+    ]
+  }
+]
+
+const PEER_REVIEW_PREVIEW_CONTEXT = {
+  assignment: { id: 11, relation: 'PEER', status: 'SUBMITTED' },
+  participant: { id: 7, cycleId: 1 },
+  cycle: {
+    id: 1,
+    name: '2026 上半年绩效',
+    status: 'ACTIVE',
+    currentConfigVersion: { ratings: EVALUATION_FORM_RATINGS }
+  },
+  employee: { open_id: 'ou_preview_employee', name: '示例员工', job_title: '产品经理' },
+  task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
+  form: { formSnapshotId: 88, subforms: PEER_EVALUATION_SUBFORMS },
+  submitted: {
+    id: 100,
+    cycleId: 1,
+    participantId: 7,
+    stage: 'PEER',
+    reviewerOpenId: 'ou_preview_reviewer',
+    status: 'SUBMITTED',
+    submittedAt: '2026-07-15T09:00:00.000Z',
+    items: [
+      {
+        id: 1,
+        submissionId: 100,
+        subformKey: 'subform:PEER',
+        dimensionKey: 'dimension:PEER:REVIEWER:0',
+        itemKey: 'item:peer-rating',
+        itemType: 'RATING',
+        rawLevel: 'A'
+      }
+    ]
+  },
+  draft: null,
+  state: 'EFFECTIVE'
+} satisfies PerfPeerEvaluationContext
+
+const PeerEvaluationFormPreview = () => (
+  <PeerReviewFill assignmentId={11} previewContext={PEER_REVIEW_PREVIEW_CONTEXT} />
+)
+
 const EvaluationFormPreview = () => (
   <div className='flex flex-col gap-6'>
     <Card>
@@ -983,6 +1049,15 @@ const EvaluationFormPreview = () => (
       </CardHeader>
       <CardContent>
         <EvaluationFormDisabledPreview />
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>360°评估态</CardTitle>
+        <CardDescription>只展示 PEER / REVIEWER 区段，并示例提交后更新草稿的状态标记</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <PeerEvaluationFormPreview />
       </CardContent>
     </Card>
   </div>
