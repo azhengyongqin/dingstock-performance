@@ -81,6 +81,11 @@ pnpm prisma:studio        # Prisma Studio
 - 生成的 client 输出到 **`src/generated/prisma`**（已在 eslint/prettier 中忽略），`prisma:generate` 会先删该目录再生成，因此 build/lint/test 前都会重建。
 - 业务模块注入 `PrismaService` 访问数据库。表结构变更走 Prisma schema + 迁移，**不要在运行时自动同步生产库结构**。`prisma/schema.prisma` 目前只有 datasource/generator，业务 model 从这里开始加。
 
+### 基线初始化脚本（强制同步规则）
+
+- 基线业务数据由 `src/scripts/seed-baseline-data.ts`（命令 `pnpm seed:baseline`）统一初始化：**默认评估表单模板（`PerfFormTemplate` D/M）、默认配置模板（`PerfConfigTemplate`，`systemKey=DEFAULT_CONFIG`）、绩效周期草稿「2026年中绩效评定」**。脚本幂等——先清理这三类旧数据（含已发布版本，需临时禁用版本 guard 触发器）再基于权威文档重建。初始数据以 `docs/盯潮-绩效系统-评估维度规则说明.md` 与 `docs/盯潮-绩效系统-绩效等级定义和计算方式.md` 为准。
+- **强制规则：当「评估表单模板 / 配置模板 / 绩效周期」相关的数据结构、数据库字段、发布校验或快照写入逻辑发生变更时，必须同步更新 `seed-baseline-data.ts`**（它复刻了 `CycleSetupService` 的配置/表单快照写入与各发布校验；schema 变更后若不同步，脚本会在写入或发布校验处失败）。改动后至少执行一次 `pnpm seed:baseline` 验证可跑通。
+
 ### 飞书集成
 
 - `LarkModule`（`src/shared/lark/lark.module.ts`）用 `useFactory` 构建 `lark.Client`（`SelfBuild` 自建应用 + `Domain.Feishu`），provider token 为 `LARK_CLIENT`。
