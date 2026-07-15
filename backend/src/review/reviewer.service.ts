@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
+import { PeerStageResultService } from '../evaluation/peer-stage-result.service';
 import type { ReviewerItemDto } from './review.dto';
 
 /** 直属上级由 MANAGER 阶段承载，不属于 360°计算关系。 */
@@ -33,6 +34,7 @@ export class ReviewerService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
+    private readonly peerStageResultService: PeerStageResultService,
   ) {}
 
   private async requireParticipant(participantId: number) {
@@ -402,6 +404,10 @@ export class ReviewerService {
           },
         },
       });
+      // 只有已提交指派进入阶段结果；替换待提交指派不触碰结果，也兼容尚未启用新版快照的旧周期。
+      if (previous.status === PerfAssignmentStatus.SUBMITTED) {
+        await this.peerStageResultService.recalculate(participantId, tx);
+      }
       // 敏感权限变更的审计不能采用失败不阻断策略，必须与替换一同提交或回滚。
       await tx.auditLog.create({
         data: {

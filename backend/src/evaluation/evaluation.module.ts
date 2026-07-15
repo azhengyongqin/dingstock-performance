@@ -8,6 +8,7 @@ import { SharedModule } from '../shared/shared.module';
 import { EvaluationController } from './evaluation.controller';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
+import { PeerStageResultService } from './peer-stage-result.service';
 
 /**
  * 统一评估提交域（ADR-0009）：SELF/PEER/MANAGER 人工答卷统一落
@@ -24,7 +25,15 @@ import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.se
     CycleModule,
   ],
   controllers: [EvaluationController],
-  providers: [EvaluationSubmissionService, PeerEvaluationSubmissionService],
-  exports: [EvaluationSubmissionService, PeerEvaluationSubmissionService],
+  providers: [
+    EvaluationSubmissionService,
+    PeerEvaluationSubmissionService,
+    PeerStageResultService,
+  ],
+  exports: [
+    EvaluationSubmissionService,
+    PeerEvaluationSubmissionService,
+    PeerStageResultService,
+  ],
 })
 export class EvaluationModule {}

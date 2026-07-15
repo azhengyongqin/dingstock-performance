@@ -15,6 +15,7 @@ export type FormSnapshotItem = {
 
 export type FormSnapshotDimension = {
   key: string;
+  kind?: 'REGULAR' | 'PROMOTION' | 'TEXT' | 'METRIC';
   audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
   name?: string;
   description?: string | null;

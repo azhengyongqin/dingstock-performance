@@ -13,6 +13,7 @@ import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.ser
 import { PrismaService } from '../shared/database/prisma.service';
 import type { SavePeerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
+import { PeerStageResultService } from './peer-stage-result.service';
 
 /**
  * 360°评估提交服务：负责评审指派鉴权、PEER 上下文和答卷生命周期。
@@ -25,6 +26,7 @@ export class PeerEvaluationSubmissionService {
     private readonly auditService: AuditService,
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly submissionPolicy: EvaluationSubmissionService,
+    private readonly peerStageResultService: PeerStageResultService,
   ) {}
 
   /** 先做对象级鉴权，再允许触发任务开放等有副作用的操作。 */
@@ -295,6 +297,8 @@ export class PeerEvaluationSubmissionService {
           status: PerfReviewStatus.DRAFT,
         },
       });
+      // 答卷与阶段结果同事务生效，任何计算失败都会回滚本次提交/重新提交。
+      await this.peerStageResultService.recalculate(participant.id, tx);
       const pending = await tx.perfReviewerAssignment.count({
         where: {
           participantId: participant.id,

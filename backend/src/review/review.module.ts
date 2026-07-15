@@ -9,6 +9,7 @@ import { ReviewService } from './review.service';
 import { ReviewerService } from './reviewer.service';
 import { SelfReviewService } from './self-review.service';
 import { CycleModule } from '../cycle/cycle.module';
+import { EvaluationModule } from '../evaluation/evaluation.module';
 
 /** 评审域：评审员指派/推荐、自评、360°、上级评估（研发文档 §8.1 Task/SelfReview/Review 域） */
 @Module({
@@ -19,6 +20,7 @@ import { CycleModule } from '../cycle/cycle.module';
     AuditModule,
     ParticipantModule,
     CycleModule,
+    EvaluationModule,
   ],
   controllers: [ReviewController],
   providers: [ReviewerService, SelfReviewService, ReviewService],

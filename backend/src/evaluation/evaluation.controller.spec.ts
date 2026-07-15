@@ -8,6 +8,9 @@ jest.mock('./evaluation-submission.service', () => ({
 jest.mock('./peer-evaluation-submission.service', () => ({
   PeerEvaluationSubmissionService: class {},
 }));
+jest.mock('./peer-stage-result.service', () => ({
+  PeerStageResultService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -27,9 +30,11 @@ describe('EvaluationController 薄壳转调', () => {
     savePeerDraft: jest.fn(),
     submitPeer: jest.fn(),
   };
+  const peerStageResultService = { getForManager: jest.fn() };
   const controller = new EvaluationController(
     service as never,
     peerService as never,
+    peerStageResultService as never,
   );
   const request = { user: { open_id: 'ou_me' } } as never;
 
@@ -68,5 +73,13 @@ describe('EvaluationController 薄壳转调', () => {
 
     expect(peerService.savePeerDraft).toHaveBeenCalledWith('ou_me', dto);
     expect(peerService.submitPeer).toHaveBeenCalledWith('ou_me', dto);
+  });
+
+  it('360°阶段结果查询只使用 JWT 身份与 participantId 转调', async () => {
+    await controller.getPeerStageResult(request, 7);
+    expect(peerStageResultService.getForManager).toHaveBeenCalledWith(
+      'ou_me',
+      7,
+    );
   });
 });

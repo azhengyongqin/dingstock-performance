@@ -138,6 +138,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
   };
   const taskAccess = { openIfDue: jest.fn(), ensureWritable: jest.fn() };
   const audit = { record: jest.fn() };
+  const peerStageResult = { recalculate: jest.fn() };
   let service: PeerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -176,6 +177,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       audit as never,
       taskAccess as never,
       submissionPolicy,
+      peerStageResult as never,
     );
   });
 
@@ -299,6 +301,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       },
       data: { status: 'SUBMITTED' },
     });
+    expect(peerStageResult.recalculate).toHaveBeenCalledWith(7, tx);
   });
 
   it('替换事务已抢先撤销旧指派时，旧评审员的在途提交不能恢复权限或写入答卷', async () => {

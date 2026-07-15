@@ -8,6 +8,7 @@ import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import { ReviewerService } from './reviewer.service';
+import { PeerStageResultService } from '../evaluation/peer-stage-result.service';
 
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
 jest.mock(
@@ -93,6 +94,7 @@ describe('ReviewerService', () => {
     hasAnyRole: jest.fn().mockResolvedValue(false),
     getOrgScope: jest.fn().mockResolvedValue([]),
   };
+  const peerStageResultMock = { recalculate: jest.fn() };
 
   let service: ReviewerService;
 
@@ -128,6 +130,7 @@ describe('ReviewerService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditService, useValue: auditMock },
         { provide: RbacService, useValue: rbacMock },
+        { provide: PeerStageResultService, useValue: peerStageResultMock },
       ],
     }).compile();
 
@@ -320,6 +323,34 @@ describe('ReviewerService', () => {
         reason: '项目职责已调整',
       }),
     });
+    expect(peerStageResultMock.recalculate).toHaveBeenCalledWith(7, txMock);
+  });
+
+  it('替换尚未提交的评审员时不重算阶段结果', async () => {
+    prismaMock.perfReviewerAssignment.findMany.mockResolvedValueOnce([]);
+    prismaMock.perfReviewerAssignment.findUnique.mockResolvedValue({
+      id: 5,
+      participantId: 7,
+      reviewerOpenId: 'ou_old',
+      relation: 'PEER',
+      source: 'LEADER_ASSIGNED',
+      status: 'PENDING',
+    });
+    txMock.perfReviewerAssignment.create.mockResolvedValue({
+      id: 6,
+      participantId: 7,
+      reviewerOpenId: 'ou_new',
+      relation: 'PEER',
+      status: 'PENDING',
+    });
+
+    await service.replaceReviewer('ou_leader', 7, 5, {
+      reviewerOpenId: 'ou_new',
+      relation: 'PEER',
+      reason: '原评审员暂时无法参与',
+    });
+
+    expect(peerStageResultMock.recalculate).not.toHaveBeenCalled();
   });
 
   it('存量的考核 Leader 指派也不能通过覆盖保存继续伪装为合法关系', async () => {

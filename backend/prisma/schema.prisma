@@ -398,6 +398,14 @@ enum PerfStageResultMode {
   @@schema("performance")
 }
 
+/// 阶段结果数据状态：READY=有有效输入并完成计算；NO_DATA=没有有效输入，不伪造零分或等级。
+enum PerfStageResultStatus {
+  READY
+  NO_DATA
+
+  @@schema("performance")
+}
+
 /// 系统当前支持的职级前缀；参与者按职级快照前缀匹配表单版本。
 enum PerfJobLevelPrefix {
   D /// 普通岗位
@@ -675,6 +683,7 @@ model PerfCycleConfigVersion {
   currentForCycle     PerfCycle?                 @relation("PerfCycleCurrentConfigVersion")
   sourceConfigVersion PerfConfigTemplateVersion? @relation("PerfCycleConfigVersionSource", fields: [sourceConfigTemplateVersionId], references: [id], onDelete: Restrict)
   formSnapshots       PerfCycleFormSnapshot[]
+  stageResults        PerfStageResult[]
 
   @@unique([cycleId, version])
   /// 表单快照用复合外键锁定配置版本与周期，防止跨周期挂载。
@@ -785,6 +794,7 @@ model PerfCycle {
   evaluationSubmissions PerfEvaluationSubmission[]
   notificationEvents    PerfNotificationEvent[]
   reviewerAssignments   PerfReviewerAssignment[]
+  stageResults          PerfStageResult[]
   exportTasks           ReportExportTask[]
 
   @@index([status, plannedStartAt])
@@ -871,6 +881,7 @@ model PerfParticipant {
   interviews            PerfInterview[]
   evaluationTasks       PerfEvaluationTask[]
   evaluationSubmissions PerfEvaluationSubmission[]
+  stageResults          PerfStageResult[]
 
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
   @@unique([id, cycleId]) /// 供统一任务复合外键保证任务与参与人属于同一周期
@@ -1059,6 +1070,79 @@ model PerfEvaluationItemResult {
   @@index([formSnapshotId, itemKey]) /// 跨提交按评估项聚合（360°关系加权、维度汇总）
   @@index([formSnapshotId, subformKey, dimensionKey])
   @@map("perf_evaluation_item_results")
+  @@schema("performance")
+}
+
+/// 可复算的评估阶段结果；同一配置版本内随当前有效答卷覆盖更新，新配置版本产生新行并保留旧结果。
+model PerfStageResult {
+  id                   Int                    @id @default(autoincrement()) /// 内部自增主键
+  cycleId              Int                    @map("cycle_id") /// 所属周期；与参与者、配置版本组成复合归属约束
+  participantId        Int                    @map("participant_id") /// 所属参与者
+  cycleConfigVersionId Int                    @map("cycle_config_version_id") /// 本次计算使用的周期配置快照版本
+  stage                PerfEvaluationTaskType /// SELF / PEER / MANAGER / AI；Ticket 08 首先写入 PEER
+  status               PerfStageResultStatus /// READY 或 NO_DATA
+  mode                 PerfStageResultMode /// 本次计算使用的阶段结果模式快照
+  reviewerCount        Int                    @default(0) @map("reviewer_count") /// 实际进入计算的有效评审员数量
+  compositeScore       Decimal?               @map("composite_score") @db.Decimal(5, 2) /// 四舍五入两位后的阶段综合分；NO_DATA 为空
+  initialLevel         PerfRatingSymbol?      @map("initial_level") /// 综合分映射出的初始等级；NO_DATA 为空
+  stageLevel           PerfRatingSymbol?      @map("stage_level") /// 应用约束后的阶段等级；NO_DATA 为空
+  constraintReasons    Json                   @default("[]") @map("constraint_reasons") /// 命中的受控约束及前后等级快照
+  calculationDetail    Json                   @map("calculation_detail") /// 未舍入分数、有效/排除输入、关系均分与调整权重等可解释明细
+  calculatedAt         DateTime               @default(now()) @map("calculated_at") /// 最近一次基于当前有效答卷完成计算的时间
+  createdAt            DateTime               @default(now()) @map("created_at") /// 当前配置版本结果首次创建时间
+  updatedAt            DateTime               @updatedAt @map("updated_at") /// 当前配置版本结果最近重算时间
+
+  cycle         PerfCycle                  @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  participant   PerfParticipant            @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Restrict)
+  configVersion PerfCycleConfigVersion     @relation(fields: [cycleConfigVersionId, cycleId], references: [id, cycleId], onDelete: Restrict)
+  dimensions    PerfStageDimensionResult[]
+
+  @@unique([participantId, stage, cycleConfigVersionId])
+  @@index([cycleId, stage, status])
+  @@index([cycleConfigVersionId])
+  @@map("perf_stage_results")
+  @@schema("performance")
+}
+
+/// 阶段结果下的关系化维度聚合；随父阶段结果重算替换，不单独形成历史版本。
+model PerfStageDimensionResult {
+  id            Int              @id @default(autoincrement()) /// 内部自增主键
+  stageResultId Int              @map("stage_result_id") /// 所属阶段结果
+  dimensionKey  String           @map("dimension_key") /// 周期表单快照中的稳定维度 key
+  name          String /// 计算时的维度名称快照
+  weight        Decimal          @db.Decimal(5, 2) /// 维度基础权重
+  isCore        Boolean          @map("is_core") /// 是否核心维度
+  score         Decimal          @db.Decimal(65, 30) /// 保留高精度的维度聚合分
+  level         PerfRatingSymbol /// 维度聚合分映射等级
+  createdAt     DateTime         @default(now()) @map("created_at") /// 首次写入时间
+  updatedAt     DateTime         @updatedAt @map("updated_at") /// 最近重算时间
+
+  stageResult        PerfStageResult             @relation(fields: [stageResultId], references: [id], onDelete: Cascade)
+  relationAggregates PerfPeerRelationAggregate[]
+
+  @@unique([stageResultId, dimensionKey])
+  @@index([dimensionKey])
+  @@map("perf_stage_dimension_results")
+  @@schema("performance")
+}
+
+/// 360°维度内按评审关系聚合的均分与归一化权重；只保存存在有效提交的关系。
+model PerfPeerRelationAggregate {
+  id                     Int                  @id @default(autoincrement()) /// 内部自增主键
+  stageDimensionResultId Int                  @map("stage_dimension_result_id") /// 所属阶段维度结果
+  relation               PerfReviewerRelation /// 组织负责人/项目负责人/同事/跨部门协作方
+  baseWeight             Decimal              @map("base_weight") @db.Decimal(5, 2) /// 配置快照中的基础权重
+  adjustedWeight         Decimal              @map("adjusted_weight") @db.Decimal(65, 30) /// 有效关系集合内的高精度归一化权重
+  reviewerCount          Int                  @map("reviewer_count") /// 进入本关系均分的有效评审员数量
+  score                  Decimal              @db.Decimal(65, 30) /// 同一关系内评审员计算分的算术平均
+  createdAt              DateTime             @default(now()) @map("created_at") /// 首次写入时间
+  updatedAt              DateTime             @updatedAt @map("updated_at") /// 最近重算时间
+
+  stageDimensionResult PerfStageDimensionResult @relation(fields: [stageDimensionResultId], references: [id], onDelete: Cascade)
+
+  @@unique([stageDimensionResultId, relation])
+  @@index([relation])
+  @@map("perf_peer_relation_aggregates")
   @@schema("performance")
 }
 

@@ -766,7 +766,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
       const withPromotion = await service.getSelfContext('ou_me', 1);
       const promotionSubform = withPromotion.form!.subforms.find(
         (subform: { key: string }) => subform.key === 'subform:PROMOTION',
-      ) as { dimensions: Array<{ audience: string }> };
+      ) as { dimensions: ReadonlyArray<{ audience: string }> };
       expect(promotionSubform).toBeDefined();
       expect(
         promotionSubform.dimensions.every(

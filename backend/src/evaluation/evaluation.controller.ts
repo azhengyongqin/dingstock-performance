@@ -21,6 +21,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { SavePeerEvaluationDto, SaveSelfEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
+import { PeerStageResultService } from './peer-stage-result.service';
 
 /** 统一评估提交（ADR-0009）：当前开放员工自评；身份取自 JWT，对象级鉴权在 service 层 */
 @ApiTags('evaluation')
@@ -31,6 +32,7 @@ export class EvaluationController {
   constructor(
     private readonly evaluationSubmissionService: EvaluationSubmissionService,
     private readonly peerEvaluationSubmissionService: PeerEvaluationSubmissionService,
+    private readonly peerStageResultService: PeerStageResultService,
   ) {}
 
   @Get('self')
@@ -110,6 +112,21 @@ export class EvaluationController {
     return this.peerEvaluationSubmissionService.submitPeer(
       req.user.open_id,
       dto,
+    );
+  }
+
+  @Get('peer/result')
+  @ApiOperation({
+    summary: '查看当前 360°阶段结果及关系/维度计算明细（Leader/授权 HR）',
+  })
+  @ApiQuery({ name: 'participantId', required: true })
+  getPeerStageResult(
+    @Req() req: AuthenticatedRequest,
+    @Query('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.peerStageResultService.getForManager(
+      req.user.open_id,
+      participantId,
     );
   }
 }
