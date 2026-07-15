@@ -32,6 +32,10 @@ export const asAttachmentRows = (value: unknown): AttachmentRow[] =>
     ? value.filter(isAttachmentRow).map(row => ({ name: String(row.name ?? ''), url: String(row.url ?? '') }))
     : []
 
+/** 剔除全空（name 和 url 都为空白）的附件行；校验与 payload 构建共用此过滤逻辑，避免两处漂移 */
+export const nonEmptyAttachmentRows = (value: unknown): AttachmentRow[] =>
+  asAttachmentRows(value).filter(row => row.name.trim() || row.url.trim())
+
 export const asStringArray = (value: unknown): string[] => (Array.isArray(value) ? value.map(String) : [])
 
 const isValidUrl = (text: string, allowedProtocols?: readonly string[]): boolean => {
@@ -120,7 +124,7 @@ export const validateEvaluationItem = (item: PerfEvalFormItem, answer: Evaluatio
   }
 
   if (item.type === 'ATTACHMENT') {
-    const rows = asAttachmentRows(answer?.value).filter(row => row.name.trim() || row.url.trim())
+    const rows = nonEmptyAttachmentRows(answer?.value)
 
     if (rows.length === 0) return item.required ? `「${item.title}」为必填项，请添加至少一个附件` : null
 
@@ -187,6 +191,14 @@ const toPayloadItem = (
     if (numeric < 0 || numeric > 100) return null
 
     return { subformKey, dimensionKey, itemKey: item.key, rawScore: numeric }
+  }
+
+  if (item.type === 'ATTACHMENT') {
+    const rows = nonEmptyAttachmentRows(answer?.value)
+
+    if (rows.length === 0) return null
+
+    return { subformKey, dimensionKey, itemKey: item.key, value: rows }
   }
 
   const value = answer?.value

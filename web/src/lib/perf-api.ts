@@ -906,8 +906,14 @@ export type SaveSelfEvaluationInput = {
 export const getSelfEvaluationContext = (cycleId?: number) =>
   apiFetch<PerfSelfEvaluationContext>(`/evaluations/self${cycleId ? `?cycleId=${cycleId}` : ''}`)
 
+/**
+ * 草稿保存返回的提交行：对应后端 saveSelfDraft 事务内 findFirst/create 的裸 Prisma 行，
+ * 不 include 明细，因此不含 items（与 PerfEvaluationSubmissionRecord 的区别）。
+ */
+export type PerfEvaluationSubmissionDraftRecord = Omit<PerfEvaluationSubmissionRecord, 'items'>
+
 export const saveSelfEvaluationDraft = (input: SaveSelfEvaluationInput) =>
-  apiFetch<PerfEvaluationSubmissionRecord>('/evaluations/self/draft', {
+  apiFetch<PerfEvaluationSubmissionDraftRecord>('/evaluations/self/draft', {
     method: 'PUT',
     body: JSON.stringify(input)
   })

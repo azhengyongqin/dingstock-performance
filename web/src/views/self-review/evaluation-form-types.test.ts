@@ -53,6 +53,14 @@ const linkItem: PerfEvalFormItem = {
   sortOrder: 2
 }
 
+const attachmentItem: PerfEvalFormItem = {
+  key: 'item:SELF:EMPLOYEE:1:3',
+  type: 'ATTACHMENT',
+  title: '佐证材料',
+  required: false,
+  sortOrder: 3
+}
+
 describe('validateEvaluationItem SCORE 边界', () => {
   it('空文本：必填拒绝，选填通过', () => {
     expect(validateEvaluationItem(requiredScoreItem, { rawScoreText: '' })).toMatch(/必填/)
@@ -194,6 +202,55 @@ describe('buildDraftPayloadItems 草稿允许不完整', () => {
     expect(items).toEqual([
       { subformKey: 'subform:SELF', dimensionKey: 'dimension:SELF:EMPLOYEE:0', itemKey: ratingItem.key, rawLevel: 'A' }
     ])
+  })
+})
+
+describe('buildDraftPayloadItems ATTACHMENT 过滤空行', () => {
+  const subforms = [
+    {
+      key: 'subform:SELF',
+      type: 'SELF' as const,
+      title: '员工自评',
+      sortOrder: 0,
+      dimensions: [
+        {
+          key: 'dimension:SELF:EMPLOYEE:1',
+          audience: 'EMPLOYEE' as const,
+          name: '自评',
+          sortOrder: 0,
+          items: [attachmentItem]
+        }
+      ]
+    }
+  ]
+
+  it('含空行的附件答案生成的 payload 不含空行', () => {
+    const answers: EvaluationAnswers = {
+      [attachmentItem.key]: {
+        value: [
+          { name: '证明材料.pdf', url: 'https://example.com/file.pdf' },
+          { name: '', url: '' }
+        ]
+      }
+    }
+
+    const items = buildDraftPayloadItems(subforms, answers)
+
+    expect(items).toEqual([
+      {
+        subformKey: 'subform:SELF',
+        dimensionKey: 'dimension:SELF:EMPLOYEE:1',
+        itemKey: attachmentItem.key,
+        value: [{ name: '证明材料.pdf', url: 'https://example.com/file.pdf' }]
+      }
+    ])
+  })
+
+  it('全部为空行时不产出该项', () => {
+    const answers: EvaluationAnswers = { [attachmentItem.key]: { value: [{ name: '', url: '' }] } }
+    const items = buildDraftPayloadItems(subforms, answers)
+
+    expect(items).toEqual([])
   })
 })
 
