@@ -401,8 +401,6 @@ export class CalibrationDecisionService {
       throw new ConflictException('当前周期无绩效结果的参与者不能校准');
     }
     const closedStatuses = new Set<PerfParticipantStatus>([
-      PerfParticipantStatus.RESULT_PUSHED,
-      PerfParticipantStatus.CONFIRMED,
       PerfParticipantStatus.APPEALING,
       PerfParticipantStatus.RE_CONFIRMING,
       PerfParticipantStatus.ARCHIVED,
@@ -410,7 +408,7 @@ export class CalibrationDecisionService {
     if (closedStatuses.has(participant.status)) {
       throw new ConflictException({
         code: 'CALIBRATION_STATE_CLOSED',
-        message: '结果发布、确认或申诉阶段不能直接追加校准决定',
+        message: '申诉、再次确认或归档阶段不能直接追加校准决定',
       });
     }
   }

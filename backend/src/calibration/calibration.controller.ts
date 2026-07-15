@@ -96,7 +96,10 @@ class PushResultsDto {
 
 class ConfirmResultDto {
   @IsInt()
-  cycleId!: number;
+  participantId!: number;
+
+  @IsInt()
+  resultVersionId!: number;
 }
 
 @ApiTags('calibration')
@@ -195,13 +198,13 @@ export class CalibrationController {
 
   @Post('cycles/:cycleId/results/push')
   @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '推送结果给员工确认（生成 perf_results + 通知）' })
+  @ApiOperation({ summary: '发布不可变结果版本并通知员工确认' })
   pushResults(
     @Req() req: AuthenticatedRequest,
     @Param('cycleId', ParseIntPipe) cycleId: number,
     @Body() dto: PushResultsDto,
   ) {
-    return this.calibrationService.pushResults(
+    return this.resultService.publishCycle(
       req.user.open_id,
       cycleId,
       dto.participantIds,
@@ -229,6 +232,10 @@ export class CalibrationController {
     @Req() req: AuthenticatedRequest,
     @Body() dto: ConfirmResultDto,
   ) {
-    return this.resultService.confirm(req.user.open_id, dto.cycleId);
+    return this.resultService.confirm(
+      req.user.open_id,
+      dto.participantId,
+      dto.resultVersionId,
+    );
   }
 }

@@ -70,6 +70,7 @@ function renderText(
       return `【绩效周期启动失败】${cycleName} 未能按计划启动，周期仍保持待启动。具体问题：${issues}`;
     }
     case 'result_pushed':
+    case 'result_published':
       return `【结果确认】你的绩效结果已发布，请前往绩效系统查看并确认。`;
     case 'appeal_resolved':
       return `【申诉处理】你的绩效申诉已处理完成，请前往绩效系统查看结论并再次确认结果。`;

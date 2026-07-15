@@ -14,7 +14,11 @@ import type { Prisma } from '../generated/prisma/client';
  */
 export type EnqueueNotificationEventInput = {
   dedupeKey: string;
-  type: 'TASK_OPENED' | 'TASK_REMINDER_DUE' | 'CYCLE_START_FAILED';
+  type:
+    | 'TASK_OPENED'
+    | 'TASK_REMINDER_DUE'
+    | 'CYCLE_START_FAILED'
+    | 'RESULT_PUBLISHED';
   cycleId?: number;
   taskId?: number;
   stage?: PerfEvaluationTaskType;
@@ -56,6 +60,14 @@ export function cycleStartFailedDedupeKey(input: {
   receiverOpenId: string;
 }) {
   return `cycle-start-failed:${input.cycleId}:${input.checkDigest}:${input.receiverOpenId}`;
+}
+
+/** 一个不可变结果版本只向同一员工发布一次，重试发布不会重复通知。 */
+export function resultPublishedDedupeKey(input: {
+  resultVersionId: number;
+  receiverOpenId: string;
+}) {
+  return `result-published:${input.resultVersionId}:${input.receiverOpenId}`;
 }
 
 export type TaskNotificationContext = {

@@ -201,6 +201,7 @@ enum PerfParticipantStatus {
   AI_DONE /// 迁移前遗留状态；新 AI 异步参考不得写入，历史数据仍允许继续校准
   CALIBRATED /// 已校准
   RESULT_PUSHED /// 结果已推送员工
+  RESULT_PUBLISHED /// 当前不可变结果版本已发布，等待员工确认或申诉
   CONFIRMED /// 员工已确认
   APPEALING /// 申诉中
   RE_CONFIRMING /// 申诉处理后再次确认中
@@ -348,6 +349,7 @@ enum PerfNotificationEventType {
   TASK_OPENED /// 人工评估任务到时开放
   TASK_REMINDER_DUE /// 人工评估任务到达软提醒时间
   CYCLE_START_FAILED /// 待启动周期到时复核失败
+  RESULT_PUBLISHED /// 结果版本发布，通知员工查看并确认
 
   @@schema("performance")
 }
@@ -896,6 +898,7 @@ model PerfParticipant {
   calibrations          PerfCalibration[]
   redLineFindings       PerfRedLineFinding[]
   result                PerfResult?
+  resultVersions        PerfResultVersion[]
   appeals               PerfAppeal[]
   interviews            PerfInterview[]
   evaluationTasks       PerfEvaluationTask[]
@@ -1212,7 +1215,8 @@ model PerfCalibration {
   operatorOpenId String                  @map("operator_open_id") /// 操作人（当前 Leader/授权 HR/Admin）open_id
   createdAt      DateTime                @default(now()) @map("created_at") /// 记录时间
 
-  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  participant    PerfParticipant     @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  resultVersions PerfResultVersion[] /// 以本决定为来源发布的结果版本
 
   @@index([participantId])
   @@map("perf_calibrations")
@@ -1258,6 +1262,35 @@ model PerfResult {
   participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
 
   @@map("perf_results")
+  @@schema("performance")
+}
+
+/// 员工可见的不可变结果版本（Ticket 14）：发布即冻结全部业务内容。
+/// append-only 语义由触发器保证——仅允许 superseded_at / confirmed_at / confirmed_by_open_id
+/// 从 NULL 一次性回填，其余列禁止 UPDATE，且禁止 DELETE。
+/// 员工确认精确绑定版本；同一参与者仅一个当前版本（superseded_at IS NULL 部分唯一索引）。
+model PerfResultVersion {
+  id                  Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId       Int              @map("participant_id") /// 所属参与者
+  version             Int /// 参与者内递增版本号，从 1 开始
+  finalLevel          PerfRatingSymbol @map("final_level") /// 员工可见的最终等级；有效红线强制为 C（数据库触发器兜底）
+  employeeExplanation String?          @map("employee_explanation") /// 员工可见解释；发布时收敛，不含内部校准讨论
+  sourceCalibrationId Int?             @map("source_calibration_id") /// 来源校准决定；仅迁移回填的历史版本可为空
+  resultSnapshot      Json             @map("result_snapshot") /// 隐私收敛后的员工可见结果快照：{ cycle, manager{compositeScore,dimensions,overallComment}, self, promotion }
+  publishedByOpenId   String           @map("published_by_open_id") /// 发布操作人 open_id；迁移回填为 system:migration
+  publishedAt         DateTime         @default(now()) @map("published_at") /// 发布时间
+  supersededAt        DateTime?        @map("superseded_at") /// 被新版本替代时间；新版本发布同事务一次性写入
+  confirmedAt         DateTime?        @map("confirmed_at") /// 员工确认本版本的时间
+  confirmedByOpenId   String?          @map("confirmed_by_open_id") /// 确认人 open_id（员工本人）
+  createdAt           DateTime         @default(now()) @map("created_at") /// 创建时间
+
+  participant       PerfParticipant  @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  sourceCalibration PerfCalibration? @relation(fields: [sourceCalibrationId], references: [id], onDelete: Restrict)
+
+  @@unique([participantId, version]) /// 参与者内版本号唯一
+  @@index([participantId, supersededAt]) /// 读取当前有效版本
+  @@index([sourceCalibrationId])
+  @@map("perf_result_versions")
   @@schema("performance")
 }
 

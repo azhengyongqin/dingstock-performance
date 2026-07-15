@@ -1,31 +1,225 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PerfParticipantStatus } from '../generated/prisma/enums';
-import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { ParticipantService } from '../participant/participant.service';
+import type {
+  FormSnapshotContent,
+  FormSnapshotItem,
+} from '../evaluation/evaluation.service-types';
+import type { Prisma } from '../generated/prisma/client';
+import {
+  PerfCycleStatus,
+  PerfEvaluationTaskType,
+  PerfParticipantStatus,
+  PerfRatingSymbol,
+  PerfRedLineAction,
+  PerfReviewStatus,
+} from '../generated/prisma/enums';
+import { NotificationEventService } from '../notification/notification-event.service';
+import { PrismaService } from '../shared/database/prisma.service';
 
-/** 员工侧结果查询与确认（产品 §5.6）；结果推送前员工不可见任何评分（产品 §3.2） */
+type SnapshotAnswer = {
+  subformKey: string;
+  dimensionKey: string;
+  itemKey: string;
+  itemType: string;
+  rawLevel: PerfRatingSymbol | null;
+  rawScore: { toString(): string } | number | string | null;
+  value: Prisma.JsonValue | null;
+};
+
+type SnapshotSubmission = {
+  stage: PerfEvaluationTaskType;
+  items: SnapshotAnswer[];
+};
+
+type VisibleAnswer = {
+  subformKey: string;
+  dimensionKey: string;
+  itemKey: string;
+  title: string;
+  type: string;
+  rawLevel: PerfRatingSymbol | null;
+  rawScore: string | null;
+  value: Prisma.JsonValue | null;
+};
+
+type ResultSnapshot = {
+  cycle: { id: number; name: string };
+  manager: {
+    compositeScore: string | null;
+    level: PerfRatingSymbol | null;
+    dimensions: Array<{
+      dimensionKey: string;
+      name: string;
+      score: string;
+      level: PerfRatingSymbol;
+    }>;
+    comments: VisibleAnswer[];
+  };
+  self: { level: PerfRatingSymbol | null; items: VisibleAnswer[] };
+  promotion: { visible: true; items: VisibleAnswer[] } | null;
+};
+
+/**
+ * Ticket 14 结果版本边界：发布时冻结员工可见快照，查询只读取该快照，
+ * 确认必须精确绑定员工当前看到的版本。
+ */
 @Injectable()
 export class ResultService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly participantService: ParticipantService,
+    private readonly notificationEventService: NotificationEventService,
   ) {}
 
   private static readonly VISIBLE_STATUSES: PerfParticipantStatus[] = [
     PerfParticipantStatus.RESULT_PUSHED,
+    PerfParticipantStatus.RESULT_PUBLISHED,
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
     PerfParticipantStatus.RE_CONFIRMING,
     PerfParticipantStatus.ARCHIVED,
   ];
 
-  /** 我的当前结果：仅结果已推送后可见 */
+  /**
+   * 发布一个周期内已显式校准的员工结果。参与者行锁串行化版本号；
+   * 同等级后续决定只保留校准审计，不生成新版本或重开确认。
+   */
+  async publishCycle(
+    operatorOpenId: string,
+    cycleId: number,
+    participantIds?: number[],
+  ) {
+    const candidates = await this.prisma.perfParticipant.findMany({
+      where: {
+        cycleId,
+        status: {
+          in: [
+            PerfParticipantStatus.CALIBRATED,
+            PerfParticipantStatus.RESULT_PUBLISHED,
+            PerfParticipantStatus.RESULT_PUSHED,
+            PerfParticipantStatus.CONFIRMED,
+          ],
+        },
+        calibrations: { some: {} },
+        ...(participantIds?.length ? { id: { in: participantIds } } : {}),
+      },
+      select: { id: true },
+    });
+    if (candidates.length === 0) {
+      throw new BadRequestException('没有可发布的参与者（需存在显式校准决定）');
+    }
+
+    let published = 0;
+    let unchanged = 0;
+    for (const candidate of candidates) {
+      const outcome = await this.prisma.$transaction(async (tx) => {
+        await this.lockResultAggregate(tx, candidate.id);
+        const participant = await this.loadPublicationState(tx, candidate.id);
+        if (!participant || participant.cycleId !== cycleId) return 'skipped';
+        if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
+          throw new ConflictException('只有进行中的周期可以发布结果');
+        }
+        const calibration = participant.calibrations[0];
+        if (!calibration) {
+          throw new ConflictException('缺少显式校准决定，不能发布结果');
+        }
+        const finalLevel = participant.redLineFindings.length
+          ? PerfRatingSymbol.C
+          : this.requireRatingSymbol(calibration.afterLevel);
+        const currentVersion = await tx.perfResultVersion.findFirst({
+          where: { participantId: participant.id, supersededAt: null },
+          orderBy: { version: 'desc' },
+        });
+        if (currentVersion?.finalLevel === finalLevel) return 'unchanged';
+
+        const publishedAt = new Date();
+        if (currentVersion) {
+          const superseded = await tx.perfResultVersion.updateMany({
+            where: { id: currentVersion.id, supersededAt: null },
+            data: { supersededAt: publishedAt },
+          });
+          if (superseded.count !== 1) {
+            throw new ConflictException('结果版本已变化，请刷新后重试');
+          }
+        }
+        const version = (currentVersion?.version ?? 0) + 1;
+        const snapshot = this.buildResultSnapshot(participant);
+        const resultVersion = await tx.perfResultVersion.create({
+          data: {
+            participantId: participant.id,
+            version,
+            finalLevel,
+            employeeExplanation: this.employeeExplanation(
+              participant.cycle.currentConfigVersion?.ratings,
+              finalLevel,
+            ),
+            sourceCalibrationId: calibration.id,
+            resultSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+            publishedByOpenId: operatorOpenId,
+            publishedAt,
+          },
+        });
+
+        // perf_results 暂作为旧报表的当前投影；员工结果与确认只以不可变版本为准。
+        await tx.perfResult.upsert({
+          where: { participantId: participant.id },
+          create: {
+            participantId: participant.id,
+            finalLevel,
+            dimensionResults: snapshot.manager
+              .dimensions as unknown as Prisma.InputJsonValue,
+            promotionResult: snapshot.promotion
+              ? JSON.stringify(snapshot.promotion.items)
+              : null,
+          },
+          update: {
+            finalLevel,
+            dimensionResults: snapshot.manager
+              .dimensions as unknown as Prisma.InputJsonValue,
+            promotionResult: snapshot.promotion
+              ? JSON.stringify(snapshot.promotion.items)
+              : null,
+            confirmedByEmployee: false,
+            confirmedAt: null,
+          },
+        });
+        await tx.perfParticipant.update({
+          where: { id: participant.id },
+          data: { status: PerfParticipantStatus.RESULT_PUBLISHED },
+        });
+        await this.notificationEventService.enqueueResultPublishedEvent(
+          {
+            cycleId,
+            cycleName: participant.cycle.name,
+            participantId: participant.id,
+            resultVersionId: resultVersion.id,
+            version,
+            receiverOpenId: participant.employeeOpenId,
+          },
+          tx,
+        );
+        return 'published';
+      });
+      if (outcome === 'published') published += 1;
+      if (outcome === 'unchanged') unchanged += 1;
+    }
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'result.publish',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      after: { published, unchanged },
+    });
+    return { published, unchanged };
+  }
+
+  /** 我的当前结果：结果发布前不返回参与人或评分，避免侧信道泄露。 */
   async getCurrent(employeeOpenId: string, cycleId?: number) {
     const participant = await this.prisma.perfParticipant.findFirst({
       where: {
@@ -37,30 +231,37 @@ export class ResultService {
       orderBy: { id: 'desc' },
       include: {
         cycle: { select: { id: true, name: true, status: true } },
-        result: true,
-        appeals: { orderBy: { id: 'desc' } },
+        resultVersions: {
+          orderBy: { version: 'desc' },
+          take: 2,
+          select: {
+            id: true,
+            version: true,
+            finalLevel: true,
+            employeeExplanation: true,
+            resultSnapshot: true,
+            supersededAt: true,
+            publishedAt: true,
+            confirmedAt: true,
+          },
+        },
       },
     });
-    if (!participant?.result) return { participant: null, result: null };
-
-    // 晋升结论可见性：由晋升维度 employee_visible 配置决定
-    let promotionVisible = false;
-    if (participant.isPromotionEnabled) {
-      const promotionDim = await this.prisma.perfDimension.findFirst({
-        where: {
-          cycleId: participant.cycleId,
-          type: 'PROMOTION',
-          deletedAt: null,
-        },
-        select: { employeeVisible: true },
-      });
-      promotionVisible = promotionDim?.employeeVisible ?? false;
+    const current = participant?.resultVersions[0] ?? null;
+    if (!participant || !current || current.supersededAt) {
+      return { participant: null, result: null };
     }
+    const previous = participant.resultVersions[1] ?? null;
+    // 即使历史数据快照异常，也只允许白名单字段穿过员工 API 安全边界。
     const result = {
-      ...participant.result,
-      promotionResult: promotionVisible
-        ? participant.result.promotionResult
-        : null,
+      id: current.id,
+      version: current.version,
+      finalLevel: current.finalLevel,
+      previousFinalLevel: previous?.finalLevel ?? null,
+      employeeExplanation: current.employeeExplanation,
+      resultSnapshot: this.sanitizeResultSnapshot(current.resultSnapshot),
+      publishedAt: current.publishedAt,
+      confirmedAt: current.confirmedAt,
     };
     return {
       participant: {
@@ -69,39 +270,368 @@ export class ResultService {
         cycle: participant.cycle,
       },
       result,
-      appeals: participant.appeals,
     };
   }
 
-  /** 员工确认结果；与申诉互斥 */
-  async confirm(employeeOpenId: string, cycleId: number) {
-    const participant = await this.prisma.perfParticipant.findFirst({
-      where: { employeeOpenId, cycleId },
-      include: { result: true },
+  /** 员工确认结果；participantId 与 resultVersionId 共同防止确认过期页面。 */
+  async confirm(
+    employeeOpenId: string,
+    participantId: number,
+    resultVersionId: number,
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockResultAggregate(tx, participantId);
+      const participant = await tx.perfParticipant.findUnique({
+        where: { id: participantId },
+        include: {
+          resultVersions: {
+            where: { supersededAt: null },
+            orderBy: { version: 'desc' },
+            take: 1,
+            select: { id: true, version: true },
+          },
+        },
+      });
+      if (!participant || participant.employeeOpenId !== employeeOpenId) {
+        throw new NotFoundException('结果尚未发布');
+      }
+      if (
+        participant.status !== PerfParticipantStatus.RESULT_PUBLISHED &&
+        participant.status !== PerfParticipantStatus.RESULT_PUSHED &&
+        participant.status !== PerfParticipantStatus.RE_CONFIRMING
+      ) {
+        throw new ConflictException('当前状态不允许确认结果');
+      }
+      if (participant.resultVersions[0]?.id !== resultVersionId) {
+        throw new ConflictException({
+          code: 'RESULT_VERSION_STALE',
+          message: '结果版本已更新，请刷新后确认最新结果',
+        });
+      }
+      const confirmedAt = new Date();
+      const updated = await tx.perfResultVersion.updateMany({
+        where: {
+          id: resultVersionId,
+          participantId,
+          supersededAt: null,
+          confirmedAt: null,
+        },
+        data: { confirmedAt, confirmedByOpenId: employeeOpenId },
+      });
+      if (updated.count !== 1) {
+        throw new ConflictException('该结果版本已确认或已失效');
+      }
+      await tx.perfParticipant.update({
+        where: { id: participantId },
+        data: { status: PerfParticipantStatus.CONFIRMED },
+      });
+      // 旧投影只同步确认状态，不参与版本有效性判断。
+      await tx.perfResult.updateMany({
+        where: { participantId },
+        data: { confirmedByEmployee: true, confirmedAt },
+      });
     });
-    if (!participant?.result) throw new NotFoundException('结果尚未推送');
-    if (
-      participant.status !== PerfParticipantStatus.RESULT_PUSHED &&
-      participant.status !== PerfParticipantStatus.RE_CONFIRMING
-    ) {
-      throw new ConflictException('当前状态不允许确认结果');
-    }
-
-    await this.prisma.perfResult.update({
-      where: { id: participant.result.id },
-      data: { confirmedByEmployee: true, confirmedAt: new Date() },
-    });
-    await this.participantService.transition(
-      employeeOpenId,
-      participant.id,
-      PerfParticipantStatus.CONFIRMED,
-    );
     await this.auditService.record({
       operatorOpenId: employeeOpenId,
       action: 'result.confirm',
-      targetType: 'perf_participant',
-      targetId: String(participant.id),
+      targetType: 'perf_result_version',
+      targetId: String(resultVersionId),
+      after: { participantId },
     });
-    return { ok: true };
+    return { ok: true, resultVersionId };
+  }
+
+  private async lockResultAggregate(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    const cycles = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT cycle."id"
+      FROM "performance"."perf_cycles" AS cycle
+      JOIN "performance"."perf_participants" AS participant
+        ON participant."cycle_id" = cycle."id"
+      WHERE participant."id" = ${participantId}
+      FOR UPDATE OF cycle
+    `;
+    if (cycles.length !== 1) throw new NotFoundException('参与者不存在');
+    const participants = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT "id" FROM "performance"."perf_participants"
+      WHERE "id" = ${participantId}
+      FOR UPDATE
+    `;
+    if (participants.length !== 1) throw new NotFoundException('参与者不存在');
+    await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT "id" FROM "performance"."perf_result_versions"
+      WHERE "participant_id" = ${participantId}
+      ORDER BY "version" DESC
+      FOR UPDATE
+    `;
+  }
+
+  private loadPublicationState(
+    tx: Prisma.TransactionClient,
+    participantId: number,
+  ) {
+    return tx.perfParticipant.findUnique({
+      where: { id: participantId },
+      include: {
+        cycle: {
+          include: {
+            currentConfigVersion: { select: { ratings: true } },
+            dimensions: {
+              where: { type: 'PROMOTION', deletedAt: null },
+              select: { employeeVisible: true },
+            },
+          },
+        },
+        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        redLineFindings: {
+          where: {
+            action: PerfRedLineAction.CONFIRM,
+            revokedBy: { none: {} },
+          },
+          select: { id: true },
+          take: 1,
+        },
+        stageResults: {
+          where: {
+            stage: {
+              in: [PerfEvaluationTaskType.SELF, PerfEvaluationTaskType.MANAGER],
+            },
+            status: 'READY',
+          },
+          include: { dimensions: { orderBy: { id: 'asc' } } },
+        },
+        evaluationSubmissions: {
+          where: {
+            stage: {
+              in: [PerfEvaluationTaskType.SELF, PerfEvaluationTaskType.MANAGER],
+            },
+            status: PerfReviewStatus.SUBMITTED,
+          },
+          include: { items: { orderBy: { id: 'asc' } } },
+        },
+        formSnapshot: { select: { content: true } },
+      },
+    });
+  }
+
+  private buildResultSnapshot(
+    participant: NonNullable<
+      Awaited<ReturnType<ResultService['loadPublicationState']>>
+    >,
+  ): ResultSnapshot {
+    const managerStage = participant.stageResults.find(
+      (item) =>
+        item.stage === PerfEvaluationTaskType.MANAGER &&
+        (!participant.cycle.currentConfigVersionId ||
+          item.cycleConfigVersionId ===
+            participant.cycle.currentConfigVersionId),
+    );
+    const selfStage = participant.stageResults.find(
+      (item) =>
+        item.stage === PerfEvaluationTaskType.SELF &&
+        (!participant.cycle.currentConfigVersionId ||
+          item.cycleConfigVersionId ===
+            participant.cycle.currentConfigVersionId),
+    );
+    const managerSubmission = participant.evaluationSubmissions.find(
+      (item) => item.stage === PerfEvaluationTaskType.MANAGER,
+    ) as SnapshotSubmission | undefined;
+    const selfSubmission = participant.evaluationSubmissions.find(
+      (item) => item.stage === PerfEvaluationTaskType.SELF,
+    ) as SnapshotSubmission | undefined;
+    const content = participant.formSnapshot
+      ?.content as unknown as FormSnapshotContent | null;
+    const promotionVisible =
+      participant.isPromotionEnabled &&
+      participant.cycle.dimensions.some((item) => item.employeeVisible);
+    const promotionItems = [
+      ...(selfSubmission?.items ?? []),
+      ...(managerSubmission?.items ?? []),
+    ].filter((item) => item.subformKey.includes('PROMOTION'));
+    return {
+      cycle: { id: participant.cycle.id, name: participant.cycle.name },
+      manager: {
+        compositeScore: managerStage?.compositeScore?.toString() ?? null,
+        level: managerStage?.stageLevel ?? null,
+        dimensions: (managerStage?.dimensions ?? []).map((dimension) => ({
+          dimensionKey: dimension.dimensionKey,
+          name: dimension.name,
+          score: dimension.score.toString(),
+          level: dimension.level,
+        })),
+        comments: this.visibleAnswers(
+          (managerSubmission?.items ?? []).filter(
+            (item) =>
+              !item.subformKey.includes('PROMOTION') &&
+              item.itemType !== 'RATING' &&
+              item.itemType !== 'SCORE',
+          ),
+          content,
+        ),
+      },
+      self: {
+        level:
+          selfStage?.stageLevel ??
+          selfSubmission?.items.find(
+            (item) => item.itemType === 'RATING' && item.rawLevel,
+          )?.rawLevel ??
+          null,
+        items: this.visibleAnswers(
+          (selfSubmission?.items ?? []).filter(
+            (item) => !item.subformKey.includes('PROMOTION'),
+          ),
+          content,
+        ),
+      },
+      promotion: promotionVisible
+        ? { visible: true, items: this.visibleAnswers(promotionItems, content) }
+        : null,
+    };
+  }
+
+  private visibleAnswers(
+    items: SnapshotAnswer[],
+    content: FormSnapshotContent | null,
+  ): VisibleAnswer[] {
+    return items.map((answer) => {
+      const metadata = this.findItem(content, answer.itemKey);
+      return {
+        subformKey: answer.subformKey,
+        dimensionKey: answer.dimensionKey,
+        itemKey: answer.itemKey,
+        title: metadata?.title ?? answer.itemKey,
+        type: answer.itemType,
+        rawLevel: answer.rawLevel,
+        rawScore: answer.rawScore?.toString() ?? null,
+        value: answer.value,
+      };
+    });
+  }
+
+  private sanitizeResultSnapshot(value: Prisma.JsonValue): ResultSnapshot {
+    const root = this.jsonObject(value);
+    const cycle = this.jsonObject(root.cycle);
+    const manager = this.jsonObject(root.manager);
+    const self = this.jsonObject(root.self);
+    const promotion = this.jsonObject(root.promotion);
+    return {
+      cycle: {
+        id: typeof cycle.id === 'number' ? cycle.id : 0,
+        name: typeof cycle.name === 'string' ? cycle.name : '',
+      },
+      manager: {
+        compositeScore: this.stringOrNull(manager.compositeScore),
+        level: this.ratingOrNull(manager.level),
+        dimensions: Array.isArray(manager.dimensions)
+          ? manager.dimensions.flatMap((item) => {
+              const dimension = this.jsonObject(item);
+              const level = this.ratingOrNull(dimension.level);
+              if (!level) return [];
+              return [
+                {
+                  dimensionKey: this.stringOrEmpty(dimension.dimensionKey),
+                  name: this.stringOrEmpty(dimension.name),
+                  score: this.stringOrEmpty(dimension.score),
+                  level,
+                },
+              ];
+            })
+          : [],
+        comments: this.sanitizeVisibleAnswers(manager.comments),
+      },
+      self: {
+        level: this.ratingOrNull(self.level),
+        items: this.sanitizeVisibleAnswers(self.items),
+      },
+      promotion:
+        promotion.visible === true
+          ? {
+              visible: true,
+              items: this.sanitizeVisibleAnswers(promotion.items),
+            }
+          : null,
+    };
+  }
+
+  private sanitizeVisibleAnswers(value: Prisma.JsonValue | undefined) {
+    if (!Array.isArray(value)) return [];
+    return value.map((item) => {
+      const answer = this.jsonObject(item);
+      return {
+        subformKey: this.stringOrEmpty(answer.subformKey),
+        dimensionKey: this.stringOrEmpty(answer.dimensionKey),
+        itemKey: this.stringOrEmpty(answer.itemKey),
+        title: this.stringOrEmpty(answer.title),
+        type: this.stringOrEmpty(answer.type),
+        rawLevel: this.ratingOrNull(answer.rawLevel),
+        rawScore: this.stringOrNull(answer.rawScore),
+        value: answer.value ?? null,
+      };
+    });
+  }
+
+  private jsonObject(value: Prisma.JsonValue | undefined) {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value
+      : {};
+  }
+
+  private stringOrEmpty(value: Prisma.JsonValue | undefined) {
+    return typeof value === 'string' ? value : '';
+  }
+
+  private stringOrNull(value: Prisma.JsonValue | undefined) {
+    return typeof value === 'string' ? value : null;
+  }
+
+  private ratingOrNull(value: Prisma.JsonValue | undefined) {
+    return value === PerfRatingSymbol.S ||
+      value === PerfRatingSymbol.A ||
+      value === PerfRatingSymbol.B ||
+      value === PerfRatingSymbol.C
+      ? value
+      : null;
+  }
+
+  private findItem(
+    content: FormSnapshotContent | null,
+    itemKey: string,
+  ): FormSnapshotItem | undefined {
+    return content?.subforms
+      .flatMap((subform) => subform.dimensions)
+      .flatMap((dimension) => dimension.items)
+      .find((item) => item.key === itemKey);
+  }
+
+  private employeeExplanation(
+    value: Prisma.JsonValue | undefined,
+    level: PerfRatingSymbol,
+  ) {
+    if (!Array.isArray(value)) return `绩效等级 ${level}`;
+    const rating = value.find(
+      (item) =>
+        item !== null &&
+        typeof item === 'object' &&
+        !Array.isArray(item) &&
+        item.symbol === level,
+    ) as Record<string, Prisma.JsonValue> | undefined;
+    const explanation = rating?.description ?? rating?.remark ?? rating?.name;
+    return typeof explanation === 'string' && explanation.trim()
+      ? explanation.trim()
+      : `绩效等级 ${level}`;
+  }
+
+  private requireRatingSymbol(value: string) {
+    if (
+      value !== PerfRatingSymbol.S &&
+      value !== PerfRatingSymbol.A &&
+      value !== PerfRatingSymbol.B &&
+      value !== PerfRatingSymbol.C
+    ) {
+      throw new ConflictException('校准决定包含无效等级，不能发布结果');
+    }
+    return value;
   }
 }

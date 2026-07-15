@@ -39,6 +39,7 @@ export type CalibrationRow = {
 const STATUS_BADGE: Partial<Record<PerfParticipantStatus, string>> = {
   CALIBRATED: 'bg-green-500/10 text-green-600 dark:text-green-400',
   RESULT_PUSHED: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+  RESULT_PUBLISHED: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   CONFIRMED: 'bg-green-500/10 text-green-600 dark:text-green-400',
   APPEALING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   NO_RESULT: 'bg-muted text-muted-foreground'

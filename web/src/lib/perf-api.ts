@@ -16,6 +16,7 @@ export type PerfParticipantStatus =
   | 'AI_DONE'
   | 'CALIBRATED'
   | 'RESULT_PUSHED'
+  | 'RESULT_PUBLISHED'
   | 'CONFIRMED'
   | 'APPEALING'
   | 'RE_CONFIRMING'
@@ -91,6 +92,7 @@ export const PARTICIPANT_STATUS_LABEL: Record<PerfParticipantStatus, string> = {
   AI_DONE: 'AI 分析完成',
   CALIBRATED: '已校准',
   RESULT_PUSHED: '待确认结果',
+  RESULT_PUBLISHED: '待确认结果',
   CONFIRMED: '已确认',
   APPEALING: '申诉中',
   RE_CONFIRMING: '待再次确认',

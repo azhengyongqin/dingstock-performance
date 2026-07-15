@@ -32,6 +32,7 @@ jest.mock(
       AI_DONE: 'AI_DONE',
       CALIBRATED: 'CALIBRATED',
       RESULT_PUSHED: 'RESULT_PUSHED',
+      RESULT_PUBLISHED: 'RESULT_PUBLISHED',
       CONFIRMED: 'CONFIRMED',
       APPEALING: 'APPEALING',
       RE_CONFIRMING: 'RE_CONFIRMING',
@@ -481,10 +482,10 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     });
   });
 
-  it('结果已推送后在版本化发布能力交付前拒绝直接追加决定', async () => {
+  it('结果已发布后允许追加重新校准决定，由结果服务判断是否产生新版本', async () => {
     tx.perfParticipant.findUnique.mockResolvedValue({
       ...participant,
-      status: 'RESULT_PUSHED',
+      status: 'RESULT_PUBLISHED',
       evaluationLockedAt: new Date('2026-07-15T10:00:00.000Z'),
       calibrations: [{ id: 400, afterLevel: 'B' }],
     });
@@ -496,10 +497,9 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
         expectedCalibrationRevision: 400,
         expectedInputRevision: context.inputRevision,
       }),
-    ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'CALIBRATION_STATE_CLOSED' }),
-    });
-    expect(tx.perfCalibration.create).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ decision: 'KEEP', afterLevel: 'B' });
+    expect(tx.perfCalibration.create).toHaveBeenCalled();
+    expect(tx.perfParticipant.update).not.toHaveBeenCalled();
   });
 
   it('SELF_SUBMITTED 仍按有效提交门槛派生完成度并允许决定', async () => {

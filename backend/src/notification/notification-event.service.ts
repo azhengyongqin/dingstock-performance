@@ -16,6 +16,7 @@ import { REDIS_CLIENT } from '../shared/redis/redis.constants';
 import type { NotificationRules } from '../config-template/config-template.contract';
 import {
   cycleStartFailedDedupeKey,
+  resultPublishedDedupeKey,
   type EnqueueNotificationEventInput,
   type TaskNotificationContext,
   type TaskOpenedEventInput,
@@ -113,6 +114,38 @@ export class NotificationEventService {
         payload: input.payload,
       },
     });
+  }
+
+  /** 结果版本与通知事件在同一业务事务提交，消费者失败可按 outbox 重试。 */
+  enqueueResultPublishedEvent(
+    input: {
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      resultVersionId: number;
+      version: number;
+      receiverOpenId: string;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    return this.enqueue(
+      {
+        dedupeKey: resultPublishedDedupeKey(input),
+        type: 'RESULT_PUBLISHED',
+        cycleId: input.cycleId,
+        receiverOpenId: input.receiverOpenId,
+        channel: PerfNotificationChannel.BOT_DM,
+        template: 'result_published',
+        payload: {
+          cycleId: input.cycleId,
+          cycleName: input.cycleName,
+          participantId: input.participantId,
+          resultVersionId: input.resultVersionId,
+          version: input.version,
+        },
+      },
+      transaction,
+    );
   }
 
   /** 任务开放事件按接收人拆分，抄送人与执行人为同一人时自动去重。 */

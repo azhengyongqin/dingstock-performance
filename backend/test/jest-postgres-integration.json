@@ -2,7 +2,10 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": "..",
   "testEnvironment": "node",
-  "testMatch": ["<rootDir>/test/calibration-postgres.integration-spec.ts"],
+  "testMatch": [
+    "<rootDir>/test/calibration-postgres.integration-spec.ts",
+    "<rootDir>/test/result-version-postgres.integration-spec.ts"
+  ],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   }

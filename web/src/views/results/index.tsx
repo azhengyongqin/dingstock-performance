@@ -31,13 +31,21 @@ import { APPEAL_STATUS_LABEL, PARTICIPANT_STATUS_LABEL, formatDateTime } from '@
 
 // ===== 后端数据类型（GET /results/current） =====
 
-/** 单个维度的最终结果 */
+/** 发布时冻结的上级评估维度结果 */
 type DimensionResult = {
-  dimensionId: number
+  dimensionKey: string
   name: string
-  level?: string | null
-  score?: number | null
-  comment?: string | null
+  level: string
+  score: string
+}
+
+type VisibleAnswer = {
+  itemKey: string
+  title: string
+  type: string
+  rawLevel?: string | null
+  rawScore?: string | null
+  value?: unknown
 }
 
 /** 我的申诉记录 */
@@ -52,14 +60,40 @@ type AppealItem = {
 type CurrentResult = {
   participant: { id: number; status: PerfParticipantStatus; cycle: { id: number; name: string } } | null
   result: {
+    id: number
+    version: number
     finalLevel: string
-    dimensionResults: DimensionResult[]
-    promotionResult?: string | null
-    confirmedByEmployee: boolean
+    previousFinalLevel?: string | null
+    employeeExplanation?: string | null
+    resultSnapshot: {
+      manager: {
+        compositeScore?: string | null
+        level?: string | null
+        dimensions: DimensionResult[]
+        comments: VisibleAnswer[]
+      }
+      self: { level?: string | null; items: VisibleAnswer[] }
+      promotion?: { visible: true; items: VisibleAnswer[] } | null
+    }
+    publishedAt: string
     confirmedAt?: string | null
   } | null
-  appeals: AppealItem[]
+  appeals?: AppealItem[]
 }
+
+/** 统一展示发布快照中的可见答案，避免不同结果分区的回退规则漂移。 */
+const renderAnswerItems = (items: VisibleAnswer[]) => (
+  <>
+    {items.map(item => (
+      <div key={`${item.itemKey}-${item.title}`} className='rounded-lg border p-4 text-sm'>
+        <p className='font-medium'>{item.title}</p>
+        <p className='text-muted-foreground mt-1 whitespace-pre-wrap'>
+          {String(item.value ?? item.rawLevel ?? item.rawScore ?? '')}
+        </p>
+      </div>
+    ))}
+  </>
+)
 
 // 申诉状态徽标配色
 const APPEAL_STATUS_BADGE: Record<PerfAppealStatus, string> = {
@@ -71,7 +105,7 @@ const APPEAL_STATUS_BADGE: Record<PerfAppealStatus, string> = {
 /**
  * 结果确认（员工视角，真实后端 /results/current）：
  * 绩效等级展示卡 + 各维度结果 + 确认/申诉操作 + 申诉记录。
- * participant.status 为 RESULT_PUSHED / RE_CONFIRMING 时可确认或发起申诉。
+ * participant.status 为 RESULT_PUBLISHED / 遗留 RESULT_PUSHED / RE_CONFIRMING 时可确认或发起申诉。
  */
 const Results = () => {
   // 结果数据
@@ -92,7 +126,10 @@ const Results = () => {
   const appeals = data?.appeals ?? []
 
   // 可操作：结果已推送待确认 / 申诉处理后待再次确认
-  const actionable = participant?.status === 'RESULT_PUSHED' || participant?.status === 'RE_CONFIRMING'
+  const actionable =
+    participant?.status === 'RESULT_PUBLISHED' ||
+    participant?.status === 'RESULT_PUSHED' ||
+    participant?.status === 'RE_CONFIRMING'
 
   // 拉取当前周期结果
   const fetchCurrent = useCallback(async () => {
@@ -119,14 +156,14 @@ const Results = () => {
 
   // 确认结果
   const handleConfirm = async () => {
-    if (!participant) return
+    if (!participant || !result) return
 
     setConfirming(true)
 
     try {
       await apiFetch('/results/current/confirm', {
         method: 'POST',
-        body: JSON.stringify({ cycleId: participant.cycle.id })
+        body: JSON.stringify({ participantId: participant.id, resultVersionId: result.id })
       })
       toast.success('绩效结果已确认')
       await fetchCurrent()
@@ -213,7 +250,7 @@ const Results = () => {
         title='结果确认'
         description={`${participant.cycle.name} · 我的状态：${PARTICIPANT_STATUS_LABEL[participant.status] ?? participant.status}`}
         actions={
-          result.confirmedByEmployee ? (
+          result.confirmedAt ? (
             <Badge className='bg-green-500/10 text-green-600 dark:text-green-400'>
               已确认{result.confirmedAt ? ` · ${formatDateTime(result.confirmedAt)}` : ''}
             </Badge>
@@ -232,10 +269,16 @@ const Results = () => {
             </div>
             <div className='flex flex-col gap-1'>
               <span className='text-lg font-semibold'>绩效等级：{result.finalLevel}</span>
-              <span className='text-muted-foreground text-sm'>经校准会议确认的最终结果</span>
-              {/* 晋升结果：仅参与晋升评估且有结论时展示 */}
-              {result.promotionResult && (
-                <span className='text-muted-foreground text-sm'>晋升结果：{result.promotionResult}</span>
+              <span className='text-muted-foreground text-sm'>
+                版本 V{result.version} · 发布于 {formatDateTime(result.publishedAt)}
+              </span>
+              {result.employeeExplanation && (
+                <span className='text-muted-foreground text-sm'>{result.employeeExplanation}</span>
+              )}
+              {result.previousFinalLevel && result.previousFinalLevel !== result.finalLevel && (
+                <span className='text-muted-foreground text-sm'>
+                  等级变化：{result.previousFinalLevel} → {result.finalLevel}
+                </span>
               )}
             </div>
           </div>
@@ -261,28 +304,50 @@ const Results = () => {
           <CardDescription>按评估维度拆解的结果与评语</CardDescription>
         </CardHeader>
         <CardContent className='flex flex-col gap-4'>
-          {result.dimensionResults.length === 0 ? (
+          {result.resultSnapshot.manager.compositeScore && (
+            <p className='text-sm font-medium'>上级评估综合分：{result.resultSnapshot.manager.compositeScore}</p>
+          )}
+          {result.resultSnapshot.manager.dimensions.length === 0 ? (
             <p className='text-muted-foreground py-6 text-center text-sm'>暂无维度结果明细</p>
           ) : (
-            result.dimensionResults.map(dimension => (
-              <div key={dimension.dimensionId} className='flex flex-col gap-2 rounded-lg border p-4'>
+            result.resultSnapshot.manager.dimensions.map(dimension => (
+              <div key={dimension.dimensionKey} className='flex flex-col gap-2 rounded-lg border p-4'>
                 <div className='flex flex-wrap items-center justify-between gap-2'>
                   <div className='flex items-center gap-2'>
                     <span className='font-medium'>{dimension.name}</span>
-                    {dimension.level && <Badge variant='outline'>等级 {dimension.level}</Badge>}
+                    <Badge variant='outline'>等级 {dimension.level}</Badge>
                   </div>
-                  {dimension.score != null && (
-                    <span className='text-primary text-lg font-semibold'>{dimension.score} 分</span>
-                  )}
+                  <span className='text-primary text-lg font-semibold'>{dimension.score} 分</span>
                 </div>
-                {/* 分值型维度用进度条可视化 */}
-                {dimension.score != null && <Progress value={dimension.score} className='h-2' />}
-                {dimension.comment && <p className='text-muted-foreground text-sm'>{dimension.comment}</p>}
+                <Progress value={Number(dimension.score)} className='h-2' />
               </div>
             ))
           )}
+          {renderAnswerItems(result.resultSnapshot.manager.comments)}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>我的自评</CardTitle>
+          <CardDescription>
+            {result.resultSnapshot.self.level ? `自评等级：${result.resultSnapshot.self.level}` : '本期正式提交内容'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className='flex flex-col gap-3'>{renderAnswerItems(result.resultSnapshot.self.items)}</CardContent>
+      </Card>
+
+      {result.resultSnapshot.promotion?.visible && (
+        <Card>
+          <CardHeader>
+            <CardTitle>晋升评估结论</CardTitle>
+            <CardDescription>仅展示周期配置允许向员工公开的内容</CardDescription>
+          </CardHeader>
+          <CardContent className='flex flex-col gap-3'>
+            {renderAnswerItems(result.resultSnapshot.promotion.items)}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 申诉记录：已发起过申诉时展示 */}
       {appeals.length > 0 && (
@@ -310,7 +375,8 @@ const Results = () => {
       {/* 确认说明 */}
       <Card>
         <CardContent className='text-muted-foreground text-sm'>
-          确认结果后进入面谈闭环阶段；若对结果有异议，请在确认窗口内点击「发起申诉」，HR 将安排申诉面谈。逾期未操作视为默认确认。
+          确认结果后进入面谈闭环阶段；若对结果有异议，请在确认窗口内点击「发起申诉」，HR
+          将安排申诉面谈。逾期未操作视为默认确认。
         </CardContent>
       </Card>
 

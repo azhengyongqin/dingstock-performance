@@ -1,16 +1,9 @@
 import {
-  BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  PerfNotificationChannel,
-  PerfParticipantStatus,
-  PerfRedLineAction,
-  PerfRole,
-} from '../generated/prisma/enums';
+import { PerfRedLineAction, PerfRole } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
@@ -24,9 +17,9 @@ type CalibrationReadDb = Pick<
 
 /**
  * 校准与最终结果（产品 §5.5/§5.6）：
- * - 这里只保留校准工作台读取、历史读取和旧结果推送；决定写入统一走 CalibrationDecisionService；
+ * - 这里只保留校准工作台与历史读取；决定写入统一走 CalibrationDecisionService；
  * - 当前评级 = 最近一条校准记录的 after_level，无校准则取上级初评评级；
- * - 推送结果 = 生成 perf_results + RESULT_PUSHED。
+ * - 结果版本发布统一走 ResultService，禁止继续覆盖旧单行结果。
  */
 @Injectable()
 export class CalibrationService {
@@ -268,119 +261,5 @@ export class CalibrationService {
       WHERE "participant_id" = ${participantId}
       FOR UPDATE
     `;
-  }
-
-  /**
-   * 推送结果给员工确认（产品 §5.6）：
-   * 生成/更新 perf_results（final = 校准后评级），参与者 → RESULT_PUSHED，落结果通知。
-   */
-  async pushResults(
-    operatorOpenId: string,
-    cycleId: number,
-    participantIds?: number[],
-  ) {
-    const candidates = await this.prisma.perfParticipant.findMany({
-      where: {
-        cycleId,
-        status: PerfParticipantStatus.CALIBRATED,
-        calibrations: { some: {} },
-        ...(participantIds?.length ? { id: { in: participantIds } } : {}),
-      },
-      select: { id: true },
-    });
-    if (candidates.length === 0) {
-      throw new BadRequestException(
-        '没有可推送的参与者（需存在显式校准决定并处于已校准状态）',
-      );
-    }
-
-    let pushed = 0;
-    for (const candidate of candidates) {
-      await this.prisma.$transaction(async (tx) => {
-        // 与红线确认/撤销、校准决定共用同一锁序；锁后重读，禁止事务外快照发布过期等级。
-        await this.lockCalibrationAggregate(tx, candidate.id);
-        const participant = await tx.perfParticipant.findUnique({
-          where: { id: candidate.id },
-          include: {
-            managerReview: true,
-            calibrations: { orderBy: { id: 'desc' }, take: 1 },
-            redLineFindings: {
-              where: {
-                action: PerfRedLineAction.CONFIRM,
-                revokedBy: { none: {} },
-              },
-              select: { id: true },
-              take: 1,
-            },
-            cycle: {
-              include: { dimensions: { where: { deletedAt: null } } },
-            },
-          },
-        });
-        if (
-          !participant ||
-          participant.cycleId !== cycleId ||
-          participant.status !== PerfParticipantStatus.CALIBRATED
-        ) {
-          return;
-        }
-        const calibration = participant.calibrations[0];
-        if (!calibration) {
-          throw new ConflictException('缺少显式校准决定，不能推送结果');
-        }
-        const finalLevel = participant.redLineFindings.length
-          ? 'C'
-          : calibration.afterLevel;
-        // 维度结果快照冗余名称，归档后不受维度修改影响。
-        const scores = (participant.managerReview?.dimensionScores ?? []) as {
-          dimensionId?: number;
-        }[];
-        const dimensionResults = scores.map((score) => ({
-          ...score,
-          name: participant.cycle.dimensions.find(
-            (dim) => dim.id === score.dimensionId,
-          )?.name,
-        }));
-        await tx.perfResult.upsert({
-          where: { participantId: participant.id },
-          create: {
-            participantId: participant.id,
-            finalLevel,
-            dimensionResults: dimensionResults,
-            promotionResult: participant.managerReview?.promotionConclusion,
-          },
-          update: {
-            finalLevel,
-            dimensionResults: dimensionResults,
-            promotionResult: participant.managerReview?.promotionConclusion,
-          },
-        });
-        await tx.perfNotification.create({
-          data: {
-            receiverOpenId: participant.employeeOpenId,
-            channel: PerfNotificationChannel.BOT_DM,
-            template: 'result_pushed',
-            payload: {
-              cycleId,
-              participantId: participant.id,
-            },
-          },
-        });
-        await tx.perfParticipant.update({
-          where: { id: participant.id },
-          data: { status: PerfParticipantStatus.RESULT_PUSHED },
-        });
-        pushed += 1;
-      });
-    }
-
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'result.push',
-      targetType: 'perf_cycle',
-      targetId: String(cycleId),
-      after: { pushed },
-    });
-    return { pushed };
   }
 }

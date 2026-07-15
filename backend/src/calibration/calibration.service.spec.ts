@@ -255,36 +255,4 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
       expect.objectContaining({ where: { cycleId: 1 } }),
     );
   });
-
-  it('旧结果推送边界也不能绕过有效红线，最终等级强制为 C', async () => {
-    const resultParticipant = {
-      id: 7,
-      cycleId: 1,
-      employeeOpenId: 'ou_employee',
-      status: 'CALIBRATED',
-      calibrations: [{ afterLevel: 'A' }],
-      redLineFindings: [{ id: 501 }],
-      managerReview: {
-        initialLevel: 'A',
-        dimensionScores: [],
-        promotionConclusion: null,
-      },
-      cycle: { dimensions: [] },
-    };
-    prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }]);
-    tx.perfParticipant.findUnique.mockResolvedValue(resultParticipant);
-
-    await service.pushResults('ou_hr', 1, [7]);
-
-    expect(tx.perfResult.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        create: expect.objectContaining({ finalLevel: 'C' }),
-        update: expect.objectContaining({ finalLevel: 'C' }),
-      }),
-    );
-    expect(tx.perfParticipant.update).toHaveBeenCalledWith({
-      where: { id: 7 },
-      data: { status: 'RESULT_PUSHED' },
-    });
-  });
 });

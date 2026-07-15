@@ -175,6 +175,30 @@ describe('NotificationEventService', () => {
     expect(events.size).toBe(1);
   });
 
+  it('同一不可变结果版本重复发布只入队一条员工通知事件', async () => {
+    const service = buildService();
+    const input = {
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      resultVersionId: 41,
+      version: 1,
+      receiverOpenId: 'ou_employee',
+    };
+
+    const first = await service.enqueueResultPublishedEvent(input);
+    const duplicate = await service.enqueueResultPublishedEvent(input);
+
+    expect(first.id).toBe(duplicate.id);
+    expect([...events.values()]).toEqual([
+      expect.objectContaining({
+        dedupeKey: 'result-published:41:ou_employee',
+        type: 'RESULT_PUBLISHED',
+        template: 'result_published',
+      }),
+    ]);
+  });
+
   it('同一事件重复消费只产生一条待发送通知', async () => {
     const service = buildService();
     const event = await service.enqueue({

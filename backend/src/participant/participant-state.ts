@@ -23,8 +23,15 @@ const PARTICIPANT_TRANSITIONS: Record<
   // AI 不再是参与者阶段；AI_DONE 仅保留给迁移前历史记录继续走向校准。
   REVIEWED: [PerfParticipantStatus.CALIBRATED],
   AI_DONE: [PerfParticipantStatus.CALIBRATED],
-  CALIBRATED: [PerfParticipantStatus.RESULT_PUSHED],
+  CALIBRATED: [
+    PerfParticipantStatus.RESULT_PUSHED,
+    PerfParticipantStatus.RESULT_PUBLISHED,
+  ],
   RESULT_PUSHED: [
+    PerfParticipantStatus.CONFIRMED,
+    PerfParticipantStatus.APPEALING,
+  ],
+  RESULT_PUBLISHED: [
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
   ],

@@ -10,6 +10,7 @@ import { ResultService } from './result.service';
 import { RedLineFindingService } from './red-line-finding.service';
 import { EvaluationModule } from '../evaluation/evaluation.module';
 import { CalibrationDecisionService } from './calibration-decision.service';
+import { NotificationModule } from '../notification/notification.module';
 
 /** 校准 + 最终结果 + 等级分布（研发文档 §8.1 Calibration/Result 域） */
 @Module({
@@ -20,6 +21,7 @@ import { CalibrationDecisionService } from './calibration-decision.service';
     AuditModule,
     ParticipantModule,
     EvaluationModule,
+    NotificationModule,
   ],
   controllers: [CalibrationController],
   providers: [

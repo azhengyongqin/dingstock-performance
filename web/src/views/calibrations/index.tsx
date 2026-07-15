@@ -74,6 +74,7 @@ const gradeChartConfig = {
 const CALIBRATED_STATUSES = new Set([
   'CALIBRATED',
   'RESULT_PUSHED',
+  'RESULT_PUBLISHED',
   'CONFIRMED',
   'APPEALING',
   'RE_CONFIRMING',
