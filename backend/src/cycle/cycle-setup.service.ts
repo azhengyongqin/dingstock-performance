@@ -103,6 +103,10 @@ type CycleConfigSnapshotRecord = Prisma.PerfCycleConfigVersionGetPayload<{
   include: { formSnapshots: true };
 }>;
 
+type PublishedConfigSource = Prisma.PerfConfigTemplateVersionGetPayload<{
+  include: typeof sourceVersionInclude;
+}>;
+
 /**
  * 四步创建专用服务。
  * 旧周期 CRUD 暂留 CycleService；新版创建、计划、检查与待启动状态全部收口到这里。
@@ -137,37 +141,11 @@ export class CycleSetupService {
     }
 
     const cycleId = await this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
-      const source = await tx.perfConfigTemplateVersion.findUnique({
-        where: { id: dto.configTemplateVersionId },
-        include: sourceVersionInclude,
-      });
-      if (!source || source.status !== 'PUBLISHED') {
-        throw new BadRequestException('配置模板版本未发布或已不可用');
-      }
-      const prefixes = source.formBindings.map(
-        (binding) => binding.jobLevelPrefix,
-      );
-      if (
-        source.formBindings.length !== 2 ||
-        !prefixes.includes('D') ||
-        !prefixes.includes('M')
-      ) {
-        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
-      }
-
-      const plan = generateCyclePlan(
+      const source = await this.resolvePublishedSource(
+        tx,
+        dto.configTemplateVersionId,
         dto.plannedStartAt,
-        source.schedulePreset as unknown as SchedulePreset,
       );
-      const planIssues = validateCyclePlan(plan);
-      if (planIssues.length > 0) {
-        throw new BadRequestException({
-          code: 'CONFIG_SCHEDULE_INVALID',
-          message: '配置模板计划不可用',
-          issues: planIssues,
-        });
-      }
 
       const cycle = await tx.perfCycle.create({
         data: {
@@ -178,34 +156,12 @@ export class CycleSetupService {
         },
       });
       const snapshot = await tx.perfCycleConfigVersion.create({
-        data: {
-          cycleId: cycle.id,
-          version: 1,
-          sourceConfigTemplateVersionId: source.id,
-          selfStageMode: source.selfStageMode,
-          peerStageMode: source.peerStageMode,
-          managerStageMode: source.managerStageMode,
-          aiStageMode: source.aiStageMode,
-          ratings: this.inputJson(source.ratings),
-          constraintProfiles: this.inputJson(source.constraintProfiles),
-          orgOwnerWeight: source.orgOwnerWeight,
-          projectOwnerWeight: source.projectOwnerWeight,
-          peerWeight: source.peerWeight,
-          crossDeptWeight: source.crossDeptWeight,
-          schedulePreset: this.inputJson(source.schedulePreset),
-          notificationRules: this.inputJson(source.notificationRules),
-          createdByOpenId: operatorOpenId,
-          formSnapshots: {
-            create: source.formBindings.map((binding) => ({
-              cycleId: cycle.id,
-              jobLevelPrefix: binding.jobLevelPrefix,
-              sourceFormTemplateVersionId: binding.formTemplateVersionId,
-              content: this.inputJson(
-                this.toFormSnapshotContent(binding.formTemplateVersion),
-              ),
-            })),
-          },
-        },
+        data: this.buildSnapshotCreateData(
+          source,
+          cycle.id,
+          1,
+          operatorOpenId,
+        ),
       });
       await tx.perfCycle.update({
         where: { id: cycle.id },
@@ -251,66 +207,19 @@ export class CycleSetupService {
         throw new ConflictException('周期配置快照已存在，不能重复初始化');
       }
 
-      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
-      const source = await tx.perfConfigTemplateVersion.findUnique({
-        where: { id: dto.configTemplateVersionId },
-        include: sourceVersionInclude,
-      });
-      if (!source || source.status !== 'PUBLISHED') {
-        throw new BadRequestException('配置模板版本未发布或已不可用');
-      }
-      const prefixes = source.formBindings.map(
-        (binding) => binding.jobLevelPrefix,
-      );
-      if (
-        source.formBindings.length !== 2 ||
-        !prefixes.includes('D') ||
-        !prefixes.includes('M')
-      ) {
-        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
-      }
-      const plan = generateCyclePlan(
+      const source = await this.resolvePublishedSource(
+        tx,
+        dto.configTemplateVersionId,
         dto.plannedStartAt,
-        source.schedulePreset as unknown as SchedulePreset,
       );
-      const planIssues = validateCyclePlan(plan);
-      if (planIssues.length > 0) {
-        throw new BadRequestException({
-          code: 'CONFIG_SCHEDULE_INVALID',
-          message: '配置模板计划不可用',
-          issues: planIssues,
-        });
-      }
 
       const snapshot = await tx.perfCycleConfigVersion.create({
-        data: {
+        data: this.buildSnapshotCreateData(
+          source,
           cycleId,
-          version: 1,
-          sourceConfigTemplateVersionId: source.id,
-          selfStageMode: source.selfStageMode,
-          peerStageMode: source.peerStageMode,
-          managerStageMode: source.managerStageMode,
-          aiStageMode: source.aiStageMode,
-          ratings: this.inputJson(source.ratings),
-          constraintProfiles: this.inputJson(source.constraintProfiles),
-          orgOwnerWeight: source.orgOwnerWeight,
-          projectOwnerWeight: source.projectOwnerWeight,
-          peerWeight: source.peerWeight,
-          crossDeptWeight: source.crossDeptWeight,
-          schedulePreset: this.inputJson(source.schedulePreset),
-          notificationRules: this.inputJson(source.notificationRules),
-          createdByOpenId: operatorOpenId,
-          formSnapshots: {
-            create: source.formBindings.map((binding) => ({
-              cycleId,
-              jobLevelPrefix: binding.jobLevelPrefix,
-              sourceFormTemplateVersionId: binding.formTemplateVersionId,
-              content: this.inputJson(
-                this.toFormSnapshotContent(binding.formTemplateVersion),
-              ),
-            })),
-          },
-        },
+          1,
+          operatorOpenId,
+        ),
         include: { formSnapshots: true },
       });
       await tx.perfCycle.update({
@@ -369,68 +278,20 @@ export class CycleSetupService {
         );
       }
 
-      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
-      const source = await tx.perfConfigTemplateVersion.findUnique({
-        where: { id: dto.configTemplateVersionId },
-        include: sourceVersionInclude,
-      });
-      if (!source || source.status !== 'PUBLISHED') {
-        throw new BadRequestException('配置模板版本未发布或已不可用');
-      }
-      const prefixes = source.formBindings.map(
-        (binding) => binding.jobLevelPrefix,
-      );
-      if (
-        source.formBindings.length !== 2 ||
-        !prefixes.includes('D') ||
-        !prefixes.includes('M')
-      ) {
-        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
-      }
-
-      const plan = generateCyclePlan(
+      const source = await this.resolvePublishedSource(
+        tx,
+        dto.configTemplateVersionId,
         cycle.plannedStartAt.toISOString(),
-        source.schedulePreset as unknown as SchedulePreset,
       );
-      const planIssues = validateCyclePlan(plan);
-      if (planIssues.length > 0) {
-        throw new BadRequestException({
-          code: 'CONFIG_SCHEDULE_INVALID',
-          message: '配置模板计划不可用',
-          issues: planIssues,
-        });
-      }
 
       const snapshot = await tx.perfCycleConfigVersion.create({
-        data: {
+        data: this.buildSnapshotCreateData(
+          source,
           cycleId,
           // 周期内版本递增，旧版本不删除，版本链保留供追溯（ADR-0026）。
-          version: currentSnapshot.version + 1,
-          sourceConfigTemplateVersionId: source.id,
-          selfStageMode: source.selfStageMode,
-          peerStageMode: source.peerStageMode,
-          managerStageMode: source.managerStageMode,
-          aiStageMode: source.aiStageMode,
-          ratings: this.inputJson(source.ratings),
-          constraintProfiles: this.inputJson(source.constraintProfiles),
-          orgOwnerWeight: source.orgOwnerWeight,
-          projectOwnerWeight: source.projectOwnerWeight,
-          peerWeight: source.peerWeight,
-          crossDeptWeight: source.crossDeptWeight,
-          schedulePreset: this.inputJson(source.schedulePreset),
-          notificationRules: this.inputJson(source.notificationRules),
-          createdByOpenId: operatorOpenId,
-          formSnapshots: {
-            create: source.formBindings.map((binding) => ({
-              cycleId,
-              jobLevelPrefix: binding.jobLevelPrefix,
-              sourceFormTemplateVersionId: binding.formTemplateVersionId,
-              content: this.inputJson(
-                this.toFormSnapshotContent(binding.formTemplateVersion),
-              ),
-            })),
-          },
-        },
+          currentSnapshot.version + 1,
+          operatorOpenId,
+        ),
         include: { formSnapshots: true },
       });
       await tx.perfCycle.update({
@@ -549,6 +410,91 @@ export class CycleSetupService {
         },
       });
     }
+  }
+
+  /**
+   * 来源配置版本校验：行锁防并发修改 → 查询来源版本 → PUBLISHED 状态校验 → D/M 表单完整性校验 → 周期计划校验。
+   * createFromPublishedConfig / initializeLegacyDraft / reapplyPublishedConfig 三个入口共用同一套校验，
+   * 错误类型、文案与抛出顺序保持一致；仅计划锚点时间（plannedStartAtIso）来源不同。
+   */
+  private async resolvePublishedSource(
+    tx: Prisma.TransactionClient,
+    configTemplateVersionId: number,
+    plannedStartAtIso: string,
+  ): Promise<PublishedConfigSource> {
+    await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${configTemplateVersionId} FOR SHARE`;
+    const source = await tx.perfConfigTemplateVersion.findUnique({
+      where: { id: configTemplateVersionId },
+      include: sourceVersionInclude,
+    });
+    if (!source || source.status !== 'PUBLISHED') {
+      throw new BadRequestException('配置模板版本未发布或已不可用');
+    }
+    const prefixes = source.formBindings.map(
+      (binding) => binding.jobLevelPrefix,
+    );
+    if (
+      source.formBindings.length !== 2 ||
+      !prefixes.includes('D') ||
+      !prefixes.includes('M')
+    ) {
+      throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
+    }
+
+    const plan = generateCyclePlan(
+      plannedStartAtIso,
+      source.schedulePreset as unknown as SchedulePreset,
+    );
+    const planIssues = validateCyclePlan(plan);
+    if (planIssues.length > 0) {
+      throw new BadRequestException({
+        code: 'CONFIG_SCHEDULE_INVALID',
+        message: '配置模板计划不可用',
+        issues: planIssues,
+      });
+    }
+
+    return source;
+  }
+
+  /**
+   * 周期配置快照写入载荷：字段均从来源版本值复制（JSON 字段经 inputJson 深拷贝，避免与来源共享引用），
+   * 三个创建入口仅 version 取值不同，由调用方传入。
+   */
+  private buildSnapshotCreateData(
+    source: PublishedConfigSource,
+    cycleId: number,
+    version: number,
+    operatorOpenId: string,
+  ) {
+    return {
+      cycleId,
+      version,
+      sourceConfigTemplateVersionId: source.id,
+      selfStageMode: source.selfStageMode,
+      peerStageMode: source.peerStageMode,
+      managerStageMode: source.managerStageMode,
+      aiStageMode: source.aiStageMode,
+      ratings: this.inputJson(source.ratings),
+      constraintProfiles: this.inputJson(source.constraintProfiles),
+      orgOwnerWeight: source.orgOwnerWeight,
+      projectOwnerWeight: source.projectOwnerWeight,
+      peerWeight: source.peerWeight,
+      crossDeptWeight: source.crossDeptWeight,
+      schedulePreset: this.inputJson(source.schedulePreset),
+      notificationRules: this.inputJson(source.notificationRules),
+      createdByOpenId: operatorOpenId,
+      formSnapshots: {
+        create: source.formBindings.map((binding) => ({
+          cycleId,
+          jobLevelPrefix: binding.jobLevelPrefix,
+          sourceFormTemplateVersionId: binding.formTemplateVersionId,
+          content: this.inputJson(
+            this.toFormSnapshotContent(binding.formTemplateVersion),
+          ),
+        })),
+      },
+    };
   }
 
   async getSetup(cycleId: number, client: DbClient = this.prisma) {

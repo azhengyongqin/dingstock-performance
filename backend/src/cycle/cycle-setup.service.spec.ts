@@ -736,7 +736,7 @@ describe('CycleSetupService', () => {
         service.reapplyPublishedConfig('ou_hr', 9, {
           configTemplateVersionId: 30,
         }),
-      ).rejects.toThrow(BadRequestException);
+      ).rejects.toThrow('周期缺少计划启动时间，无法重新套用配置模板');
       expect(tx.perfCycleConfigVersion.create).not.toHaveBeenCalled();
       expect(audit.record).not.toHaveBeenCalled();
     });
