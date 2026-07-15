@@ -235,6 +235,47 @@ export class UpdateCycleAdvancedConfigDto {
   reviewerRelationWeights!: ReviewerRelationWeightsDto;
 }
 
+export class ActiveCycleDimensionOverrideDto {
+  @IsIn(['D', 'M'])
+  jobLevelPrefix!: 'D' | 'M';
+
+  @IsString()
+  @MaxLength(200)
+  dimensionKey!: string;
+
+  @IsString()
+  @Matches(/^\d+(\.\d{1,2})?$/)
+  weight!: string;
+
+  @IsBoolean()
+  isCore!: boolean;
+}
+
+/** ACTIVE 周期计算配置预览：expectedConfigVersionId 是页面打开时看到的乐观并发令牌。 */
+export class PreviewActiveCycleConfigDto extends UpdateCycleAdvancedConfigDto {
+  @IsInt()
+  expectedConfigVersionId!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ActiveCycleDimensionOverrideDto)
+  dimensionOverrides!: ActiveCycleDimensionOverrideDto[];
+}
+
+/** 只有完成影响预览、填写原因并显式确认后，才允许创建新配置版本并统一重算。 */
+export class ApplyActiveCycleConfigDto extends PreviewActiveCycleConfigDto {
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/)
+  impactRevision!: string;
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsBoolean()
+  confirmed!: boolean;
+}
+
 export class ApplyTemplateDto {
   /** 要重新套用的配置模板；会整体覆盖评估规则与评估维度 */
   @IsInt()

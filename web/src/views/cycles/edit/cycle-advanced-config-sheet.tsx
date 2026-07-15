@@ -5,9 +5,15 @@ import { useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import type { PerfConfigTemplateVersion, PerfCycleConfigSnapshot } from '@/lib/perf-api'
+import type {
+  ActivePerfCycleDimensionOverride,
+  PerfConfigTemplateVersion,
+  PerfCycleConfigSnapshot
+} from '@/lib/perf-api'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 
 const toEditorValue = (snapshot: PerfCycleConfigSnapshot): PerfConfigTemplateVersion => ({
@@ -35,6 +41,7 @@ const CycleAdvancedConfigSheet = ({
   onOpenChange,
   snapshot,
   editable,
+  active = false,
   saving,
   onSave
 }: {
@@ -42,8 +49,9 @@ const CycleAdvancedConfigSheet = ({
   onOpenChange: (open: boolean) => void
   snapshot: PerfCycleConfigSnapshot | null
   editable: boolean
+  active?: boolean
   saving: boolean
-  onSave: (value: PerfConfigTemplateVersion) => Promise<void>
+  onSave: (value: PerfConfigTemplateVersion, dimensions: ActivePerfCycleDimensionOverride[]) => Promise<void>
 }) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -61,6 +69,7 @@ const CycleAdvancedConfigSheet = ({
                 key={advancedConfigKey(snapshot)}
                 snapshot={snapshot}
                 editable={editable}
+                active={active}
                 saving={saving}
                 onSave={onSave}
               />
@@ -75,15 +84,40 @@ const CycleAdvancedConfigSheet = ({
 const AdvancedConfigEditor = ({
   snapshot,
   editable,
+  active,
   saving,
   onSave
 }: {
   snapshot: PerfCycleConfigSnapshot
   editable: boolean
+  active: boolean
   saving: boolean
-  onSave: (value: PerfConfigTemplateVersion) => Promise<void>
+  onSave: (value: PerfConfigTemplateVersion, dimensions: ActivePerfCycleDimensionOverride[]) => Promise<void>
 }) => {
   const [draft, setDraft] = useState(() => toEditorValue(snapshot))
+
+  const [dimensions, setDimensions] = useState<ActivePerfCycleDimensionOverride[]>(() =>
+    snapshot.forms.flatMap(form => {
+      const content = form.content as
+        | { subforms?: Array<{ dimensions?: Array<{ key: string; weight?: string; isCore?: boolean }> }> }
+        | undefined
+
+      return (content?.subforms ?? []).flatMap(subform =>
+        (subform.dimensions ?? []).flatMap(dimension =>
+          dimension.weight == null
+            ? []
+            : [
+                {
+                  jobLevelPrefix: form.jobLevelPrefix,
+                  dimensionKey: dimension.key,
+                  weight: String(dimension.weight),
+                  isCore: Boolean(dimension.isCore)
+                }
+              ]
+        )
+      )
+    })
+  )
 
   return (
     <>
@@ -91,14 +125,15 @@ const AdvancedConfigEditor = ({
         <CardHeader>
           <CardTitle>快照来源</CardTitle>
           <CardDescription>
-            {snapshot.source ? `${snapshot.source.name} · v${snapshot.source.version}` : '未记录来源版本'}；当前为周期配置 v
-            {snapshot.version}
+            {snapshot.source ? `${snapshot.source.name} · v${snapshot.source.version}` : '未记录来源版本'}
+            ；当前为周期配置 v{snapshot.version}
           </CardDescription>
         </CardHeader>
         <CardContent className='flex flex-wrap gap-2'>
           {snapshot.forms.map(form => (
             <Badge key={form.id} variant='outline'>
-              {form.jobLevelPrefix} · {form.name ?? form.content?.name ?? `表单版本 #${form.sourceFormTemplateVersionId}`}
+              {form.jobLevelPrefix} ·{' '}
+              {form.name ?? form.content?.name ?? `表单版本 #${form.sourceFormTemplateVersionId}`}
             </Badge>
           ))}
         </CardContent>
@@ -110,10 +145,58 @@ const AdvancedConfigEditor = ({
         visibleSections={['ratings', 'constraints', 'relations']}
         onChange={setDraft}
       />
+      {active && dimensions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>维度计算配置</CardTitle>
+            <CardDescription>只调整稳定维度的权重和核心标记；不会增删维度或评估项。</CardDescription>
+          </CardHeader>
+          <CardContent className='space-y-3'>
+            {dimensions.map((dimension, index) => (
+              <div
+                key={`${dimension.jobLevelPrefix}:${dimension.dimensionKey}`}
+                className='grid gap-3 sm:grid-cols-[1fr_160px_120px] sm:items-center'
+              >
+                <span className='text-sm'>
+                  {dimension.jobLevelPrefix} · {dimension.dimensionKey}
+                </span>
+                <Input
+                  aria-label={`${dimension.dimensionKey} 权重`}
+                  type='number'
+                  min='0'
+                  max='100'
+                  step='0.01'
+                  value={dimension.weight}
+                  onChange={event =>
+                    setDimensions(current =>
+                      current.map((item, itemIndex) =>
+                        itemIndex === index ? { ...item, weight: event.target.value } : item
+                      )
+                    )
+                  }
+                />
+                <label className='flex items-center gap-2 text-sm'>
+                  <Checkbox
+                    checked={dimension.isCore}
+                    onCheckedChange={checked =>
+                      setDimensions(current =>
+                        current.map((item, itemIndex) =>
+                          itemIndex === index ? { ...item, isCore: checked === true } : item
+                        )
+                      )
+                    }
+                  />
+                  核心维度
+                </label>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
       {editable && (
         <div className='flex justify-end border-t pt-4'>
-          <Button disabled={saving} onClick={() => void onSave(draft)}>
-            保存高级配置
+          <Button disabled={saving} onClick={() => void onSave(draft, dimensions)}>
+            {active ? '预览影响并继续' : '保存高级配置'}
           </Button>
         </div>
       )}

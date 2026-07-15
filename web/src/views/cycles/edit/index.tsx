@@ -13,6 +13,9 @@ import type {
   PerfConfigTemplateVersionSummary,
   PerfCycle,
   PerfCycleConfigSnapshot,
+  ActivePerfCycleConfigImpact,
+  ActivePerfCycleConfigInput,
+  ActivePerfCycleDimensionOverride,
   PerfCyclePlan,
   PerfCycleSetupParticipant,
   PerfParticipantPrefixCheck,
@@ -21,12 +24,14 @@ import type {
 } from '@/lib/perf-api'
 import {
   createPerfCycle,
+  applyActivePerfCycleConfig,
   getPerfCycleConfigSnapshot,
   getPerfCycleParticipantPrefixCheck,
   getPerfCyclePlan,
   getPerfCycleStartCheck,
   initializePerfCycleSetup,
   listPerfConfigTemplates,
+  previewActivePerfCycleConfig,
   reapplyPerfCycleConfigSnapshot,
   returnPerfCycleToDraft,
   schedulePerfCycle,
@@ -36,6 +41,8 @@ import {
 } from '@/lib/perf-api'
 
 import CycleAdvancedConfigSheet from './cycle-advanced-config-sheet'
+import ActiveConfigImpactDialog from './active-config-impact-dialog'
+import { requiresActiveConfigRepreview } from './active-config-flow'
 import CycleSetupEditor, { type CycleSetupDraft } from './cycle-setup-editor'
 import { toDateTimeInputValue, toIsoDateTimeValue } from './cycle-setup-utils'
 
@@ -70,8 +77,11 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const [departments, setDepartments] = useState<{ open_department_id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [activeConfigImpact, setActiveConfigImpact] = useState<ActivePerfCycleConfigImpact | null>(null)
+  const [pendingActiveConfig, setPendingActiveConfig] = useState<ActivePerfCycleConfigInput | null>(null)
 
   const editable = status === 'DRAFT' || status === 'SCHEDULED'
+  const activeConfigEditable = status === 'ACTIVE'
 
   const loadParticipants = useCallback(async (id: number) => {
     const [participantData, prefixData] = await Promise.all([
@@ -95,10 +105,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       })
 
       if (cycle.currentConfigVersionId) {
-        const [configSnapshot, cyclePlan] = await Promise.all([
-          getPerfCycleConfigSnapshot(id),
-          getPerfCyclePlan(id)
-        ])
+        const [configSnapshot, cyclePlan] = await Promise.all([getPerfCycleConfigSnapshot(id), getPerfCyclePlan(id)])
 
         setSnapshot(configSnapshot)
         setPlan(cyclePlan)
@@ -280,16 +287,34 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  const saveAdvancedConfig = async (value: PerfConfigTemplateVersion) => {
-    if (!realCycleId) return
+  const saveAdvancedConfig = async (
+    value: PerfConfigTemplateVersion,
+    dimensionOverrides: ActivePerfCycleDimensionOverride[]
+  ) => {
+    if (!realCycleId || !snapshot) return
     setSaving(true)
 
     try {
-      const updated = await updatePerfCycleAdvancedConfig(realCycleId, {
+      const config = {
         stageModes: value.stageModes,
         ratings: value.ratings,
         constraintProfiles: value.constraintProfiles,
         reviewerRelationWeights: value.reviewerRelationWeights
+      }
+
+      if (status === 'ACTIVE') {
+        const input = { ...config, expectedConfigVersionId: snapshot.id, dimensionOverrides }
+        const impact = await previewActivePerfCycleConfig(realCycleId, input)
+
+        setPendingActiveConfig(input)
+        setActiveConfigImpact(impact)
+        setAdvancedOpen(false)
+
+        return
+      }
+
+      const updated = await updatePerfCycleAdvancedConfig(realCycleId, {
+        ...config
       })
 
       setSnapshot(updated)
@@ -298,6 +323,38 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       toast.success('周期高级配置已保存')
     } catch (error) {
       toast.error(errorMessage(error, '保存高级配置失败'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const applyActiveConfig = async (reason: string) => {
+    if (!realCycleId || !pendingActiveConfig || !activeConfigImpact) return
+    setSaving(true)
+
+    try {
+      const result = await applyActivePerfCycleConfig(realCycleId, {
+        ...pendingActiveConfig,
+        impactRevision: activeConfigImpact.impactRevision,
+        reason,
+        confirmed: true
+      })
+
+      toast.success(`已创建周期配置 v${result.version} 并统一重算阶段结果`)
+      setActiveConfigImpact(null)
+      setPendingActiveConfig(null)
+      await loadCycleSetup(realCycleId)
+    } catch (error) {
+      if (requiresActiveConfigRepreview(error)) {
+        setActiveConfigImpact(null)
+        setPendingActiveConfig(null)
+        setAdvancedOpen(true)
+        toast.error('影响范围已变化，请重新预览后再确认')
+
+        return
+      }
+
+      toast.error(errorMessage(error, '活动周期配置重算失败'))
     } finally {
       setSaving(false)
     }
@@ -415,10 +472,24 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         open={advancedOpen}
         onOpenChange={setAdvancedOpen}
         snapshot={snapshot}
-        editable={editable}
+        editable={editable || activeConfigEditable}
+        active={activeConfigEditable}
         saving={saving}
         onSave={saveAdvancedConfig}
       />
+
+      {activeConfigImpact && (
+        <ActiveConfigImpactDialog
+          open
+          impact={activeConfigImpact}
+          applying={saving}
+          onCancel={() => {
+            setActiveConfigImpact(null)
+            setPendingActiveConfig(null)
+          }}
+          onConfirm={applyActiveConfig}
+        />
+      )}
     </div>
   )
 }

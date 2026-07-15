@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils'
 import type {
   PerfConfigTemplateRating,
   PerfConfigTemplateVersion,
+  ActivePerfCycleConfigImpact,
   PerfCycleConfigSnapshot,
   PerfCyclePlan,
   PerfCycleProgress,
@@ -54,6 +55,7 @@ import type {
 import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboard'
 import SnapshotProvenanceCard from '@/views/cycles/detail/snapshot-provenance-card'
 import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
+import ActiveConfigImpactDialog from '@/views/cycles/edit/active-config-impact-dialog'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
@@ -72,6 +74,7 @@ type ComponentKey =
   | 'config-template'
   | 'cycle-setup'
   | 'cycle-progress'
+  | 'active-config-impact'
   | 'snapshot-provenance'
   | 'evaluation-form'
 
@@ -136,6 +139,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '周期任务进度',
     description: '任务事实 / 缺失项 / 软截止',
     icon: CheckCircle2Icon
+  },
+  {
+    key: 'active-config-impact',
+    title: '活动周期配置影响',
+    description: '影响摘要、原因与二次确认',
+    icon: SlidersHorizontalIcon
   },
   {
     key: 'snapshot-provenance',
@@ -227,12 +236,7 @@ const DateTimePreview = () => {
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor='test-fine-datetime'>15 分钟步长</FieldLabel>
-              <DateTimePicker
-                id='test-fine-datetime'
-                value={fineDateTime}
-                onChange={setFineDateTime}
-                minuteStep={15}
-              />
+              <DateTimePicker id='test-fine-datetime' value={fineDateTime} onChange={setFineDateTime} minuteStep={15} />
               <FieldDescription>当前值：{fineDateTime || '未选择'}</FieldDescription>
             </Field>
             <Field>
@@ -593,7 +597,12 @@ const ConfigTemplateEditorPreview = () => {
           <CardDescription>模拟发布版本，确认受控配置不会原地修改。</CardDescription>
         </CardHeader>
         <CardContent>
-          <ConfigTemplateEditor value={{ ...draft, status: 'PUBLISHED' }} candidates={[FORM_TEMPLATE_PREVIEW_VALUE]} editable={false} onChange={() => {}} />
+          <ConfigTemplateEditor
+            value={{ ...draft, status: 'PUBLISHED' }}
+            candidates={[FORM_TEMPLATE_PREVIEW_VALUE]}
+            editable={false}
+            onChange={() => {}}
+          />
         </CardContent>
       </Card>
     </div>
@@ -667,7 +676,10 @@ const CycleSetupPreview = () => {
         <CardContent>
           <label className='flex items-center justify-between gap-3 rounded-md border p-3 text-sm'>
             当前快照已被手动修改（snapshotManuallyModified）
-            <Switch checked={snapshotManuallyModified} onCheckedChange={checked => setSnapshotManuallyModified(Boolean(checked))} />
+            <Switch
+              checked={snapshotManuallyModified}
+              onCheckedChange={checked => setSnapshotManuallyModified(Boolean(checked))}
+            />
           </label>
         </CardContent>
       </Card>
@@ -825,10 +837,42 @@ const SnapshotProvenanceCardPreview = () => (
 )
 
 const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
-  { symbol: 'S', name: '卓越', description: '大幅超出预期，可作为标杆案例', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
-  { symbol: 'A', name: '优秀', description: '完全达成目标，多项亮点', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
-  { symbol: 'B', name: '良好', description: '基本达成目标，符合预期', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
-  { symbol: 'C', name: '待改进', description: '未达成目标，需重点关注', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+  {
+    symbol: 'S',
+    name: '卓越',
+    description: '大幅超出预期，可作为标杆案例',
+    minScore: '90',
+    maxScore: '100',
+    mappingScore: '95',
+    commentRequired: true
+  },
+  {
+    symbol: 'A',
+    name: '优秀',
+    description: '完全达成目标，多项亮点',
+    minScore: '80',
+    maxScore: '90',
+    mappingScore: '85',
+    commentRequired: false
+  },
+  {
+    symbol: 'B',
+    name: '良好',
+    description: '基本达成目标，符合预期',
+    minScore: '60',
+    maxScore: '80',
+    mappingScore: '70',
+    commentRequired: false
+  },
+  {
+    symbol: 'C',
+    name: '待改进',
+    description: '未达成目标，需重点关注',
+    minScore: '0',
+    maxScore: '60',
+    mappingScore: '50',
+    commentRequired: true
+  }
 ]
 
 /** Ticket 06 业务组件示例：覆盖全部 9 种评估项类型 + 必填/禁用态，固定 mock 子表单数据，不访问后端 */
@@ -856,7 +900,14 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
             required: false,
             sortOrder: 1
           },
-          { key: 'item:short', type: 'SHORT_TEXT', title: '一句话总结', required: true, sortOrder: 2, config: { maxLength: 30 } },
+          {
+            key: 'item:short',
+            type: 'SHORT_TEXT',
+            title: '一句话总结',
+            required: true,
+            sortOrder: 2,
+            config: { maxLength: 30 }
+          },
           { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
           { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: true, sortOrder: 4 },
           {
@@ -913,7 +964,9 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
         audience: 'EMPLOYEE',
         name: '突出贡献',
         sortOrder: 0,
-        items: [{ key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }]
+        items: [
+          { key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }
+        ]
       }
     ]
   }
@@ -928,11 +981,10 @@ const EvaluationFormEditablePreview = () => {
     <div className='flex flex-col gap-4'>
       <Card>
         <CardContent className='flex items-center justify-between gap-3'>
-          <CardDescription>点击「校验」触发与自评页提交前一致的必填/格式校验，观察错误如何内联展示在对应评估项下方。</CardDescription>
-          <Button
-            type='button'
-            onClick={() => setErrors(buildSubmitPayload(EVALUATION_FORM_SUBFORMS, answers).errors)}
-          >
+          <CardDescription>
+            点击「校验」触发与自评页提交前一致的必填/格式校验，观察错误如何内联展示在对应评估项下方。
+          </CardDescription>
+          <Button type='button' onClick={() => setErrors(buildSubmitPayload(EVALUATION_FORM_SUBFORMS, answers).errors)}>
             校验
           </Button>
         </CardContent>
@@ -1142,7 +1194,9 @@ const EvaluationFormPreview = () => (
     <Card>
       <CardHeader>
         <CardTitle>可编辑态</CardTitle>
-        <CardDescription>覆盖 RATING/SCORE/SHORT_TEXT/LONG_TEXT/MARKDOWN/SINGLE_SELECT/MULTI_SELECT/ATTACHMENT/LINK 九种类型</CardDescription>
+        <CardDescription>
+          覆盖 RATING/SCORE/SHORT_TEXT/LONG_TEXT/MARKDOWN/SINGLE_SELECT/MULTI_SELECT/ATTACHMENT/LINK 九种类型
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <EvaluationFormEditablePreview />
@@ -1178,6 +1232,85 @@ const EvaluationFormPreview = () => (
   </div>
 )
 
+const ACTIVE_CONFIG_IMPACT_SAMPLE: ActivePerfCycleConfigImpact = {
+  cycleId: 8,
+  currentConfigVersionId: 31,
+  currentVersion: 2,
+  nextVersion: 3,
+  impactRevision: 'sample-preview-revision',
+  summary: {
+    affectedParticipantCount: 24,
+    affectedStageResultCount: 38,
+    changedStageResultCount: 9,
+    calibratedParticipantCount: 6,
+    publishedParticipantCount: 4,
+    confirmedParticipantCount: 3,
+    automaticRecalibrationParticipantCount: 0,
+    affectedCalculationItemCount: 1,
+    changedCalculationItemCount: 1
+  },
+  stageChanges: [
+    {
+      participantId: 51,
+      employeeOpenId: 'ou_employee_demo',
+      stage: 'MANAGER',
+      before: {
+        compositeScore: '70',
+        stageLevel: 'B',
+        dimensions: [],
+        matchedConstraints: []
+      },
+      after: {
+        compositeScore: '65',
+        stageLevel: 'C',
+        dimensions: [{ key: 'delivery', name: '核心业绩', weight: '100', isCore: true, score: '65', level: 'C' }],
+        matchedConstraints: [{ id: 'core-low' }]
+      },
+      changed: true,
+      finalResultProtected: true
+    }
+  ],
+  calculationItemChanges: [
+    {
+      participantId: 51,
+      employeeOpenId: 'ou_employee_demo',
+      submissionId: 62,
+      stage: 'SELF',
+      status: 'DRAFT',
+      itemKey: 'item:self-rating',
+      before: '85',
+      after: '88',
+      changed: true
+    }
+  ]
+}
+
+const ActiveConfigImpactPreview = () => {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>活动周期计算配置影响确认</CardTitle>
+        <CardDescription>验证影响统计、人工结果保护提示、原因和二次确认门槛。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button onClick={() => setOpen(true)}>打开影响确认</Button>
+        <ActiveConfigImpactDialog
+          open={open}
+          impact={ACTIVE_CONFIG_IMPACT_SAMPLE}
+          applying={false}
+          onCancel={() => setOpen(false)}
+          onConfirm={async () => {
+            toast.success('组件示例：已确认创建新版本并重算')
+            setOpen(false)
+          }}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -1187,6 +1320,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
   if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
   if (activeComponent === 'cycle-progress') return <CycleProgressPreview />
+  if (activeComponent === 'active-config-impact') return <ActiveConfigImpactPreview />
   if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
 
@@ -1202,68 +1336,68 @@ const ComponentTestPage = () => {
       <Header />
       <main className='px-4 py-6 sm:px-6'>
         <div className='mx-auto flex w-full max-w-7xl flex-col gap-5'>
-        <div className='flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
-          <div className='flex flex-col gap-2'>
-            <Badge variant='outline' className='w-fit'>
-              Shared UI Lab
-            </Badge>
-            <div>
-              <h1 className='text-2xl font-semibold tracking-normal'>组件测试实验台</h1>
-              <p className='text-muted-foreground mt-1 max-w-2xl text-sm'>
-                统一管理后续要测试的 shared / ui 组件，支持菜单切换和主题预览。
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className='grid min-h-[560px] gap-5 lg:grid-cols-[280px_1fr]'>
-          <aside className='bg-card text-card-foreground h-fit rounded-xl border shadow-xs'>
-            <div className='flex items-center gap-2 px-4 py-3'>
-              <PanelLeftIcon className='text-muted-foreground size-4' />
-              <span className='text-sm font-medium'>组件菜单</span>
-            </div>
-            <Separator />
-            <nav className='flex flex-col gap-1 p-2'>
-              {COMPONENT_MENU.map(item => {
-                const Icon = item.icon
-                const active = item.key === activeComponent
-
-                return (
-                  <Button
-                    key={item.key}
-                    type='button'
-                    variant='ghost'
-                    className={cn(
-                      'hover:bg-muted flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
-                      active && 'bg-muted text-foreground'
-                    )}
-                    onClick={() => setActiveComponent(item.key)}
-                  >
-                    <Icon className={cn('text-muted-foreground mt-0.5 size-4 shrink-0', active && 'text-primary')} />
-                    <span className='min-w-0 flex-1'>
-                      <span className='block font-medium'>{item.title}</span>
-                      <span className='text-muted-foreground mt-0.5 block truncate text-xs'>{item.description}</span>
-                    </span>
-                  </Button>
-                )
-              })}
-            </nav>
-          </aside>
-
-          <section className='flex min-w-0 flex-col gap-4'>
-            <div className='bg-card rounded-xl border px-4 py-3 shadow-xs'>
-              <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
-                <div>
-                  <h2 className='text-base font-medium'>{activeItem.title}</h2>
-                  <p className='text-muted-foreground text-sm'>{activeItem.description}</p>
-                </div>
-                <Badge variant='secondary'>{activeComponent}</Badge>
+          <div className='flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
+            <div className='flex flex-col gap-2'>
+              <Badge variant='outline' className='w-fit'>
+                Shared UI Lab
+              </Badge>
+              <div>
+                <h1 className='text-2xl font-semibold tracking-normal'>组件测试实验台</h1>
+                <p className='text-muted-foreground mt-1 max-w-2xl text-sm'>
+                  统一管理后续要测试的 shared / ui 组件，支持菜单切换和主题预览。
+                </p>
               </div>
             </div>
+          </div>
 
-            <ComponentPreview activeComponent={activeComponent} />
-          </section>
-        </div>
+          <div className='grid min-h-[560px] gap-5 lg:grid-cols-[280px_1fr]'>
+            <aside className='bg-card text-card-foreground h-fit rounded-xl border shadow-xs'>
+              <div className='flex items-center gap-2 px-4 py-3'>
+                <PanelLeftIcon className='text-muted-foreground size-4' />
+                <span className='text-sm font-medium'>组件菜单</span>
+              </div>
+              <Separator />
+              <nav className='flex flex-col gap-1 p-2'>
+                {COMPONENT_MENU.map(item => {
+                  const Icon = item.icon
+                  const active = item.key === activeComponent
+
+                  return (
+                    <Button
+                      key={item.key}
+                      type='button'
+                      variant='ghost'
+                      className={cn(
+                        'hover:bg-muted flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                        active && 'bg-muted text-foreground'
+                      )}
+                      onClick={() => setActiveComponent(item.key)}
+                    >
+                      <Icon className={cn('text-muted-foreground mt-0.5 size-4 shrink-0', active && 'text-primary')} />
+                      <span className='min-w-0 flex-1'>
+                        <span className='block font-medium'>{item.title}</span>
+                        <span className='text-muted-foreground mt-0.5 block truncate text-xs'>{item.description}</span>
+                      </span>
+                    </Button>
+                  )
+                })}
+              </nav>
+            </aside>
+
+            <section className='flex min-w-0 flex-col gap-4'>
+              <div className='bg-card rounded-xl border px-4 py-3 shadow-xs'>
+                <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
+                  <div>
+                    <h2 className='text-base font-medium'>{activeItem.title}</h2>
+                    <p className='text-muted-foreground text-sm'>{activeItem.description}</p>
+                  </div>
+                  <Badge variant='secondary'>{activeComponent}</Badge>
+                </div>
+              </div>
+
+              <ComponentPreview activeComponent={activeComponent} />
+            </section>
+          </div>
         </div>
       </main>
     </div>

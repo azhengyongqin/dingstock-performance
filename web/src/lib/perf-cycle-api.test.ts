@@ -4,6 +4,8 @@ import { apiFetch } from './api'
 import {
   createPerfCycle,
   initializePerfCycleSetup,
+  applyActivePerfCycleConfig,
+  previewActivePerfCycleConfig,
   reapplyPerfCycleConfigSnapshot,
   returnPerfCycleToDraft,
   schedulePerfCycle,
@@ -86,5 +88,40 @@ describe('绩效周期四步创建 API', () => {
     expect(apiFetchMock).toHaveBeenNthCalledWith(1, '/cycles/8/schedule', { method: 'POST' })
     expect(apiFetchMock).toHaveBeenNthCalledWith(2, '/cycles/8/return-to-draft', { method: 'POST' })
     expect(apiFetchMock.mock.calls.some(([path]) => path === '/cycles/8/start')).toBe(false)
+  })
+
+  it('活动周期先预览影响，再携带预览 revision、原因和确认应用', async () => {
+    const input = {
+      expectedConfigVersionId: 31,
+      dimensionOverrides: [],
+      stageModes: {
+        SELF: 'DIRECT_RATING' as const,
+        PEER: 'WEIGHTED_RATING' as const,
+        MANAGER: 'WEIGHTED_SCORE' as const,
+        AI: 'DIRECT_RATING' as const
+      },
+      ratings: [],
+      constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
+      reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' }
+    }
+
+    apiFetchMock.mockResolvedValueOnce({ impactRevision: 'a'.repeat(64) })
+    const preview = await previewActivePerfCycleConfig(8, input)
+
+    void applyActivePerfCycleConfig(8, {
+      ...input,
+      impactRevision: preview.impactRevision,
+      reason: '修正规则',
+      confirmed: true
+    })
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(1, '/cycles/8/active-config/preview', {
+      method: 'POST',
+      body: JSON.stringify(input)
+    })
+    expect(apiFetchMock).toHaveBeenNthCalledWith(2, '/cycles/8/active-config/apply', {
+      method: 'POST',
+      body: JSON.stringify({ ...input, impactRevision: 'a'.repeat(64), reason: '修正规则', confirmed: true })
+    })
   })
 })

@@ -4,9 +4,14 @@
   "testEnvironment": "node",
   "testMatch": [
     "<rootDir>/test/calibration-postgres.integration-spec.ts",
-    "<rootDir>/test/result-version-postgres.integration-spec.ts"
+    "<rootDir>/test/result-version-postgres.integration-spec.ts",
+    "<rootDir>/test/active-cycle-config-postgres.integration-spec.ts",
+    "<rootDir>/test/active-cycle-config-service.integration-spec.ts"
   ],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
   }
 }

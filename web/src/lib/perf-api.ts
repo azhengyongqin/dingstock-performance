@@ -615,6 +615,73 @@ export type UpdatePerfCycleAdvancedConfigInput = Pick<
   'stageModes' | 'ratings' | 'constraintProfiles' | 'reviewerRelationWeights'
 >
 
+export type ActivePerfCycleConfigInput = UpdatePerfCycleAdvancedConfigInput & {
+
+  /** 页面完成影响预览时看到的配置版本；服务端用它拒绝并发静默覆盖。 */
+  expectedConfigVersionId: number
+  dimensionOverrides: ActivePerfCycleDimensionOverride[]
+}
+
+export type ActivePerfCycleDimensionOverride = {
+  jobLevelPrefix: 'D' | 'M'
+  dimensionKey: string
+  weight: string
+  isCore: boolean
+}
+
+export type ActivePerfCycleConfigImpact = {
+  cycleId: number
+  currentConfigVersionId: number
+  currentVersion: number
+  nextVersion: number
+  impactRevision: string
+  summary: {
+    affectedParticipantCount: number
+    affectedStageResultCount: number
+    changedStageResultCount: number
+    calibratedParticipantCount: number
+    publishedParticipantCount: number
+    confirmedParticipantCount: number
+    automaticRecalibrationParticipantCount: 0
+    affectedCalculationItemCount: number
+    changedCalculationItemCount: number
+  }
+  stageChanges: Array<{
+    participantId: number
+    employeeOpenId: string
+    stage: 'PEER' | 'MANAGER'
+    before: ActivePerfStageImpactResult | null
+    after: ActivePerfStageImpactResult
+    changed: boolean
+    finalResultProtected: boolean
+  }>
+  calculationItemChanges: Array<{
+    participantId: number
+    employeeOpenId: string
+    submissionId: number
+    stage: string
+    status: string
+    itemKey: string
+    before: string | null
+    after: string
+    changed: boolean
+  }>
+}
+
+type ActivePerfStageImpactResult = {
+  compositeScore: string | null
+  stageLevel: string | null
+  dimensions: Array<{
+    key: string
+    name: string
+    weight: string
+    isCore: boolean
+    score: string
+    level: string
+  }>
+  matchedConstraints: unknown[]
+}
+
 export type ConfigTemplateValidationIssue = {
   code: string
   message: string
@@ -770,6 +837,25 @@ export const updatePerfCycleAdvancedConfig = (cycleId: number, input: UpdatePerf
     method: 'PUT',
     body: JSON.stringify(input)
   })
+
+/** ACTIVE 周期必须先预览影响；此接口只读，不创建配置版本或阶段结果。 */
+export const previewActivePerfCycleConfig = (cycleId: number, input: ActivePerfCycleConfigInput) =>
+  apiFetch<ActivePerfCycleConfigImpact>(`/cycles/${cycleId}/active-config/preview`, {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+
+/** 使用预览时的版本令牌、原因与显式确认，原子创建新版本并统一重算。 */
+export const applyActivePerfCycleConfig = (
+  cycleId: number,
+  input: ActivePerfCycleConfigInput & { impactRevision: string; reason: string; confirmed: true }
+) =>
+  apiFetch<{
+    cycleId: number
+    configVersionId: number
+    version: number
+    impact: ActivePerfCycleConfigImpact['summary']
+  }>(`/cycles/${cycleId}/active-config/apply`, { method: 'POST', body: JSON.stringify(input) })
 
 /** 启动前重新套用已发布模板版本：整套覆盖当前快照，不做字段级合并。 */
 export const reapplyPerfCycleConfigSnapshot = (cycleId: number, configTemplateVersionId: number) =>

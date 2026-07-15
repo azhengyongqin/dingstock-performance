@@ -22,6 +22,7 @@ import type {
 } from '../config-template/config-template.contract';
 import { buildDefaultConfigTemplate } from '../config-template/default-config-template';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
+import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
 import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
 import type {
   FormItemConfig,
@@ -466,18 +467,7 @@ async function seedDraftCycle(
         cycleId: cycle.id,
         version: 1,
         sourceConfigTemplateVersionId: source.id,
-        selfStageMode: source.selfStageMode,
-        peerStageMode: source.peerStageMode,
-        managerStageMode: source.managerStageMode,
-        aiStageMode: source.aiStageMode,
-        ratings: inputJson(source.ratings),
-        constraintProfiles: inputJson(source.constraintProfiles),
-        orgOwnerWeight: source.orgOwnerWeight,
-        projectOwnerWeight: source.projectOwnerWeight,
-        peerWeight: source.peerWeight,
-        crossDeptWeight: source.crossDeptWeight,
-        schedulePreset: inputJson(source.schedulePreset),
-        notificationRules: inputJson(source.notificationRules),
+        ...toCycleConfigSnapshotData(source),
         createdByOpenId: SYSTEM_OPERATOR,
       },
     });
