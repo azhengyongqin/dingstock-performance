@@ -1009,7 +1009,7 @@ model PerfEvaluationSubmission {
   cycleId              Int                    @map("cycle_id") /// 所属周期，冗余保存便于按周期统计查询
   participantId        Int                    @map("participant_id") /// 所属参与者
   stage                PerfEvaluationTaskType @map("stage") /// SELF/PEER/MANAGER；AI 不走人工提交，数据库 CHECK 禁止取值 'AI'
-  reviewerOpenId       String                 @map("reviewer_open_id") /// 填写人 open_id：SELF=员工本人，PEER=评审员，MANAGER=须匹配考核 Leader 快照，均由数据库触发器校验
+  reviewerOpenId       String                 @map("reviewer_open_id") /// 填写人 open_id：SELF=员工本人，PEER=评审员，MANAGER=须匹配考核 Leader 快照，均由数据库触发器校验。注意：触发器只在 INSERT/UPDATE 时按当时快照校验；更换 Leader 快照不会追溯校验既有 MANAGER 提交行，快照变更后的既有提交处置由服务层负责
   reviewerAssignmentId Int?                   @map("reviewer_assignment_id") /// 360°提交关联的有效评审员指派；仅 PEER 非空，复合外键保证指派归属同一参与者与评审员
   formSnapshotId       Int                    @map("form_snapshot_id") /// 提交所依据的周期表单快照；评估项结果据此 + key 定位，不建评估项独立行表
   status               PerfReviewStatus       @default(DRAFT) /// DRAFT=编辑草稿，SUBMITTED=当前生效提交
