@@ -16,35 +16,75 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import {
-  ArrayNotEmpty,
   IsArray,
+  IsDefined,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
+  Length,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PerfRole } from '../generated/prisma/enums';
+import {
+  PerfCalibrationDecision,
+  PerfRatingSymbol,
+  PerfRole,
+} from '../generated/prisma/enums';
 import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import { CalibrationService } from './calibration.service';
 import { ResultService } from './result.service';
+import { RedLineFindingService } from './red-line-finding.service';
+import { CalibrationDecisionService } from './calibration-decision.service';
 
-class AdjustDto {
+class CalibrationDecisionDto {
+  @IsEnum(PerfCalibrationDecision)
+  decision!: PerfCalibrationDecision;
+
+  @IsOptional()
+  @IsEnum(PerfRatingSymbol)
+  afterLevel?: PerfRatingSymbol;
+
+  @IsOptional()
   @IsString()
-  afterLevel!: string;
+  @MaxLength(500)
+  reason?: string;
+
+  @ValidateIf(
+    (dto: CalibrationDecisionDto) => dto.expectedCalibrationRevision !== null,
+  )
+  @IsInt()
+  expectedCalibrationRevision!: number | null;
+
+  @IsString()
+  @Length(64, 64)
+  expectedInputRevision!: string;
+}
+
+class ConfirmRedLineDto {
+  @IsString()
+  @MaxLength(100)
+  findingType!: string;
+
+  @IsString()
+  @MaxLength(2000)
+  facts!: string;
+
+  @IsDefined()
+  evidence!: unknown;
 
   @IsString()
   @MaxLength(500)
   reason!: string;
 }
 
-class ConfirmDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  @IsInt({ each: true })
-  participantIds!: number[];
+class RevokeRedLineDto {
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
 }
 
 class PushResultsDto {
@@ -67,6 +107,8 @@ export class CalibrationController {
   constructor(
     private readonly calibrationService: CalibrationService,
     private readonly resultService: ResultService,
+    private readonly redLineFindingService: RedLineFindingService,
+    private readonly calibrationDecisionService: CalibrationDecisionService,
   ) {}
 
   // ---- 校准（当前 Leader / 授权 HR / Admin） ----
@@ -80,20 +122,31 @@ export class CalibrationController {
     return this.calibrationService.listForCycle(req.user.open_id, cycleId);
   }
 
-  @Post('calibrations/:participantId/adjust')
+  @Get('calibrations/:participantId/decision-context')
   @ApiOperation({
-    summary: '校准调整（当前 Leader / 授权 HR / Admin；append-only）',
+    summary: '读取逐员工校准上下文与乐观并发修订',
   })
-  adjust(
+  decisionContext(
     @Req() req: AuthenticatedRequest,
     @Param('participantId', ParseIntPipe) participantId: number,
-    @Body() dto: AdjustDto,
   ) {
-    return this.calibrationService.adjust(
+    return this.calibrationDecisionService.getContext(
       req.user.open_id,
       participantId,
-      dto.afterLevel,
-      dto.reason,
+    );
+  }
+
+  @Post('calibrations/:participantId/decision')
+  @ApiOperation({ summary: '追加 KEEP / ADJUST 校准决定并首次锁定人工评估' })
+  decide(
+    @Req() req: AuthenticatedRequest,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Body() dto: CalibrationDecisionDto,
+  ) {
+    return this.calibrationDecisionService.decide(
+      req.user.open_id,
+      participantId,
+      dto,
     );
   }
 
@@ -108,18 +161,35 @@ export class CalibrationController {
     return this.calibrationService.getHistory(req.user.open_id, participantId);
   }
 
-  @Post('cycles/:cycleId/calibrations/confirm')
+  @Post('calibrations/:participantId/red-lines')
   @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '批量确认校准（参与者 → CALIBRATED）' })
-  confirm(
+  @ApiOperation({ summary: 'HR/Admin 确认红线并强制 MANAGER 阶段等级为 C' })
+  confirmRedLine(
     @Req() req: AuthenticatedRequest,
-    @Param('cycleId', ParseIntPipe) cycleId: number,
-    @Body() dto: ConfirmDto,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Body() dto: ConfirmRedLineDto,
   ) {
-    return this.calibrationService.confirm(
+    return this.redLineFindingService.confirm(
       req.user.open_id,
-      cycleId,
-      dto.participantIds,
+      participantId,
+      dto,
+    );
+  }
+
+  @Post('calibrations/:participantId/red-lines/:findingId/revoke')
+  @Roles(PerfRole.HR, PerfRole.ADMIN)
+  @ApiOperation({ summary: 'HR/Admin 追加红线撤销事件' })
+  revokeRedLine(
+    @Req() req: AuthenticatedRequest,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Param('findingId', ParseIntPipe) findingId: number,
+    @Body() dto: RevokeRedLineDto,
+  ) {
+    return this.redLineFindingService.revoke(
+      req.user.open_id,
+      participantId,
+      findingId,
+      dto.reason,
     );
   }
 

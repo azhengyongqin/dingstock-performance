@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import {
   PerfEvaluationTaskType,
+  PerfRedLineAction,
   PerfReviewStatus,
   PerfStageResultStatus,
 } from '../generated/prisma/enums';
@@ -28,7 +29,10 @@ import type {
 
 type ManagerStageResultDb = Pick<
   Prisma.TransactionClient,
-  'perfParticipant' | 'perfEvaluationSubmission' | 'perfStageResult'
+  | 'perfParticipant'
+  | 'perfEvaluationSubmission'
+  | 'perfStageResult'
+  | 'perfRedLineFinding'
 >;
 
 export type ManagerStageResultView = {
@@ -114,13 +118,27 @@ export class ManagerStageResultService {
       return view;
     }
 
+    const confirmedRedLine = await db.perfRedLineFinding.findFirst({
+      where: {
+        participantId,
+        action: PerfRedLineAction.CONFIRM,
+        revokedBy: { none: {} },
+      },
+      select: { id: true, findingType: true, reason: true },
+      orderBy: { id: 'desc' },
+    });
     const result = calculateStageResult({
       mode,
       ratings: this.ratingsOf(config.ratings),
       dimensions: this.buildDimensions(content, mode, submission),
       constraints: this.constraintsOf(config.constraintProfiles, mode),
-      // 红线事实模型由后续 Ticket 接入；当前只应用已发布的受控维度约束。
-      confirmedRedLine: null,
+      confirmedRedLine: confirmedRedLine
+        ? {
+            findingId: `red-line:${confirmedRedLine.id}`,
+            category: confirmedRedLine.findingType,
+            reason: confirmedRedLine.reason,
+          }
+        : null,
     });
     const view: ManagerStageResultView = {
       participantId,

@@ -16,6 +16,7 @@ import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 /**
  * 上级评估提交服务：以参与者的当前 Leader 快照作为唯一写入权限，复用统一
@@ -31,6 +32,7 @@ export class ManagerEvaluationSubmissionService {
     private readonly peerStageResultService: PeerStageResultService,
     private readonly managerStageResultService: ManagerStageResultService,
     private readonly aiReportService: AiReportService,
+    private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
   /** 必须先完成对象级 Leader 鉴权，才允许触发任务开放等有副作用的读取。 */
@@ -218,6 +220,10 @@ export class ManagerEvaluationSubmissionService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participant.id,
+      );
       await this.claimManagerWriteAuthority(tx, participant.id, leaderOpenId);
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {
@@ -288,6 +294,10 @@ export class ManagerEvaluationSubmissionService {
     );
     const submittedAt = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participant.id,
+      );
       await this.claimManagerWriteAuthority(tx, participant.id, leaderOpenId);
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {

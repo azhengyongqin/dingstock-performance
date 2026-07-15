@@ -90,6 +90,9 @@ importers:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.2
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
       '@types/supertest':
         specifier: ^7.0.0
         version: 7.2.0
@@ -108,6 +111,9 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.4.2(@types/node@24.13.2)(ts-node@10.9.2(@types/node@24.13.2)(typescript@5.9.3))
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       prettier:
         specifier: ^3.4.2
         version: 3.9.4

@@ -9,6 +9,7 @@ import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import { ReviewerService } from './reviewer.service';
 import { PeerStageResultService } from '../evaluation/peer-stage-result.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
 jest.mock(
@@ -95,6 +96,7 @@ describe('ReviewerService', () => {
     getOrgScope: jest.fn().mockResolvedValue([]),
   };
   const peerStageResultMock = { recalculate: jest.fn() };
+  const participantEvaluationLockMock = { lockHumanWrite: jest.fn() };
 
   let service: ReviewerService;
 
@@ -122,6 +124,8 @@ describe('ReviewerService', () => {
       count: 1,
     });
     txMock.perfReviewerAssignment.updateMany.mockResolvedValue({ count: 1 });
+    txMock.perfReviewerAssignment.createMany.mockResolvedValue({ count: 1 });
+    participantEvaluationLockMock.lockHumanWrite.mockResolvedValue(undefined);
     prismaMock.larkUser.findMany.mockResolvedValue([]);
 
     const moduleRef = await Test.createTestingModule({
@@ -131,6 +135,10 @@ describe('ReviewerService', () => {
         { provide: AuditService, useValue: auditMock },
         { provide: RbacService, useValue: rbacMock },
         { provide: PeerStageResultService, useValue: peerStageResultMock },
+        {
+          provide: ParticipantEvaluationLockService,
+          useValue: participantEvaluationLockMock,
+        },
       ],
     }).compile();
 
@@ -216,11 +224,13 @@ describe('ReviewerService', () => {
       );
 
       expect(result.added).toBe(1);
-      expect(prismaMock.perfReviewerAssignment.createMany).toHaveBeenCalledWith(
-        {
-          data: [expect.objectContaining({ reviewerOpenId: 'ou_other' })],
-          skipDuplicates: true,
-        },
+      expect(txMock.perfReviewerAssignment.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ reviewerOpenId: 'ou_other' })],
+        skipDuplicates: true,
+      });
+      expect(participantEvaluationLockMock.lockHumanWrite).toHaveBeenCalledWith(
+        txMock,
+        7,
       );
     });
   });
@@ -324,6 +334,10 @@ describe('ReviewerService', () => {
       }),
     });
     expect(peerStageResultMock.recalculate).toHaveBeenCalledWith(7, txMock);
+    expect(participantEvaluationLockMock.lockHumanWrite).toHaveBeenCalledWith(
+      txMock,
+      7,
+    );
   });
 
   it('替换尚未提交的评审员时不重算阶段结果', async () => {
@@ -405,6 +419,57 @@ describe('ReviewerService', () => {
       service.upsertReviewers('ou_leader', 7, [], [3]),
     ).rejects.toThrow(ConflictException);
 
+    expect(txMock.perfReviewerAssignment.createMany).not.toHaveBeenCalled();
+    expect(auditMock.record).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['覆盖保存', 'upsert'],
+    ['显式替换', 'replace'],
+    ['批量补充', 'batch'],
+  ])('首次校准锁定后%s评审关系整单拒绝且无写入', async (_label, mode) => {
+    participantEvaluationLockMock.lockHumanWrite.mockRejectedValueOnce(
+      new ConflictException('该参与者已完成首次校准，人工评估已锁定'),
+    );
+    if (mode === 'upsert') {
+      await expect(
+        service.upsertReviewers('ou_leader', 7, [
+          { reviewerOpenId: 'ou_new', relation: 'PEER' },
+        ]),
+      ).rejects.toThrow(ConflictException);
+    } else if (mode === 'replace') {
+      prismaMock.perfReviewerAssignment.findUnique.mockResolvedValue({
+        id: 5,
+        participantId: 7,
+        reviewerOpenId: 'ou_old',
+        relation: 'PEER',
+        status: 'PENDING',
+      });
+      prismaMock.perfReviewerAssignment.findMany.mockResolvedValueOnce([]);
+      await expect(
+        service.replaceReviewer('ou_leader', 7, 5, {
+          reviewerOpenId: 'ou_new',
+          relation: 'PEER',
+          reason: '调整评审关系',
+        }),
+      ).rejects.toThrow(ConflictException);
+    } else {
+      rbacMock.hasAnyRole.mockResolvedValue(true);
+      rbacMock.getOrgScope.mockResolvedValue(null);
+      prismaMock.perfParticipant.findMany.mockResolvedValueOnce([participant]);
+      prismaMock.perfReviewerAssignment.findMany.mockResolvedValueOnce([]);
+      await expect(
+        service.batchAdd(
+          'ou_hr',
+          100,
+          [7],
+          [{ reviewerOpenId: 'ou_new', relation: 'PEER' }],
+        ),
+      ).rejects.toThrow(ConflictException);
+    }
+
+    expect(txMock.perfReviewerAssignment.updateMany).not.toHaveBeenCalled();
+    expect(txMock.perfReviewerAssignment.create).not.toHaveBeenCalled();
     expect(txMock.perfReviewerAssignment.createMany).not.toHaveBeenCalled();
     expect(auditMock.record).not.toHaveBeenCalled();
   });

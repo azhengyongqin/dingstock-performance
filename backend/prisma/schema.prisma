@@ -407,6 +407,22 @@ enum PerfStageResultStatus {
   @@schema("performance")
 }
 
+/// 校准决定必须显式区分沿用权威等级与人工调整，避免“没有决定”被误解为维持。
+enum PerfCalibrationDecision {
+  KEEP /// 沿用当前 MANAGER 权威阶段等级
+  ADJUST /// 人工调整为另一个等级，必须填写原因
+
+  @@schema("performance")
+}
+
+/// 红线事实采用 append-only 事件表达；撤销事件引用被撤销的确认事件。
+enum PerfRedLineAction {
+  CONFIRM /// HR/Admin 确认红线
+  REVOKE /// HR/Admin 撤销一条仍有效的确认
+
+  @@schema("performance")
+}
+
 /// 系统当前支持的职级前缀；参与者按职级快照前缀匹配表单版本。
 enum PerfJobLevelPrefix {
   D /// 普通岗位
@@ -865,6 +881,7 @@ model PerfParticipant {
   formSnapshotId         Int?                  @map("form_snapshot_id") /// 精确匹配的周期表单快照；与职级前缀成对存在
   isPromotionEnabled     Boolean               @default(false) @map("is_promotion_enabled") /// 是否启用晋升评估维度
   status                 PerfParticipantStatus @default(PENDING_SELF_REVIEW) /// 参与者状态机
+  evaluationLockedAt     DateTime?             @map("evaluation_locked_at") /// 首次成功校准时写入；与首条校准决定同事务产生
   createdAt              DateTime              @default(now()) @map("created_at") /// 创建时间
   updatedAt              DateTime              @updatedAt @map("updated_at") /// 最近更新时间
 
@@ -877,6 +894,7 @@ model PerfParticipant {
   managerReview         PerfManagerReview?
   aiReport              PerfAiReport?
   calibrations          PerfCalibration[]
+  redLineFindings       PerfRedLineFinding[]
   result                PerfResult?
   appeals               PerfAppeal[]
   interviews            PerfInterview[]
@@ -1181,20 +1199,45 @@ model PerfAiReport {
   @@schema("performance")
 }
 
-/// 校准记录（产品 §8.15）：append-only，不可更新/删除；每次评级调整新增一条
+/// 校准决定（产品 §8.15）：append-only，不可更新/删除；KEEP 与 ADJUST 都新增一条
 model PerfCalibration {
-  id             Int      @id @default(autoincrement()) /// 内部自增主键
-  participantId  Int      @map("participant_id") /// 所属参与者
-  beforeLevel    String?  @map("before_level") /// 调整前评级（首条为上级评估初评评级；可能为空）
-  afterLevel     String   @map("after_level") /// 调整后评级
-  reason         String   @map("reason") /// 调整原因，必填（产品 §6.5）
-  operatorOpenId String   @map("operator_open_id") /// 操作人（HR/校准会成员）open_id
-  createdAt      DateTime @default(now()) @map("created_at") /// 记录时间
+  id             Int                     @id @default(autoincrement()) /// 内部自增主键
+  participantId  Int                     @map("participant_id") /// 所属参与者
+  decision       PerfCalibrationDecision /// 显式 KEEP / ADJUST；所有新增记录必须由业务显式写入
+  isLegacy       Boolean                 @default(false) @map("is_legacy") /// 仅迁移前历史为 true；数据库拒绝新增 legacy 记录
+  beforeLevel    String?                 @map("before_level") /// 决定前当前等级；首条取 MANAGER 权威阶段等级
+  afterLevel     String                  @map("after_level") /// 决定后的等级；KEEP 取当时 MANAGER 权威等级，可能与上次校准等级不同
+  reason         String? /// ADJUST 必填；KEEP 可选说明
+  inputRevision  String?                 @map("input_revision") /// 决定时完整人工评估、阶段结果与红线输入的 SHA-256；历史记录可空
+  operatorOpenId String                  @map("operator_open_id") /// 操作人（当前 Leader/授权 HR/Admin）open_id
+  createdAt      DateTime                @default(now()) @map("created_at") /// 记录时间
 
   participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
 
   @@index([participantId])
   @@map("perf_calibrations")
+  @@schema("performance")
+}
+
+/// 红线确认/撤销事件；append-only，不以 UPDATE 覆盖已确认事实。
+model PerfRedLineFinding {
+  id             Int               @id @default(autoincrement()) /// 内部自增主键
+  participantId  Int               @map("participant_id") /// 所属参与者
+  action         PerfRedLineAction /// CONFIRM / REVOKE
+  findingType    String            @map("finding_type") /// 受控业务类型或公司制度类型标识
+  facts          String /// 事实说明
+  evidence       Json /// 证据列表或结构化证据引用
+  reason         String /// 确认或撤销原因
+  revokeOfId     Int?              @unique @map("revoke_of_id") /// REVOKE 指向被撤销的 CONFIRM；每条确认最多撤销一次
+  operatorOpenId String            @map("operator_open_id") /// HR/Admin 操作人 open_id
+  createdAt      DateTime          @default(now()) @map("created_at") /// 事件时间
+
+  participant PerfParticipant      @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  revokeOf    PerfRedLineFinding?  @relation("PerfRedLineRevocation", fields: [revokeOfId], references: [id], onDelete: Restrict)
+  revokedBy   PerfRedLineFinding[] @relation("PerfRedLineRevocation")
+
+  @@index([participantId, action, createdAt])
+  @@map("perf_red_line_findings")
   @@schema("performance")
 }
 

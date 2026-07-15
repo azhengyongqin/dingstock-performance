@@ -17,6 +17,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PeerStageResultService } from '../evaluation/peer-stage-result.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 import type { ReviewerItemDto } from './review.dto';
 
 /** 直属上级由 MANAGER 阶段承载，不属于 360°计算关系。 */
@@ -35,6 +36,7 @@ export class ReviewerService {
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
     private readonly peerStageResultService: PeerStageResultService,
+    private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
   private async requireParticipant(participantId: number) {
@@ -253,6 +255,11 @@ export class ReviewerService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // 评审关系会改变 PEER 的有效人工输入，必须与首次校准竞争同一参与人行锁。
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participantId,
+      );
       // 移除：未提交的置 REPLACED
       for (const assignment of current) {
         if (!wanted.has(assignment.reviewerOpenId)) {
@@ -367,6 +374,10 @@ export class ReviewerService {
         ? PerfReviewerSource.HR_ASSIGNED
         : PerfReviewerSource.LEADER_ASSIGNED;
     return this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participantId,
+      );
       // 条件更新同时承担行锁；并发替换只有一个请求能撤销当前有效指派。
       const replacementClaim = await tx.perfReviewerAssignment.updateMany({
         where: {
@@ -491,10 +502,22 @@ export class ReviewerService {
     );
     const result =
       rows.length > 0
-        ? await this.prisma.perfReviewerAssignment.createMany({
-            data: rows,
-            // 数据库部分唯一索引兜底并发批量补充；重复行直接跳过。
-            skipDuplicates: true,
+        ? await this.prisma.$transaction(async (tx) => {
+            // 固定参与人加锁顺序，既阻止校准后改关系，也降低批量操作互锁风险。
+            const orderedParticipantIds = [
+              ...new Set(rows.map((row) => row.participantId)),
+            ].sort((left, right) => left - right);
+            for (const participantId of orderedParticipantIds) {
+              await this.participantEvaluationLockService.lockHumanWrite(
+                tx,
+                participantId,
+              );
+            }
+            return tx.perfReviewerAssignment.createMany({
+              data: rows,
+              // 数据库部分唯一索引兜底并发批量补充；重复行直接跳过。
+              skipDuplicates: true,
+            });
           })
         : { count: 0 };
     const added = result.count;

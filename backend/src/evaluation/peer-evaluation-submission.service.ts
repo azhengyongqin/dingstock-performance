@@ -15,6 +15,7 @@ import type { SavePeerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 /**
  * 360°评估提交服务：负责评审指派鉴权、PEER 上下文和答卷生命周期。
@@ -29,6 +30,7 @@ export class PeerEvaluationSubmissionService {
     private readonly submissionPolicy: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
     private readonly aiReportService: AiReportService,
+    private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
   /** 先做对象级鉴权，再允许触发任务开放等有副作用的操作。 */
@@ -150,6 +152,10 @@ export class PeerEvaluationSubmissionService {
     );
 
     return this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participant.id,
+      );
       // no-op 字段更新用于锁定有效指派；替换已先提交时 count=0，旧评审员不能继续写草稿。
       const assignmentClaim = await tx.perfReviewerAssignment.updateMany({
         where: {
@@ -234,6 +240,10 @@ export class PeerEvaluationSubmissionService {
     const submittedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockHumanWrite(
+        tx,
+        participant.id,
+      );
       // 与显式替换竞争同一指派：替换先完成时 count=0，旧评审员不能复活权限。
       const assignmentClaim = await tx.perfReviewerAssignment.updateMany({
         where: {

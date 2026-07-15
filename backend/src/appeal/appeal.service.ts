@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -263,8 +262,7 @@ export class AppealService {
   }
 
   /**
-   * 处理申诉结论：可选触发结果调整（走校准 append-only 记录 + 更新结果等级），
-   * 参与者 APPEALING → RE_CONFIRMING，通知员工再次确认。
+   * Ticket 15 接入版本化结果前，申诉结论不得绕过 Ticket 13 的双修订校准边界。
    */
   async resolve(
     operatorOpenId: string,
@@ -281,20 +279,10 @@ export class AppealService {
 
     const resultAdjusted = Boolean(input.adjustedLevel);
     if (resultAdjusted) {
-      if (!input.reason) throw new BadRequestException('调整结果必须填写原因');
-      // append-only 校准记录 + 同步最终结果等级
-      await this.calibrationService.adjust(
-        operatorOpenId,
-        appeal.participantId,
-        input.adjustedLevel!,
-        `申诉处理：${input.reason}`,
-      );
-      if (appeal.participant.result) {
-        await this.prisma.perfResult.update({
-          where: { id: appeal.participant.result.id },
-          data: { finalLevel: input.adjustedLevel! },
-        });
-      }
+      throw new ConflictException({
+        code: 'APPEAL_ADJUSTMENT_REQUIRES_CALIBRATION_DECISION',
+        message: '申诉调整必须先在校准工作台基于最新修订创建显式 ADJUST 决定',
+      });
     }
 
     await this.prisma.$transaction(async (tx) => {

@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerEvaluationSubmissionService } from './manager-evaluation-submission.service';
 
@@ -171,6 +171,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
   const peerStageResult = { recalculate: jest.fn() };
   const managerStageResult = { recalculate: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
+  const participantEvaluationLock = { lockHumanWrite: jest.fn() };
   let service: ManagerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -240,6 +241,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       peerStageResult as never,
       managerStageResult as never,
       aiReport as never,
+      participantEvaluationLock as never,
     );
   });
 
@@ -266,6 +268,43 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       ForbiddenException,
     );
     expect(taskAccess.openIfDue).toHaveBeenCalledTimes(1);
+  });
+
+  it('校准事务已锁定参与者时，旧上级评估页面不能继续提交', async () => {
+    participantEvaluationLock.lockHumanWrite.mockRejectedValueOnce(
+      new ConflictException({ code: 'EVALUATION_PARTICIPANT_LOCKED' }),
+    );
+
+    await expect(
+      service.submitManager('ou_leader', {
+        participantId: 7,
+        items: [
+          {
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:performance',
+            itemKey: 'item:performance:score',
+            rawScore: 88,
+          },
+          {
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:performance',
+            itemKey: 'item:performance:comment',
+            value: '表现稳定',
+          },
+          {
+            subformKey: 'subform:PROMOTION',
+            dimensionKey: 'dimension:promotion:leader',
+            itemKey: 'item:promotion:conclusion',
+            value: '建议晋升',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+      }),
+    });
+    expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
   });
 
   it('正式提交完整动态表单后原子替换生效答卷、计算权威等级并删除更新草稿', async () => {

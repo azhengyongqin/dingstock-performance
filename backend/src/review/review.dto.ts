@@ -80,12 +80,6 @@ export class SubmitSelfReviewDto {
   cycleId!: number;
 }
 
-export class ReturnSelfReviewDto {
-  @IsString()
-  @MaxLength(500)
-  reason!: string;
-}
-
 /** 360° 评估草稿；dimensionScores: [{ dimensionId, score?, level?, conclusion?, comment }] */
 export class SaveReviewDto {
   @IsInt()

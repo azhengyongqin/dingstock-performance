@@ -151,7 +151,9 @@ export class AppealController {
 
   @Post('appeals/:id/resolve')
   @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '申诉处理结论（可选调整结果 → 员工再确认）' })
+  @ApiOperation({
+    summary: '申诉处理结论（等级调整须先在校准工作台创建显式决定）',
+  })
   resolve(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,

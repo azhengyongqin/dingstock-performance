@@ -8,12 +8,11 @@ import {
 import {
   PerfNotificationChannel,
   PerfParticipantStatus,
+  PerfRedLineAction,
   PerfRole,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { ParticipantService } from '../participant/participant.service';
-import { hasRatingSymbol } from '../cycle/evaluation-rule';
 import type { Prisma } from '../generated/prisma/client';
 import { RbacService } from '../rbac/rbac.service';
 import { ParticipantNoResultService } from '../participant/participant-no-result.service';
@@ -25,16 +24,15 @@ type CalibrationReadDb = Pick<
 
 /**
  * 校准与最终结果（产品 §5.5/§5.6）：
- * - 校准记录 append-only，每次调整必填原因；
+ * - 这里只保留校准工作台读取、历史读取和旧结果推送；决定写入统一走 CalibrationDecisionService；
  * - 当前评级 = 最近一条校准记录的 after_level，无校准则取上级初评评级；
- * - 批量确认 = 参与者 → CALIBRATED；推送结果 = 生成 perf_results + RESULT_PUSHED。
+ * - 推送结果 = 生成 perf_results + RESULT_PUSHED。
  */
 @Injectable()
 export class CalibrationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly participantService: ParticipantService,
     private readonly rbacService: RbacService,
     private readonly participantNoResultService: ParticipantNoResultService,
   ) {}
@@ -91,6 +89,22 @@ export class CalibrationService {
             generatedAt: true,
           },
         },
+        redLineFindings: {
+          where: {
+            action: PerfRedLineAction.CONFIRM,
+            revokedBy: { none: {} },
+          },
+          select: {
+            id: true,
+            findingType: true,
+            facts: true,
+            evidence: true,
+            reason: true,
+            operatorOpenId: true,
+            createdAt: true,
+          },
+          orderBy: { id: 'asc' },
+        },
         result: { select: { finalLevel: true } },
       },
       orderBy: { id: 'asc' },
@@ -113,7 +127,9 @@ export class CalibrationService {
         participant.managerReview?.initialLevel ??
         null;
       const currentLevel =
-        participant.calibrations[0]?.afterLevel ?? initialLevel;
+        participant.redLineFindings.length > 0
+          ? 'C'
+          : (participant.calibrations[0]?.afterLevel ?? initialLevel);
       const requiredEvaluations = requiredEvaluationGates.get(participant.id)!;
       return {
         id: participant.id,
@@ -129,6 +145,7 @@ export class CalibrationService {
         riskFlags: participant.aiReport?.riskFlags ?? null,
         // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
         aiReport: participant.aiReport ?? null,
+        activeRedLineFindings: participant.redLineFindings,
         adjusted: participant.calibrations.length > 0,
         requiredEvaluations,
       };
@@ -149,85 +166,6 @@ export class CalibrationService {
       distribution,
       levels: cycle.evaluationRule?.levels ?? [],
     };
-  }
-
-  /** 校准调整：append-only 落一条校准记录（调整必填原因） */
-  async adjust(
-    operatorOpenId: string,
-    participantId: number,
-    afterLevel: string,
-    reason: string,
-  ) {
-    const { record, beforeLevel } = await this.prisma.$transaction(
-      async (tx) => {
-        // 所有角色先锁住参与者、周期与既有结果，再读取可变前置条件和最新校准。
-        await this.lockCalibrationAggregate(tx, participantId);
-        const participant = await tx.perfParticipant.findUnique({
-          where: { id: participantId },
-          include: {
-            cycle: { include: { evaluationRule: true } },
-            managerReview: { select: { initialLevel: true, status: true } },
-            stageResults: {
-              where: { stage: 'MANAGER', status: 'READY' },
-              select: { stageLevel: true },
-              orderBy: { calculatedAt: 'desc' },
-              take: 1,
-            },
-            calibrations: { orderBy: { id: 'desc' }, take: 1 },
-            result: { select: { archivedAt: true } },
-          },
-        });
-        if (!participant || participant.cycle.deletedAt) {
-          throw new NotFoundException('参与者不存在');
-        }
-        await this.assertCanAccessParticipant(operatorOpenId, participant);
-        if (participant.result?.archivedAt) {
-          throw new ConflictException(
-            '结果已归档，任何调整必须经申诉/面谈流程',
-          );
-        }
-        await this.participantNoResultService.assertCalibrationReady(
-          participantId,
-          tx,
-        );
-        if (
-          Array.isArray(participant.cycle.evaluationRule?.levels) &&
-          !hasRatingSymbol(participant.cycle.evaluationRule.levels, afterLevel)
-        ) {
-          throw new BadRequestException(
-            `评级 ${afterLevel} 不在评估规则定义中`,
-          );
-        }
-        const currentLevel =
-          participant.calibrations[0]?.afterLevel ??
-          participant.stageResults?.[0]?.stageLevel ??
-          participant.managerReview?.initialLevel ??
-          null;
-        if (!currentLevel) {
-          throw new ConflictException('上级评估尚未形成可校准的权威阶段等级');
-        }
-        const created = await tx.perfCalibration.create({
-          data: {
-            participantId,
-            beforeLevel: currentLevel,
-            afterLevel,
-            reason,
-            operatorOpenId,
-          },
-        });
-        return { record: created, beforeLevel: currentLevel };
-      },
-    );
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'calibration.adjust',
-      targetType: 'perf_participant',
-      targetId: String(participantId),
-      before: { level: beforeLevel },
-      after: { level: afterLevel },
-      reason,
-    });
-    return record;
   }
 
   /** 校准记录历史（申诉处理/审计走查用） */
@@ -332,37 +270,6 @@ export class CalibrationService {
     `;
   }
 
-  /** 批量确认校准：完成度从当前有效 SELF/MANAGER 提交派生，不依赖旧阶段状态。 */
-  async confirm(
-    operatorOpenId: string,
-    cycleId: number,
-    participantIds: number[],
-  ) {
-    const participants = await this.prisma.perfParticipant.findMany({
-      where: { id: { in: participantIds }, cycleId },
-    });
-    if (participants.length === 0) throw new NotFoundException('参与者不存在');
-
-    let confirmed = 0;
-    const skipped: number[] = [];
-    for (const participant of participants) {
-      if (participant.status === PerfParticipantStatus.CALIBRATED) {
-        skipped.push(participant.id);
-        continue;
-      }
-      await this.participantNoResultService.assertCalibrationReady(
-        participant.id,
-      );
-      await this.participantService.transition(
-        operatorOpenId,
-        participant.id,
-        PerfParticipantStatus.CALIBRATED,
-      );
-      confirmed += 1;
-    }
-    return { confirmed, skipped };
-  }
-
   /**
    * 推送结果给员工确认（产品 §5.6）：
    * 生成/更新 perf_results（final = 校准后评级），参与者 → RESULT_PUSHED，落结果通知。
@@ -372,41 +279,68 @@ export class CalibrationService {
     cycleId: number,
     participantIds?: number[],
   ) {
-    const participants = await this.prisma.perfParticipant.findMany({
+    const candidates = await this.prisma.perfParticipant.findMany({
       where: {
         cycleId,
         status: PerfParticipantStatus.CALIBRATED,
+        calibrations: { some: {} },
         ...(participantIds?.length ? { id: { in: participantIds } } : {}),
       },
-      include: {
-        managerReview: true,
-        calibrations: { orderBy: { id: 'desc' }, take: 1 },
-        cycle: { include: { dimensions: { where: { deletedAt: null } } } },
-      },
+      select: { id: true },
     });
-    if (participants.length === 0) {
-      throw new BadRequestException('没有可推送的参与者（需处于已校准状态）');
+    if (candidates.length === 0) {
+      throw new BadRequestException(
+        '没有可推送的参与者（需存在显式校准决定并处于已校准状态）',
+      );
     }
 
     let pushed = 0;
-    for (const participant of participants) {
-      const finalLevel =
-        participant.calibrations[0]?.afterLevel ??
-        participant.managerReview?.initialLevel;
-      if (!finalLevel) continue;
-
-      // 维度结果快照：冗余维度名，归档后不受维度修改影响
-      const scores = (participant.managerReview?.dimensionScores ?? []) as {
-        dimensionId?: number;
-      }[];
-      const dimensionResults = scores.map((score) => ({
-        ...score,
-        name: participant.cycle.dimensions.find(
-          (dim) => dim.id === score.dimensionId,
-        )?.name,
-      }));
-
+    for (const candidate of candidates) {
       await this.prisma.$transaction(async (tx) => {
+        // 与红线确认/撤销、校准决定共用同一锁序；锁后重读，禁止事务外快照发布过期等级。
+        await this.lockCalibrationAggregate(tx, candidate.id);
+        const participant = await tx.perfParticipant.findUnique({
+          where: { id: candidate.id },
+          include: {
+            managerReview: true,
+            calibrations: { orderBy: { id: 'desc' }, take: 1 },
+            redLineFindings: {
+              where: {
+                action: PerfRedLineAction.CONFIRM,
+                revokedBy: { none: {} },
+              },
+              select: { id: true },
+              take: 1,
+            },
+            cycle: {
+              include: { dimensions: { where: { deletedAt: null } } },
+            },
+          },
+        });
+        if (
+          !participant ||
+          participant.cycleId !== cycleId ||
+          participant.status !== PerfParticipantStatus.CALIBRATED
+        ) {
+          return;
+        }
+        const calibration = participant.calibrations[0];
+        if (!calibration) {
+          throw new ConflictException('缺少显式校准决定，不能推送结果');
+        }
+        const finalLevel = participant.redLineFindings.length
+          ? 'C'
+          : calibration.afterLevel;
+        // 维度结果快照冗余名称，归档后不受维度修改影响。
+        const scores = (participant.managerReview?.dimensionScores ?? []) as {
+          dimensionId?: number;
+        }[];
+        const dimensionResults = scores.map((score) => ({
+          ...score,
+          name: participant.cycle.dimensions.find(
+            (dim) => dim.id === score.dimensionId,
+          )?.name,
+        }));
         await tx.perfResult.upsert({
           where: { participantId: participant.id },
           create: {
@@ -432,13 +366,12 @@ export class CalibrationService {
             },
           },
         });
+        await tx.perfParticipant.update({
+          where: { id: participant.id },
+          data: { status: PerfParticipantStatus.RESULT_PUSHED },
+        });
+        pushed += 1;
       });
-      await this.participantService.transition(
-        operatorOpenId,
-        participant.id,
-        PerfParticipantStatus.RESULT_PUSHED,
-      );
-      pushed += 1;
     }
 
     await this.auditService.record({

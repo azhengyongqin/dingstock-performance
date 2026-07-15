@@ -37,7 +37,6 @@ describe('SelfReviewService 写入语义', () => {
   };
   const audit = { record: jest.fn() };
   const participants = { transition: jest.fn() };
-  const rbac = { hasAnyRole: jest.fn() };
   const taskAccess = {
     ensureWritable: jest.fn(),
     openIfDue: jest.fn(),
@@ -78,7 +77,6 @@ describe('SelfReviewService 写入语义', () => {
       prisma as never,
       audit as never,
       participants as never,
-      rbac as never,
       taskAccess as never,
       participantEvaluationLock,
     );

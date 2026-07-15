@@ -13,27 +13,62 @@ import { PerfParticipantStatus } from '../generated/prisma/enums';
  */
 @Injectable()
 export class ParticipantEvaluationLockService {
+  /**
+   * 所有人工评估写入与校准共用参与者行锁。ensureWritable 的前置检查只改善提示，
+   * 真正防止“校准刚成功、旧页面仍写入”的边界在这个事务内检查。
+   */
+  async lockHumanWrite(
+    tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
+    participantId: number,
+    employeeOpenId?: string,
+  ) {
+    const rows = await tx.$queryRaw<
+      Array<{
+        id: number;
+        employee_open_id: string;
+        status: PerfParticipantStatus;
+        evaluation_locked_at: Date | null;
+      }>
+    >`
+      SELECT "id", "employee_open_id", "status", "evaluation_locked_at"
+      FROM "performance"."perf_participants"
+      WHERE "id" = ${participantId}
+      FOR UPDATE
+    `;
+    if (
+      rows.length !== 1 ||
+      (employeeOpenId &&
+        rows[0].employee_open_id &&
+        rows[0].employee_open_id !== employeeOpenId)
+    ) {
+      throw new NotFoundException('你不在本周期考核名单中');
+    }
+    if (rows[0].evaluation_locked_at || this.isClosedStatus(rows[0].status)) {
+      throw new ConflictException({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+        message: '该员工已完成校准或评估收口，不能再修改或重新提交',
+      });
+    }
+    return rows[0];
+  }
+
   async lockSelfWrite(
     tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
     participantId: number,
     employeeOpenId: string,
   ) {
-    const rows = await tx.$queryRaw<
-      Array<{ id: number; status: PerfParticipantStatus }>
-    >`
-      SELECT "id", "status"
-      FROM "performance"."perf_participants"
-      WHERE "id" = ${participantId} AND "employee_open_id" = ${employeeOpenId}
-      FOR UPDATE
-    `;
-    if (rows.length !== 1) {
-      throw new NotFoundException('你不在本周期考核名单中');
-    }
-    if (rows[0].status === PerfParticipantStatus.NO_RESULT) {
-      throw new ConflictException({
-        code: 'EVALUATION_PARTICIPANT_LOCKED',
-        message: '该员工已标记为当前周期无绩效结果，请先撤销后再继续填写',
-      });
-    }
+    return this.lockHumanWrite(tx, participantId, employeeOpenId);
+  }
+
+  private isClosedStatus(status: PerfParticipantStatus) {
+    return new Set<string>([
+      PerfParticipantStatus.CALIBRATED,
+      PerfParticipantStatus.RESULT_PUSHED,
+      PerfParticipantStatus.CONFIRMED,
+      PerfParticipantStatus.APPEALING,
+      PerfParticipantStatus.RE_CONFIRMING,
+      PerfParticipantStatus.NO_RESULT,
+      PerfParticipantStatus.ARCHIVED,
+    ]).has(status);
   }
 }

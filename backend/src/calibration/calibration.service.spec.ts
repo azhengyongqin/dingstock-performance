@@ -1,13 +1,10 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { CalibrationService } from './calibration.service';
 
 jest.mock('../shared/database/prisma.service', () => ({
   PrismaService: class {},
 }));
 jest.mock('../audit/audit.service', () => ({ AuditService: class {} }));
-jest.mock('../participant/participant.service', () => ({
-  ParticipantService: class {},
-}));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
 jest.mock('../participant/participant-no-result.service', () => ({
   ParticipantNoResultService: class {},
@@ -20,8 +17,10 @@ jest.mock(
       REVIEWED: 'REVIEWED',
       AI_DONE: 'AI_DONE',
       CALIBRATED: 'CALIBRATED',
+      RESULT_PUSHED: 'RESULT_PUSHED',
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
+    PerfRedLineAction: { CONFIRM: 'CONFIRM', REVOKE: 'REVOKE' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
   { virtual: true },
@@ -44,17 +43,20 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     perfCycle: { findFirst: jest.fn() },
     perfParticipant: { findUnique: jest.fn(), findMany: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
+    perfResult: { upsert: jest.fn() },
+    perfNotification: { create: jest.fn() },
     larkUser: { findMany: jest.fn() },
     $transaction: jest.fn(),
   };
   const tx = {
-    perfParticipant: { findUnique: jest.fn() },
+    perfParticipant: { findUnique: jest.fn(), update: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
+    perfResult: { upsert: jest.fn() },
+    perfNotification: { create: jest.fn() },
     larkUser: { findMany: jest.fn() },
     $queryRaw: jest.fn(),
   };
   const audit = { record: jest.fn() };
-  const participantService = { transition: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
   const requiredEvaluation = {
     assertCalibrationReady: jest.fn(),
@@ -118,62 +120,32 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     service = new CalibrationService(
       prisma as never,
       audit as never,
-      participantService as never,
       rbac as never,
       requiredEvaluation as never,
     );
   });
 
-  it('校准后职责转移的新 Leader 可读取敏感校准历史并追加重新校准', async () => {
+  it('校准后职责转移的新 Leader可读取敏感校准历史', async () => {
     const history = await service.getHistory('ou_new_leader', 7);
-    const recalibration = await service.adjust(
-      'ou_new_leader',
-      7,
-      'A',
-      '复核后调整',
-    );
 
     expect(history.total).toBe(1);
-    expect(recalibration).toMatchObject({ id: 11, afterLevel: 'A' });
-    expect(tx.perfCalibration.create).toHaveBeenCalledWith({
-      data: {
-        participantId: 7,
-        beforeLevel: 'B',
-        afterLevel: 'A',
-        reason: '复核后调整',
-        operatorOpenId: 'ou_new_leader',
-      },
-    });
   });
 
-  it('职责转移后的旧 Leader 立即失去校准历史与重新校准权限', async () => {
+  it('职责转移后的旧 Leader 立即失去校准历史权限', async () => {
     await expect(service.getHistory('ou_old_leader', 7)).rejects.toThrow(
       ForbiddenException,
     );
-    await expect(
-      service.adjust('ou_old_leader', 7, 'A', '越权调整'),
-    ).rejects.toThrow(ForbiddenException);
-    expect(tx.perfCalibration.create).not.toHaveBeenCalled();
   });
 
-  it('获取行锁后读取最新职责快照，转移后的旧请求仍被拒绝', async () => {
-    tx.perfParticipant.findUnique
-      .mockResolvedValueOnce({
-        ...participant,
-        leaderOpenIdSnapshot: 'ou_other_leader',
-      })
-      .mockResolvedValueOnce({
-        ...participant,
-        leaderOpenIdSnapshot: 'ou_other_leader',
-      });
+  it('读取最新职责快照后，转移后的旧请求仍被拒绝', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValueOnce({
+      ...participant,
+      leaderOpenIdSnapshot: 'ou_other_leader',
+    });
 
     await expect(service.getHistory('ou_new_leader', 7)).rejects.toThrow(
       ForbiddenException,
     );
-    await expect(
-      service.adjust('ou_new_leader', 7, 'A', '并发转移后的旧请求'),
-    ).rejects.toThrow(ForbiddenException);
-    expect(tx.perfCalibration.create).not.toHaveBeenCalled();
   });
 
   it('HR 仍需满足组织授权范围，Admin/全局 HR 不受影响', async () => {
@@ -188,49 +160,6 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     await expect(service.getHistory('ou_admin', 7)).resolves.toMatchObject({
       total: 1,
     });
-  });
-
-  it('AI 失败或尚未生成不阻塞已完成人工评估的参与者进入校准', async () => {
-    prisma.perfParticipant.findMany.mockResolvedValue([
-      { id: 7, cycleId: 1, status: 'REVIEWED' },
-    ]);
-
-    const result = await service.confirm('ou_hr', 1, [7]);
-
-    expect(result).toEqual({ confirmed: 1, skipped: [] });
-    expect(participantService.transition).toHaveBeenCalledWith(
-      'ou_hr',
-      7,
-      'CALIBRATED',
-    );
-    expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith({
-      where: { id: { in: [7] }, cycleId: 1 },
-    });
-    expect(requiredEvaluation.assertCalibrationReady).toHaveBeenCalledWith(7);
-  });
-
-  it('缺失 MANAGER 时拒绝首次校准并返回催办或更换 Leader 指引', async () => {
-    prisma.perfParticipant.findMany.mockResolvedValue([
-      { id: 7, cycleId: 1, status: 'SELF_SUBMITTED' },
-    ]);
-    requiredEvaluation.assertCalibrationReady.mockRejectedValue(
-      new ConflictException({
-        code: 'REQUIRED_EVALUATION_MISSING',
-        blockers: [
-          {
-            stage: 'MANAGER',
-            action: 'REMIND_OR_TRANSFER_LEADER',
-          },
-        ],
-      }),
-    );
-
-    await expect(service.confirm('ou_hr', 1, [7])).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'REQUIRED_EVALUATION_MISSING',
-      }),
-    });
-    expect(participantService.transition).not.toHaveBeenCalled();
   });
 
   it('授权校准工作台在同一参与者行返回完整 AI 参考', async () => {
@@ -250,6 +179,17 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
           status: 'SUBMITTED',
         },
         calibrations: [],
+        redLineFindings: [
+          {
+            id: 501,
+            findingType: 'SERIOUS_VIOLATION',
+            facts: '重大违规事实',
+            evidence: [{ fileToken: 'evidence' }],
+            reason: '制度红线',
+            operatorOpenId: 'ou_hr',
+            createdAt: new Date('2026-07-15T09:00:00.000Z'),
+          },
+        ],
         aiReport: {
           status: 'SUCCESS',
           referenceLevel: 'A',
@@ -272,6 +212,14 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
         referenceLevel: 'A',
         summary: 'AI 参考摘要',
       },
+      currentLevel: 'C',
+      activeRedLineFindings: [
+        expect.objectContaining({
+          findingType: 'SERIOUS_VIOLATION',
+          facts: '重大违规事实',
+          reason: '制度红线',
+        }),
+      ],
       requiredEvaluations: expect.objectContaining({ ready: true }),
     });
     expect(requiredEvaluation.getRequiredEvaluationGates).toHaveBeenCalledWith([
@@ -306,5 +254,37 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     expect(prisma.perfParticipant.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: { cycleId: 1 } }),
     );
+  });
+
+  it('旧结果推送边界也不能绕过有效红线，最终等级强制为 C', async () => {
+    const resultParticipant = {
+      id: 7,
+      cycleId: 1,
+      employeeOpenId: 'ou_employee',
+      status: 'CALIBRATED',
+      calibrations: [{ afterLevel: 'A' }],
+      redLineFindings: [{ id: 501 }],
+      managerReview: {
+        initialLevel: 'A',
+        dimensionScores: [],
+        promotionConclusion: null,
+      },
+      cycle: { dimensions: [] },
+    };
+    prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }]);
+    tx.perfParticipant.findUnique.mockResolvedValue(resultParticipant);
+
+    await service.pushResults('ou_hr', 1, [7]);
+
+    expect(tx.perfResult.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ finalLevel: 'C' }),
+        update: expect.objectContaining({ finalLevel: 'C' }),
+      }),
+    );
+    expect(tx.perfParticipant.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { status: 'RESULT_PUSHED' },
+    });
   });
 });

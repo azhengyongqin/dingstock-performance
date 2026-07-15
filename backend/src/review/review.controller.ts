@@ -24,7 +24,6 @@ import { RolesGuard } from '../rbac/roles.guard';
 import {
   BatchAddReviewersDto,
   ReplaceReviewerDto,
-  ReturnSelfReviewDto,
   SaveSelfReviewDto,
   SubmitSelfReviewDto,
   UpsertReviewersDto,
@@ -141,20 +140,6 @@ export class ReviewController {
     @Body() dto: SubmitSelfReviewDto,
   ) {
     return this.selfReviewService.submit(req.user.open_id, dto.cycleId);
-  }
-
-  @Post('participants/:participantId/self-review/return')
-  @ApiOperation({ summary: '退回自评（Leader/HR；必填原因）' })
-  returnSelfReview(
-    @Req() req: AuthenticatedRequest,
-    @Param('participantId', ParseIntPipe) participantId: number,
-    @Body() dto: ReturnSelfReviewDto,
-  ) {
-    return this.selfReviewService.returnSelfReview(
-      req.user.open_id,
-      participantId,
-      dto.reason,
-    );
   }
 
   // ---- 评审任务（360° 与上级评估共用任务模型） ----

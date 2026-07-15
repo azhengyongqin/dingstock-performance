@@ -1,6 +1,5 @@
 import {
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,7 +13,6 @@ import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
-import { RbacService } from '../rbac/rbac.service';
 import type { SaveSelfReviewDto } from './review.dto';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
@@ -26,7 +24,6 @@ export class SelfReviewService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
-    private readonly rbacService: RbacService,
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
@@ -200,39 +197,6 @@ export class SelfReviewService {
       targetType: 'perf_participant',
       targetId: String(participant.id),
     });
-    return { ok: true };
-  }
-
-  /** 退回自评（Leader/HR）：自评置 RETURNED，参与者回到可编辑态 */
-  async returnSelfReview(
-    operatorOpenId: string,
-    participantId: number,
-    reason: string,
-  ) {
-    const participant = await this.prisma.perfParticipant.findUnique({
-      where: { id: participantId },
-      include: { selfReview: true },
-    });
-    if (!participant?.selfReview) throw new NotFoundException('自评记录不存在');
-
-    const isLeader = participant.leaderOpenIdSnapshot === operatorOpenId;
-    const isHr = await this.rbacService.hasAnyRole(operatorOpenId, [
-      PerfRole.HR,
-      PerfRole.ADMIN,
-    ]);
-    if (!isLeader && !isHr)
-      throw new ForbiddenException('仅直属 Leader 或 HR 可退回自评');
-
-    await this.prisma.perfSelfReview.update({
-      where: { id: participant.selfReview.id },
-      data: { status: PerfSelfReviewStatus.RETURNED, returnReason: reason },
-    });
-    await this.participantService.transition(
-      operatorOpenId,
-      participantId,
-      PerfParticipantStatus.RETURNED,
-      reason,
-    );
     return { ok: true };
   }
 }

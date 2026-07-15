@@ -9,6 +9,7 @@ jest.mock(
   '../generated/prisma/enums',
   () => ({
     PerfEvaluationTaskType: { MANAGER: 'MANAGER' },
+    PerfRedLineAction: { CONFIRM: 'CONFIRM' },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfStageResultStatus: { READY: 'READY', NO_DATA: 'NO_DATA' },
   }),
@@ -96,6 +97,7 @@ describe('ManagerStageResultService 权威阶段结果', () => {
   const prisma = {
     perfParticipant: { findUnique: jest.fn() },
     perfEvaluationSubmission: { findFirst: jest.fn() },
+    perfRedLineFinding: { findFirst: jest.fn() },
     perfStageResult: { upsert: jest.fn() },
   };
   let service: ManagerStageResultService;
@@ -125,6 +127,7 @@ describe('ManagerStageResultService 权威阶段结果', () => {
     prisma.perfStageResult.upsert.mockImplementation(
       ({ create }: { create: object }) => create,
     );
+    prisma.perfRedLineFinding.findFirst.mockResolvedValue(null);
     service = new ManagerStageResultService(prisma as never);
   });
 
@@ -259,5 +262,47 @@ describe('ManagerStageResultService 权威阶段结果', () => {
       initialLevel: 'A',
       stageLevel: 'A',
     });
+  });
+
+  it('存在仍有效的红线确认时把 MANAGER 阶段硬约束为 C 并保存原因', async () => {
+    prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce({
+      id: 101,
+      reviewerOpenId: 'ou_leader',
+      status: 'SUBMITTED',
+      items: [
+        {
+          itemKey: 'item:performance:score',
+          dimensionKey: 'dimension:performance',
+          rawLevel: null,
+          rawScore: '85',
+        },
+        {
+          itemKey: 'item:values:score',
+          dimensionKey: 'dimension:values',
+          rawLevel: null,
+          rawScore: '85',
+        },
+      ],
+    });
+    prisma.perfRedLineFinding.findFirst.mockResolvedValueOnce({
+      id: 501,
+      findingType: 'SERIOUS_VIOLATION',
+      reason: '依据员工手册红线条款',
+    });
+
+    const result = await service.recalculate(7);
+
+    expect(result).toMatchObject({
+      initialLevel: 'A',
+      stageLevel: 'C',
+    });
+    expect(result.constraintReasons).toEqual([
+      expect.objectContaining({
+        id: 'red-line:501',
+        type: 'CONFIRMED_RED_LINE',
+        beforeLevel: 'A',
+        afterLevel: 'C',
+      }),
+    ]);
   });
 });

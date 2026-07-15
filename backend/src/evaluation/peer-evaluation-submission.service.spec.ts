@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 
@@ -141,6 +141,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
   const audit = { record: jest.fn() };
   const peerStageResult = { recalculate: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
+  const participantEvaluationLock = { lockHumanWrite: jest.fn() };
   let service: PeerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -183,6 +184,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       submissionPolicy,
       peerStageResult as never,
       aiReport as never,
+      participantEvaluationLock as never,
     );
   });
 
@@ -242,6 +244,31 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       },
       data: { updatedAt: expect.any(Date) },
     });
+  });
+
+  it('校准事务已锁定参与者时，旧 360° 页面不能继续提交', async () => {
+    participantEvaluationLock.lockHumanWrite.mockRejectedValueOnce(
+      new ConflictException({ code: 'EVALUATION_PARTICIPANT_LOCKED' }),
+    );
+
+    await expect(
+      service.submitPeer('ou_reviewer', {
+        assignmentId: 11,
+        items: [
+          {
+            subformKey: 'subform:PEER',
+            dimensionKey: 'dimension:PEER:REVIEWER:0',
+            itemKey: 'item:peer:rating',
+            rawLevel: 'A',
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+      }),
+    });
+    expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
   });
 
   it('替换事务已撤销指派时，在途草稿保存不能再写入', async () => {
