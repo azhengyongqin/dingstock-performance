@@ -33,14 +33,15 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import type {
-  PerfConfigScheduleStage,
-  PerfConfigTemplateVersionSummary,
-  PerfCyclePlan,
-  PerfCycleSetupParticipant,
-  PerfCycleStatus,
-  PerfParticipantPrefixCheck,
-  StartCheckItem
+import {
+  CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT,
+  type PerfConfigScheduleStage,
+  type PerfConfigTemplateVersionSummary,
+  type PerfCyclePlan,
+  type PerfCycleSetupParticipant,
+  type PerfCycleStatus,
+  type PerfParticipantPrefixCheck,
+  type StartCheckItem
 } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
@@ -227,16 +228,9 @@ const CycleSetupEditor = ({
     setReapplyStep('pick')
   }
 
-  /** 点「套用」：未手动修改过快照时静默直接调用；已手动修改则先切到覆盖确认视图。 */
-  const handleReapplyApply = async () => {
+  /** 「套用」与「确认覆盖」共用的实际执行逻辑：调用重套接口，成功后关闭弹窗。 */
+  const performReapply = async () => {
     if (!reapplyVersionId || !onReapplyTemplate) return
-
-    if (snapshotManuallyModified) {
-      setReapplyStep('confirm')
-
-      return
-    }
-
     setReapplying(true)
 
     try {
@@ -248,17 +242,17 @@ const CycleSetupEditor = ({
     }
   }
 
-  const handleReapplyConfirm = async () => {
+  /** 点「套用」：未手动修改过快照时静默直接调用；已手动修改则先切到覆盖确认视图。 */
+  const handleReapplyApply = async () => {
     if (!reapplyVersionId || !onReapplyTemplate) return
-    setReapplying(true)
 
-    try {
-      const ok = await onReapplyTemplate(Number(reapplyVersionId))
+    if (snapshotManuallyModified) {
+      setReapplyStep('confirm')
 
-      if (ok) closeReapplyDialog()
-    } finally {
-      setReapplying(false)
+      return
     }
+
+    await performReapply()
   }
 
   const patchNotification = (next: Partial<NonNullable<typeof notification>>) => {
@@ -348,7 +342,7 @@ const CycleSetupEditor = ({
                       <span className='font-medium'>{sourceConfigLabel}</span>
                       <p className='text-muted-foreground mt-1 text-xs'>周期已保存独立快照，来源模板后续变化不会影响本周期。</p>
                       {snapshotManuallyModified && (
-                        <p className='text-amber-600 mt-1 text-xs'>当前评估规则与评估维度可能已被手动修改。</p>
+                        <p className='text-amber-600 mt-1 text-xs'>当前{CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT}。</p>
                       )}
                       {editable && (
                         <Button variant='outline' size='sm' className='mt-3' onClick={openReapplyDialog}>
@@ -691,8 +685,8 @@ const CycleSetupEditor = ({
             <DialogTitle>重新套用模板</DialogTitle>
             <DialogDescription>
               {reapplyStep === 'pick'
-                ? '重新套用会把所选已发布模板版本整套复制为本周期新的配置快照。'
-                : '当前评估规则或评估维度可能已被手动修改，重新套用将整体覆盖为所选模板版本的快照（日程与通知规则一并重置为模板预设），不做字段级合并。'}
+                ? '重新套用会把所选已发布模板版本的评估规则与评估维度整套复制为本周期新的配置快照；当前日程与通知规则保持不变。'
+                : `当前${CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT}，重新套用将整体覆盖为所选模板版本的快照，不做字段级合并；当前日程与通知规则保持不变。`}
             </DialogDescription>
           </DialogHeader>
 
@@ -733,7 +727,7 @@ const CycleSetupEditor = ({
             ) : (
               <>
                 <Button variant='outline' onClick={closeReapplyDialog}>取消</Button>
-                <Button variant='destructive' disabled={reapplying} onClick={() => void handleReapplyConfirm()}>
+                <Button variant='destructive' disabled={reapplying} onClick={() => void performReapply()}>
                   {reapplying && <Loader2Icon className='animate-spin' />}
                   确认覆盖
                 </Button>

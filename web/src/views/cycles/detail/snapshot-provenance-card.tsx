@@ -2,7 +2,7 @@
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import type { PerfCycleConfigSnapshot } from '@/lib/perf-api'
+import { CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT, type PerfCycleConfigSnapshot } from '@/lib/perf-api'
 
 type Props = {
   snapshot: PerfCycleConfigSnapshot | null
@@ -27,7 +27,7 @@ const SnapshotProvenanceCard = ({ snapshot }: Props) => {
               </span>
               <span>创建时/最近套用时已复制为本周期独立配置快照，后续模板更新不会影响本周期。</span>
               {snapshot?.manuallyModified && (
-                <span className='text-amber-600'>当前评估规则与评估维度可能已被手动修改。</span>
+                <span className='text-amber-600'>当前{CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT}。</span>
               )}
             </span>
           ) : (

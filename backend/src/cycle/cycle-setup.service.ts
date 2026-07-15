@@ -249,8 +249,9 @@ export class CycleSetupService {
   }
 
   /**
-   * 启动前重新套用已发布配置模板版本：整套覆盖当前快照（评估规则、维度），
-   * 不做字段级合并；旧配置版本保留（ADR-0026 语义），仅切换 currentConfigVersionId。
+   * 启动前重新套用已发布配置模板版本：整套覆盖当前快照的评估规则与评估维度（含四个关系权重、表单快照），
+   * 不做字段级合并；日程预设与通知规则不属于复制范围，沿用当前快照原值（PRD Out of Scope）；
+   * 旧配置版本保留（ADR-0026 语义），仅切换 currentConfigVersionId。
    */
   async reapplyPublishedConfig(
     operatorOpenId: string,
@@ -278,10 +279,13 @@ export class CycleSetupService {
         );
       }
 
+      // 重套只覆盖评估规则与评估维度（PRD Out of Scope 明确排除时间窗/通知复制）；
+      // 计划校验对象因此改为「沿用当前快照的 schedulePreset」+ cycle.plannedStartAt，而非来源模板的日程预设。
       const source = await this.resolvePublishedSource(
         tx,
         dto.configTemplateVersionId,
         cycle.plannedStartAt.toISOString(),
+        currentSnapshot.schedulePreset,
       );
 
       const snapshot = await tx.perfCycleConfigVersion.create({
@@ -291,6 +295,11 @@ export class CycleSetupService {
           // 周期内版本递增，旧版本不删除，版本链保留供追溯（ADR-0026）。
           currentSnapshot.version + 1,
           operatorOpenId,
+          {
+            // 日程预设与通知规则沿用当前快照，不随模板重套被重置（PRD 明确排除时间窗/通知复制）。
+            schedulePreset: currentSnapshot.schedulePreset,
+            notificationRules: currentSnapshot.notificationRules,
+          },
         ),
         include: { formSnapshots: true },
       });
@@ -416,11 +425,14 @@ export class CycleSetupService {
    * 来源配置版本校验：行锁防并发修改 → 查询来源版本 → PUBLISHED 状态校验 → D/M 表单完整性校验 → 周期计划校验。
    * createFromPublishedConfig / initializeLegacyDraft / reapplyPublishedConfig 三个入口共用同一套校验，
    * 错误类型、文案与抛出顺序保持一致；仅计划锚点时间（plannedStartAtIso）来源不同。
+   * schedulePresetForPlanCheck 默认取来源版本的日程预设；reapplyPublishedConfig 传入当前快照的日程预设，
+   * 因为重套不复制来源模板的日程（PRD Out of Scope），计划校验必须针对实际会写入新快照的值。
    */
   private async resolvePublishedSource(
     tx: Prisma.TransactionClient,
     configTemplateVersionId: number,
     plannedStartAtIso: string,
+    schedulePresetForPlanCheck?: Prisma.JsonValue,
   ): Promise<PublishedConfigSource> {
     await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${configTemplateVersionId} FOR SHARE`;
     const source = await tx.perfConfigTemplateVersion.findUnique({
@@ -443,7 +455,8 @@ export class CycleSetupService {
 
     const plan = generateCyclePlan(
       plannedStartAtIso,
-      source.schedulePreset as unknown as SchedulePreset,
+      (schedulePresetForPlanCheck ??
+        source.schedulePreset) as unknown as SchedulePreset,
     );
     const planIssues = validateCyclePlan(plan);
     if (planIssues.length > 0) {
@@ -458,14 +471,19 @@ export class CycleSetupService {
   }
 
   /**
-   * 周期配置快照写入载荷：字段均从来源版本值复制（JSON 字段经 inputJson 深拷贝，避免与来源共享引用），
-   * 三个创建入口仅 version 取值不同，由调用方传入。
+   * 周期配置快照写入载荷：字段默认均从来源版本值复制（JSON 字段经 inputJson 深拷贝，避免与来源共享引用）。
+   * createFromPublishedConfig / initializeLegacyDraft 不传 overrides，日程预设与通知规则随来源模板一起复制（ADR-0023）；
+   * reapplyPublishedConfig 传入 overrides，让日程预设与通知规则沿用当前快照而非来源模板（PRD Out of Scope 排除时间窗/通知复制）。
    */
   private buildSnapshotCreateData(
     source: PublishedConfigSource,
     cycleId: number,
     version: number,
     operatorOpenId: string,
+    overrides?: {
+      schedulePreset: Prisma.JsonValue;
+      notificationRules: Prisma.JsonValue;
+    },
   ) {
     return {
       cycleId,
@@ -481,8 +499,12 @@ export class CycleSetupService {
       projectOwnerWeight: source.projectOwnerWeight,
       peerWeight: source.peerWeight,
       crossDeptWeight: source.crossDeptWeight,
-      schedulePreset: this.inputJson(source.schedulePreset),
-      notificationRules: this.inputJson(source.notificationRules),
+      schedulePreset: this.inputJson(
+        overrides?.schedulePreset ?? source.schedulePreset,
+      ),
+      notificationRules: this.inputJson(
+        overrides?.notificationRules ?? source.notificationRules,
+      ),
       createdByOpenId: operatorOpenId,
       formSnapshots: {
         create: source.formBindings.map((binding) => ({

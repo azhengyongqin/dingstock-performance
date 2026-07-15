@@ -509,6 +509,35 @@ describe('CycleSetupService', () => {
   });
 
   describe('reapplyPublishedConfig 重新套用配置模板', () => {
+    // 当前快照的日程预设/通知规则与来源模板的刻意构造为不同值，
+    // 用来断言重套后写入新快照的是「沿用当前快照」而不是「复制来源模板」（PRD Out of Scope 排除时间窗/通知复制）。
+    const currentSchedulePreset = {
+      allowStageOverlap: true,
+      stages: [
+        { stage: 'SELF', startOffsetMinutes: 10, reminderDeadlineOffsetMinutes: 70 },
+        { stage: 'PEER', startOffsetMinutes: 70, reminderDeadlineOffsetMinutes: 130 },
+        { stage: 'MANAGER', startOffsetMinutes: 130, reminderDeadlineOffsetMinutes: 190 },
+      ],
+    };
+    const currentNotificationRules = {
+      stages: ['SELF', 'PEER', 'MANAGER'].map((stage) => ({
+        stage,
+        taskOpened: {
+          enabled: true,
+          recipient: 'ASSIGNEE',
+          ccLeader: true,
+          ccHr: false,
+        },
+        reminder: {
+          enabled: false,
+          recipient: 'ASSIGNEE',
+          ccLeader: false,
+          ccHr: false,
+          frequency: { type: 'ONCE_AT_DEADLINE' },
+        },
+      })),
+    };
+
     const reapplyCycleRow = (overrides: Record<string, unknown> = {}) => ({
       id: 9,
       status: 'DRAFT',
@@ -518,6 +547,8 @@ describe('CycleSetupService', () => {
         id: 19,
         version: 2,
         sourceConfigTemplateVersionId: 25,
+        schedulePreset: currentSchedulePreset,
+        notificationRules: currentNotificationRules,
         formSnapshots: [],
       },
       participants: [
@@ -556,8 +587,9 @@ describe('CycleSetupService', () => {
         projectOwnerWeight: 30,
         peerWeight: 25,
         crossDeptWeight: 15,
-        schedulePreset: source.schedulePreset,
-        notificationRules: source.notificationRules,
+        // 重套后新快照沿用当前快照的日程与通知规则，与来源模板值不同。
+        schedulePreset: currentSchedulePreset,
+        notificationRules: currentNotificationRules,
         createdAt: new Date('2026-07-14T02:00:00.000Z'),
         updatedAt: new Date('2026-07-14T02:00:00.000Z'),
         formSnapshots: [
@@ -614,10 +646,16 @@ describe('CycleSetupService', () => {
         projectOwnerWeight: 30,
         peerWeight: 25,
         crossDeptWeight: 15,
-        schedulePreset: source.schedulePreset,
-        notificationRules: source.notificationRules,
         createdByOpenId: 'ou_hr',
       });
+      // 日程预设与通知规则必须沿用「当前快照」的值，而不是被替换为来源模板的值——
+      // PRD Out of Scope 明确排除时间窗/通知复制，重套不得静默重置 HR 在计划步骤的调整。
+      expect(snapshotData.schedulePreset).toEqual(currentSchedulePreset);
+      expect(snapshotData.notificationRules).toEqual(currentNotificationRules);
+      expect(snapshotData.schedulePreset).not.toEqual(source.schedulePreset);
+      expect(snapshotData.notificationRules).not.toEqual(
+        source.notificationRules,
+      );
       expect(snapshotData.formSnapshots.create).toHaveLength(2);
       expect(snapshotData.formSnapshots.create[0]).toMatchObject({
         jobLevelPrefix: 'D',

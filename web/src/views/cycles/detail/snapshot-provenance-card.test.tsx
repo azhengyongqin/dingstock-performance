@@ -45,10 +45,10 @@ describe('SnapshotProvenanceCard', () => {
     expect(screen.getByText(/D 普通岗表单/)).toBeInTheDocument()
   })
 
-  it('manuallyModified 为 true 时提示评估规则与评估维度可能已被手动修改', () => {
+  it('manuallyModified 为 true 时提示评估规则或评估维度可能已被手动修改', () => {
     render(<SnapshotProvenanceCard snapshot={{ ...baseSnapshot, manuallyModified: true }} />)
 
-    expect(screen.getByText(/评估规则与评估维度可能已被手动修改/)).toBeInTheDocument()
+    expect(screen.getByText(/评估规则或评估维度可能已被手动修改/)).toBeInTheDocument()
   })
 
   it('manuallyModified 为 false 时不出现手动修改提示', () => {

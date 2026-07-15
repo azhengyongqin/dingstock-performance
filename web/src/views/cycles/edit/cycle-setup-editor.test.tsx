@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -282,10 +282,13 @@ describe('CycleSetupEditor 重新套用模板', () => {
     await user.click(screen.getByRole('option', { name: /标准配置/ }))
     await user.click(screen.getByRole('button', { name: '套用' }))
 
-    expect(screen.getByText(/整体覆盖为所选模板版本的快照/)).toBeInTheDocument()
+    // 确认覆盖文案与基本信息只读块共用同一「评估规则或评估维度可能已被手动修改」常量，措辞统一用「或」；
+    // 只读块（Dialog 外）也含相同文案，这里用 within(dialog) 限定断言范围。
+    const confirmDialog = screen.getByRole('dialog')
 
-    // 确认覆盖文案必须使用「评估规则」「评估维度」术语；基本信息只读块另有“与”措辞提示，这里用 Dialog 特有的“或”措辞精确匹配。
-    expect(screen.getByText(/当前评估规则或评估维度可能已被手动修改/)).toBeInTheDocument()
+    expect(within(confirmDialog).getByText(/整体覆盖为所选模板版本的快照/)).toBeInTheDocument()
+    expect(within(confirmDialog).getByText(/当前日程与通知规则保持不变/)).toBeInTheDocument()
+    expect(within(confirmDialog).getByText(/当前评估规则或评估维度可能已被手动修改/)).toBeInTheDocument()
     expect(props.onReapplyTemplate).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: '取消' }))
@@ -305,7 +308,7 @@ describe('CycleSetupEditor 重新套用模板', () => {
     const props = { ...createProps(), sourceConfigLabel: '标准配置 · v2', snapshotManuallyModified: true }
     const view = render(<CycleSetupEditor {...props} />)
 
-    expect(screen.getByText(/当前评估规则与评估维度可能已被手动修改/)).toBeInTheDocument()
+    expect(screen.getByText(/当前评估规则或评估维度可能已被手动修改/)).toBeInTheDocument()
 
     view.rerender(<CycleSetupEditor {...props} snapshotManuallyModified={false} />)
     expect(screen.queryByText(/可能已被手动修改/)).not.toBeInTheDocument()

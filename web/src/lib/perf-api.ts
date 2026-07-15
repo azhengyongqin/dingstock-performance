@@ -61,6 +61,13 @@ export type PerfFormItemConfig = {
 
 // ===== 中文文案映射 =====
 
+/**
+ * 周期配置快照「可能已被手动修改」的统一提示文案片段。
+ * 语义上评估规则或评估维度任一被手动改动即成立，故用「或」而非「与」；
+ * cycle-setup-editor（只读块 + 重套确认弹窗）与 snapshot-provenance-card 共用同一常量，避免措辞漂移。
+ */
+export const CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT = '评估规则或评估维度可能已被手动修改'
+
 export const CYCLE_STATUS_LABEL: Record<PerfCycleStatus, string> = {
   DRAFT: '草稿',
   SCHEDULED: '待启动',
