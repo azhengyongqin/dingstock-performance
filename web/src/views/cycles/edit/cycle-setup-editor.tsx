@@ -66,6 +66,7 @@ type Props = {
   draft: CycleSetupDraft
   configTemplates: PerfConfigTemplateVersionSummary[]
   sourceConfigLabel: string
+  snapshotManuallyModified?: boolean
   participants: PerfCycleSetupParticipant[]
   prefixChecks: PerfParticipantPrefixCheck[]
   plan: PerfCyclePlan
@@ -88,6 +89,7 @@ type Props = {
   onSchedule: () => void
   onReturnToDraft: () => void
   onOpenAdvanced: () => void
+  onReapplyTemplate?: (configTemplateVersionId: number) => Promise<boolean>
 }
 
 const EMPTY_NOTIFICATIONS: PerfCyclePlan['notificationRules'] = { stages: [] }
@@ -150,6 +152,7 @@ const CycleSetupEditor = ({
   draft,
   configTemplates,
   sourceConfigLabel,
+  snapshotManuallyModified,
   participants,
   prefixChecks,
   plan,
@@ -171,11 +174,16 @@ const CycleSetupEditor = ({
   onSaveDraft,
   onSchedule,
   onReturnToDraft,
-  onOpenAdvanced
+  onOpenAdvanced,
+  onReapplyTemplate
 }: Props) => {
   const [currentStep, setCurrentStep] = useState<CycleSetupStepKey>('basic')
   const [selectedDepartment, setSelectedDepartment] = useState('')
   const [notificationStage, setNotificationStage] = useState<PerfConfigScheduleStage | null>(null)
+  const [reapplyOpen, setReapplyOpen] = useState(false)
+  const [reapplyStep, setReapplyStep] = useState<'pick' | 'confirm'>('pick')
+  const [reapplyVersionId, setReapplyVersionId] = useState('')
+  const [reapplying, setReapplying] = useState(false)
   const templateOptions = toConfigTemplateOptions(configTemplates)
   const prefixSummary = summarizePrefixChecks(prefixChecks)
   const stepIndex = CYCLE_SETUP_STEPS.findIndex(step => step.key === currentStep)
@@ -206,6 +214,51 @@ const CycleSetupEditor = ({
     if (currentStep === 'basic') allowed = await onSaveBasic()
     if (currentStep === 'plan') allowed = await onSavePlan()
     if (allowed) goToStep(target)
+  }
+
+  const openReapplyDialog = () => {
+    setReapplyVersionId('')
+    setReapplyStep('pick')
+    setReapplyOpen(true)
+  }
+
+  const closeReapplyDialog = () => {
+    setReapplyOpen(false)
+    setReapplyStep('pick')
+  }
+
+  /** 点「套用」：未手动修改过快照时静默直接调用；已手动修改则先切到覆盖确认视图。 */
+  const handleReapplyApply = async () => {
+    if (!reapplyVersionId || !onReapplyTemplate) return
+
+    if (snapshotManuallyModified) {
+      setReapplyStep('confirm')
+
+      return
+    }
+
+    setReapplying(true)
+
+    try {
+      const ok = await onReapplyTemplate(Number(reapplyVersionId))
+
+      if (ok) closeReapplyDialog()
+    } finally {
+      setReapplying(false)
+    }
+  }
+
+  const handleReapplyConfirm = async () => {
+    if (!reapplyVersionId || !onReapplyTemplate) return
+    setReapplying(true)
+
+    try {
+      const ok = await onReapplyTemplate(Number(reapplyVersionId))
+
+      if (ok) closeReapplyDialog()
+    } finally {
+      setReapplying(false)
+    }
   }
 
   const patchNotification = (next: Partial<NonNullable<typeof notification>>) => {
@@ -294,6 +347,11 @@ const CycleSetupEditor = ({
                     <div className='rounded-md border p-3 text-sm'>
                       <span className='font-medium'>{sourceConfigLabel}</span>
                       <p className='text-muted-foreground mt-1 text-xs'>周期已保存独立快照，来源模板后续变化不会影响本周期。</p>
+                      {editable && (
+                        <Button variant='outline' size='sm' className='mt-3' onClick={openReapplyDialog}>
+                          重新套用模板
+                        </Button>
+                      )}
                     </div>
                   </Field>
                 ) : (
@@ -620,6 +678,64 @@ const CycleSetupEditor = ({
           )}
           <DialogFooter>
             <Button onClick={() => setNotificationStage(null)}>完成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reapplyOpen} onOpenChange={open => (open ? setReapplyOpen(true) : closeReapplyDialog())}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>重新套用模板</DialogTitle>
+            <DialogDescription>
+              {reapplyStep === 'pick'
+                ? '重新套用会把所选已发布模板版本整套复制为本周期新的配置快照。'
+                : '当前评估规则或评估维度可能已被手动修改，重新套用将整体覆盖为所选模板版本的快照（日程与通知规则一并重置为模板预设），不做字段级合并。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {reapplyStep === 'pick' && (
+            <Field className='gap-2'>
+              <FieldLabel htmlFor='reapply-config-template-version'>配置模板版本</FieldLabel>
+              <Select
+                value={reapplyVersionId || null}
+                items={templateOptions}
+                onValueChange={value => setReapplyVersionId((value as string | null) ?? '')}
+              >
+                <SelectTrigger id='reapply-config-template-version' aria-label='配置模板版本' className='w-full'>
+                  <SelectValue placeholder='请选择已发布配置模板版本' />
+                </SelectTrigger>
+                <SelectContent>
+                  {templateOptions.map(option => (
+                    <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+                      <span className='flex min-w-0 flex-col items-start'>
+                        <span>{option.label}</span>
+                        {option.reason && <span className='text-muted-foreground text-xs whitespace-normal'>{option.reason}</span>}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+
+          <DialogFooter>
+            {reapplyStep === 'pick' ? (
+              <>
+                <Button variant='outline' onClick={closeReapplyDialog}>取消</Button>
+                <Button disabled={!reapplyVersionId || reapplying} onClick={() => void handleReapplyApply()}>
+                  {reapplying && <Loader2Icon className='animate-spin' />}
+                  套用
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant='outline' onClick={closeReapplyDialog}>取消</Button>
+                <Button variant='destructive' disabled={reapplying} onClick={() => void handleReapplyConfirm()}>
+                  {reapplying && <Loader2Icon className='animate-spin' />}
+                  确认覆盖
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

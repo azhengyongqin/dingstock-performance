@@ -27,6 +27,7 @@ import {
   getPerfCycleStartCheck,
   initializePerfCycleSetup,
   listPerfConfigTemplates,
+  reapplyPerfCycleConfigSnapshot,
   returnPerfCycleToDraft,
   schedulePerfCycle,
   updatePerfCycleBasic,
@@ -302,6 +303,26 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
+  /** 重新套用模板：整体覆盖当前配置快照（不做字段级合并），成功后刷新快照/来源标签/计划/参与者检查。 */
+  const reapplyTemplate = async (configTemplateVersionId: number): Promise<boolean> => {
+    if (!realCycleId) return false
+    setSaving(true)
+
+    try {
+      await reapplyPerfCycleConfigSnapshot(realCycleId, configTemplateVersionId)
+      toast.success('已重新套用模板：评估规则与评估维度已整套覆盖为所选模板版本快照')
+      await loadCycleSetup(realCycleId)
+
+      return true
+    } catch (error) {
+      toast.error(errorMessage(error, '重新套用模板失败'))
+
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const runChecks = async () => {
     if (!realCycleId) return
 
@@ -364,6 +385,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         draft={draft}
         configTemplates={configTemplates}
         sourceConfigLabel={sourceConfigLabel}
+        snapshotManuallyModified={snapshot?.manuallyModified}
         participants={participants}
         prefixChecks={prefixChecks}
         plan={plan}
@@ -386,6 +408,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         onSchedule={() => void scheduleCycle()}
         onReturnToDraft={() => void returnToDraft()}
         onOpenAdvanced={() => setAdvancedOpen(true)}
+        onReapplyTemplate={reapplyTemplate}
       />
 
       <CycleAdvancedConfigSheet

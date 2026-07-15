@@ -123,6 +123,7 @@ const createProps = () => ({
   draft: { name: '2026 上半年绩效评定', configTemplateVersionId: '11', plannedStartAt: '2026-08-01T09:00' },
   configTemplates,
   sourceConfigLabel: '',
+  snapshotManuallyModified: false,
   participants,
   prefixChecks,
   plan,
@@ -142,7 +143,8 @@ const createProps = () => ({
   onSaveDraft: vi.fn(),
   onSchedule: vi.fn(),
   onReturnToDraft: vi.fn(),
-  onOpenAdvanced: vi.fn()
+  onOpenAdvanced: vi.fn(),
+  onReapplyTemplate: vi.fn(async () => true)
 })
 
 describe('CycleSetupEditor', () => {
@@ -226,5 +228,83 @@ describe('CycleSetupEditor', () => {
     expect(screen.getByRole('button', { name: '退回草稿' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '退回草稿' }))
     expect(props.onReturnToDraft).toHaveBeenCalledOnce()
+  })
+})
+
+describe('CycleSetupEditor 重新套用模板', () => {
+  // Base UI Select 触发器在同一 jsdom 文档内多次以鼠标点击方式打开时，
+  // 指针捕获状态会被前一用例残留污染导致再次点击无法展开；用键盘 Enter 展开是等价且更稳定的用户交互方式。
+  const openTemplateSelect = async (user: ReturnType<typeof userEvent.setup>, label = '配置模板版本') => {
+    screen.getByRole('combobox', { name: label }).focus()
+    await user.keyboard('{Enter}')
+  }
+
+  it('创建前切换配置模板版本只触发 onDraftChange，不出现覆盖确认', async () => {
+    const user = userEvent.setup()
+    const props = createProps()
+
+    render(<CycleSetupEditor {...props} />)
+
+    await openTemplateSelect(user)
+    await user.click(screen.getByRole('option', { name: /标准配置/ }))
+
+    expect(props.onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({ configTemplateVersionId: '11' })
+    )
+    expect(screen.queryByText(/重新套用模板/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/确认覆盖/)).not.toBeInTheDocument()
+    expect(props.onReapplyTemplate).not.toHaveBeenCalled()
+  })
+
+  it('已创建且快照未手动修改：选版本后点套用直接静默调用，不出现确认覆盖文案', async () => {
+    const user = userEvent.setup()
+    const props = { ...createProps(), sourceConfigLabel: '标准配置 · v2', snapshotManuallyModified: false }
+
+    render(<CycleSetupEditor {...props} />)
+
+    await user.click(screen.getByRole('button', { name: '重新套用模板' }))
+    await openTemplateSelect(user)
+    await user.click(screen.getByRole('option', { name: /标准配置/ }))
+    await user.click(screen.getByRole('button', { name: '套用' }))
+
+    expect(props.onReapplyTemplate).toHaveBeenCalledWith(11)
+    expect(screen.queryByText(/确认覆盖/)).not.toBeInTheDocument()
+  })
+
+  it('快照已手动修改：点套用出现覆盖确认，取消不调用，确认覆盖才调用一次', async () => {
+    const user = userEvent.setup()
+    const props = { ...createProps(), sourceConfigLabel: '标准配置 · v2', snapshotManuallyModified: true }
+
+    render(<CycleSetupEditor {...props} />)
+
+    await user.click(screen.getByRole('button', { name: '重新套用模板' }))
+    await openTemplateSelect(user)
+    await user.click(screen.getByRole('option', { name: /标准配置/ }))
+    await user.click(screen.getByRole('button', { name: '套用' }))
+
+    expect(screen.getByText(/整体覆盖为所选模板版本的快照/)).toBeInTheDocument()
+    expect(screen.getByText(/评估规则/)).toBeInTheDocument()
+    expect(screen.getByText(/评估维度/)).toBeInTheDocument()
+    expect(props.onReapplyTemplate).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '取消' }))
+    expect(props.onReapplyTemplate).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: '重新套用模板' }))
+    await openTemplateSelect(user)
+    await user.click(screen.getByRole('option', { name: /标准配置/ }))
+    await user.click(screen.getByRole('button', { name: '套用' }))
+    await user.click(screen.getByRole('button', { name: '确认覆盖' }))
+
+    expect(props.onReapplyTemplate).toHaveBeenCalledOnce()
+    expect(props.onReapplyTemplate).toHaveBeenCalledWith(11)
+  })
+
+  it('editable 为 false 时不渲染重新套用模板入口', () => {
+    const props = { ...createProps(), sourceConfigLabel: '标准配置 · v2', editable: false, status: 'ACTIVE' as const }
+
+    render(<CycleSetupEditor {...props} />)
+
+    expect(screen.queryByRole('button', { name: '重新套用模板' })).not.toBeInTheDocument()
   })
 })

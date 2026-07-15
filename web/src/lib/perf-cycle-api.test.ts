@@ -4,6 +4,7 @@ import { apiFetch } from './api'
 import {
   createPerfCycle,
   initializePerfCycleSetup,
+  reapplyPerfCycleConfigSnapshot,
   returnPerfCycleToDraft,
   schedulePerfCycle,
   updatePerfCyclePlan
@@ -66,6 +67,15 @@ describe('绩效周期四步创建 API', () => {
     expect(apiFetchMock).toHaveBeenCalledWith('/cycles/8/config-snapshot/initialize', {
       method: 'POST',
       body: JSON.stringify(input)
+    })
+  })
+
+  it('重新套用模板整体覆盖当前配置快照', () => {
+    void reapplyPerfCycleConfigSnapshot(8, 12)
+
+    expect(apiFetchMock).toHaveBeenCalledWith('/cycles/8/config-snapshot/reapply', {
+      method: 'POST',
+      body: JSON.stringify({ configTemplateVersionId: 12 })
     })
   })
 

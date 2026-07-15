@@ -584,6 +584,9 @@ export type PerfCycleConfigSnapshot = {
   notificationRules: PerfConfigNotificationRules
   allowStageOverlap: boolean
   forms: PerfCycleFormSnapshotSummary[]
+
+  /** 快照在创建/最近重套后是否被手动调整过（高级配置或计划调整都算），决定重新套用模板时是否需要覆盖确认。 */
+  manuallyModified?: boolean
 }
 
 export type CreatePerfCycleInput = {
@@ -756,6 +759,13 @@ export const updatePerfCycleAdvancedConfig = (cycleId: number, input: UpdatePerf
   apiFetch<PerfCycleConfigSnapshot>(`/cycles/${cycleId}/config-snapshot`, {
     method: 'PUT',
     body: JSON.stringify(input)
+  })
+
+/** 启动前重新套用已发布模板版本：整套覆盖当前快照，不做字段级合并。 */
+export const reapplyPerfCycleConfigSnapshot = (cycleId: number, configTemplateVersionId: number) =>
+  apiFetch<PerfCycleConfigSnapshot>(`/cycles/${cycleId}/config-snapshot/reapply`, {
+    method: 'POST',
+    body: JSON.stringify({ configTemplateVersionId })
   })
 
 export const getPerfCycleParticipantPrefixCheck = (cycleId: number) =>
