@@ -958,6 +958,77 @@ export const savePeerEvaluationDraft = (input: SavePeerEvaluationInput) =>
 export const submitPeerEvaluation = (input: SavePeerEvaluationInput) =>
   apiFetch<{ ok: true }>('/evaluations/peer/submit', { method: 'POST', body: JSON.stringify(input) })
 
+// ===== 统一评估提交（Ticket 09，上级动态表单与权威阶段等级） =====
+
+export type PerfStageDimensionResultView = {
+  id: string
+  name: string
+  weight?: string
+  isCore?: boolean
+  score: string
+  level: PerfPerformanceLevel
+}
+
+export type PerfManagerStageResult = {
+  status: 'READY' | 'NO_DATA'
+  mode?: PerfConfigStageMode
+  reviewerCount: number
+  compositeScore: string | null
+  initialLevel: PerfPerformanceLevel | null
+  stageLevel: PerfPerformanceLevel | null
+  constraintReasons: Array<{
+    id: string
+    type: string
+    beforeLevel: PerfPerformanceLevel
+    afterLevel: PerfPerformanceLevel
+  }>
+  dimensions: PerfStageDimensionResultView[]
+}
+
+export type PerfManagerEvaluationContext = {
+  participant: { id: number; cycleId: number; isPromotionEnabled: boolean }
+  cycle: {
+    id: number
+    name: string
+    status: PerfCycleStatus
+    currentConfigVersion?: { ratings: PerfConfigTemplateRating[] } | null
+  }
+  employee: LarkUserBrief | null
+  task: PerfSelfEvaluationTask
+  form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
+  submitted: PerfEvaluationSubmissionRecord | null
+  draft: PerfEvaluationSubmissionRecord | null
+  state: PerfPeerEvaluationState
+  selfEvaluation: PerfEvaluationSubmissionRecord | null
+  peerResult: (PerfManagerStageResult & { inputSummary?: unknown }) | null
+  managerResult: PerfManagerStageResult | null
+  history: Array<{
+    finalLevel: string
+    promotionResult?: string | null
+    participant: { cycle: { id: number; name: string } }
+  }>
+}
+
+export type SaveManagerEvaluationInput = {
+  participantId: number
+  items: PerfEvaluationItemAnswer[]
+}
+
+export const getManagerEvaluationContext = (participantId: number) =>
+  apiFetch<PerfManagerEvaluationContext>(`/evaluations/manager?participantId=${participantId}`)
+
+export const saveManagerEvaluationDraft = (input: SaveManagerEvaluationInput) =>
+  apiFetch<PerfEvaluationSubmissionDraftRecord>('/evaluations/manager/draft', {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const submitManagerEvaluation = (input: SaveManagerEvaluationInput) =>
+  apiFetch<{ ok: true; result: PerfManagerStageResult }>('/evaluations/manager/submit', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  })
+
 // ===== 小工具 =====
 
 /** 头像 URL 提取（LarkUser.avatar JSONB） */

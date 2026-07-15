@@ -6,6 +6,7 @@ import {
 import {
   PerfAppealStatus,
   PerfAssignmentStatus,
+  PerfEvaluationTaskType,
   PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
@@ -104,6 +105,12 @@ export class DashboardService {
           status: true,
           result: { select: { finalLevel: true } },
           managerReview: { select: { initialLevel: true } },
+          stageResults: {
+            where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
+            orderBy: { calculatedAt: 'desc' },
+            take: 1,
+            select: { stageLevel: true },
+          },
           calibrations: {
             orderBy: { id: 'desc' },
             take: 1,
@@ -119,6 +126,7 @@ export class DashboardService {
       const level =
         participant.result?.finalLevel ??
         participant.calibrations[0]?.afterLevel ??
+        participant.stageResults[0]?.stageLevel ??
         participant.managerReview?.initialLevel;
       if (level) levelDistribution[level] = (levelDistribution[level] ?? 0) + 1;
     }
@@ -156,6 +164,20 @@ export class DashboardService {
       include: {
         selfReview: { select: { status: true, submittedAt: true } },
         managerReview: { select: { status: true, initialLevel: true } },
+        evaluationSubmissions: {
+          where: {
+            stage: PerfEvaluationTaskType.MANAGER,
+            status: PerfReviewStatus.SUBMITTED,
+          },
+          select: { status: true },
+          take: 1,
+        },
+        stageResults: {
+          where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
+          orderBy: { calculatedAt: 'desc' },
+          take: 1,
+          select: { stageLevel: true },
+        },
         reviewerAssignments: {
           where: { status: { not: PerfAssignmentStatus.REPLACED } },
           select: { status: true },
@@ -191,8 +213,14 @@ export class DashboardService {
             submitted: submittedAssignments,
             total: totalAssignments,
           },
-          managerReviewStatus: member.managerReview?.status ?? null,
-          initialLevel: member.managerReview?.initialLevel ?? null,
+          managerReviewStatus:
+            member.evaluationSubmissions[0]?.status ??
+            member.managerReview?.status ??
+            null,
+          initialLevel:
+            member.stageResults[0]?.stageLevel ??
+            member.managerReview?.initialLevel ??
+            null,
           finalLevel: member.result?.finalLevel ?? null,
         };
       }),

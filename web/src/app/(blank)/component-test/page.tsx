@@ -47,6 +47,7 @@ import type {
   PerfCycleSetupParticipant,
   PerfEvalFormSubform,
   PerfFormTemplateVersion,
+  PerfManagerEvaluationContext,
   PerfPeerEvaluationContext,
   PerfParticipantPrefixCheck
 } from '@/lib/perf-api'
@@ -58,6 +59,7 @@ import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-type
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
+import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
 import PeerReviewFill from '@/views/review-tasks/fill/peer-review-fill'
 
 type ComponentKey =
@@ -1031,6 +1033,110 @@ const PeerEvaluationFormPreview = () => (
   <PeerReviewFill assignmentId={11} previewContext={PEER_REVIEW_PREVIEW_CONTEXT} />
 )
 
+/** Ticket 09 业务组件示例：MANAGER 动态表单 + Leader 晋升区段 + 系统权威等级预览。 */
+const MANAGER_REVIEW_PREVIEW_CONTEXT = {
+  participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
+  cycle: {
+    id: 1,
+    name: '2026 上半年绩效',
+    status: 'ACTIVE',
+    currentConfigVersion: { ratings: EVALUATION_FORM_RATINGS }
+  },
+  employee: { open_id: 'ou_preview_employee', name: '示例员工', job_title: '产品经理' },
+  task: { id: 22, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
+  form: {
+    formSnapshotId: 88,
+    subforms: [
+      {
+        key: 'subform:MANAGER',
+        type: 'MANAGER',
+        title: '上级评估',
+        sortOrder: 0,
+        dimensions: [
+          {
+            key: 'dimension:MANAGER:LEADER:0',
+            audience: 'LEADER',
+            name: '核心业绩',
+            weight: '100',
+            isCore: true,
+            sortOrder: 0,
+            items: [
+              { key: 'item:manager-score', type: 'SCORE', title: '业绩分数', required: true, sortOrder: 0 },
+              { key: 'item:manager-comment', type: 'LONG_TEXT', title: '业绩评语', required: true, sortOrder: 1 }
+            ]
+          }
+        ]
+      },
+      {
+        key: 'subform:PROMOTION',
+        type: 'PROMOTION',
+        title: '晋升评估',
+        sortOrder: 1,
+        dimensions: [
+          {
+            key: 'dimension:PROMOTION:LEADER:0',
+            audience: 'LEADER',
+            name: 'Leader 晋升结论',
+            sortOrder: 0,
+            items: [
+              {
+                key: 'item:promotion-conclusion',
+                type: 'SINGLE_SELECT',
+                title: '晋升建议',
+                required: true,
+                sortOrder: 0,
+                config: {
+                  options: [
+                    { value: 'PROMOTE', label: '建议晋升' },
+                    { value: 'DEFER', label: '暂缓晋升' }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  submitted: null,
+  draft: null,
+  state: 'DRAFT',
+  selfEvaluation: {
+    id: 90,
+    cycleId: 1,
+    participantId: 7,
+    stage: 'SELF',
+    reviewerOpenId: 'ou_preview_employee',
+    status: 'SUBMITTED',
+    items: [
+      {
+        id: 901,
+        submissionId: 90,
+        subformKey: 'subform:SELF',
+        dimensionKey: 'dimension:SELF:EMPLOYEE:0',
+        itemKey: 'item:self-summary',
+        itemType: 'MARKDOWN',
+        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+      }
+    ]
+  },
+  peerResult: {
+    status: 'READY',
+    reviewerCount: 3,
+    compositeScore: '85.00',
+    initialLevel: 'A',
+    stageLevel: 'A',
+    constraintReasons: [],
+    dimensions: [{ id: 'peer-collaboration', name: '协作沟通', score: '85', level: 'A' }]
+  },
+  managerResult: null,
+  history: []
+} satisfies PerfManagerEvaluationContext
+
+const ManagerEvaluationFormPreview = () => (
+  <ManagerReviewFill participantId={7} previewContext={MANAGER_REVIEW_PREVIEW_CONTEXT} />
+)
+
 const EvaluationFormPreview = () => (
   <div className='flex flex-col gap-6'>
     <Card>
@@ -1058,6 +1164,15 @@ const EvaluationFormPreview = () => (
       </CardHeader>
       <CardContent>
         <PeerEvaluationFormPreview />
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>上级评估态</CardTitle>
+        <CardDescription>左侧展示允许的自评/360°参考，右侧只填写 MANAGER 与 Leader 晋升区段</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ManagerEvaluationFormPreview />
       </CardContent>
     </Card>
   </div>

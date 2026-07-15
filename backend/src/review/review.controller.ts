@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -26,9 +25,7 @@ import {
   BatchAddReviewersDto,
   ReplaceReviewerDto,
   ReturnSelfReviewDto,
-  SaveManagerReviewDto,
   SaveSelfReviewDto,
-  SubmitByParticipantDto,
   SubmitSelfReviewDto,
   UpsertReviewersDto,
 } from './review.dto';
@@ -166,52 +163,5 @@ export class ReviewController {
   @ApiOperation({ summary: '我的评审任务列表（360° + 上级评估）' })
   listMyTasks(@Req() req: AuthenticatedRequest) {
     return this.reviewService.listMyTasks(req.user.open_id);
-  }
-
-  @Get('review-tasks/context')
-  @ApiOperation({
-    summary: '上级评估填写上下文（含自评、360°汇总与历史绩效）',
-  })
-  @ApiQuery({ name: 'participant_id', required: true })
-  @ApiQuery({
-    name: 'type',
-    required: true,
-    enum: ['MANAGER_REVIEW'],
-  })
-  getContext(
-    @Req() req: AuthenticatedRequest,
-    @Query('participant_id', ParseIntPipe) participantId: number,
-    @Query('type') type: string,
-  ) {
-    // 360°已迁移至 /evaluations/peer，旧固定维度接口不再对外提供。
-    if (type !== 'MANAGER_REVIEW') {
-      throw new BadRequestException(
-        '360°评估请使用 /evaluations/peer 动态表单接口',
-      );
-    }
-    return this.reviewService.getContext(req.user.open_id, participantId, type);
-  }
-
-  @Put('manager-reviews/draft')
-  @ApiOperation({ summary: '保存上级评估草稿' })
-  saveManagerReview(
-    @Req() req: AuthenticatedRequest,
-    @Body() dto: SaveManagerReviewDto,
-  ) {
-    return this.reviewService.saveManagerReviewDraft(req.user.open_id, dto);
-  }
-
-  @Post('manager-reviews/submit')
-  @ApiOperation({
-    summary: '提交上级评估（必须给出初评评级；提交后触发 AI 分析任务）',
-  })
-  submitManagerReview(
-    @Req() req: AuthenticatedRequest,
-    @Body() dto: SubmitByParticipantDto,
-  ) {
-    return this.reviewService.submitManagerReview(
-      req.user.open_id,
-      dto.participantId,
-    );
   }
 }

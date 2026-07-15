@@ -8,8 +8,13 @@ import type { PerfConfigTemplateRating, PerfEvalFormSubform } from '@/lib/perf-a
 import EvaluationItemField from './evaluation-item-field'
 import type { EvaluationAnswers, EvaluationItemAnswer } from './evaluation-form-types'
 
-/** PROMOTION 子表单固定标注「（员工填写）」，与 Leader 区段区分，避免员工误以为要填写晋升结论等 Leader 专属内容 */
-const subformTitle = (subform: PerfEvalFormSubform) => (subform.type === 'PROMOTION' ? '晋升评估（员工填写）' : subform.title)
+/** PROMOTION 标题按实际下发的受众标注，明确员工材料与 Leader 结论的填写边界。 */
+const subformTitle = (subform: PerfEvalFormSubform) => {
+  if (subform.type !== 'PROMOTION') return subform.title
+  const isLeaderSection = subform.dimensions.length > 0 && subform.dimensions.every(item => item.audience === 'LEADER')
+
+  return isLeaderSection ? '晋升评估（Leader 填写）' : '晋升评估（员工填写）'
+}
 
 export type EvaluationFormProps = {
   subforms: PerfEvalFormSubform[]

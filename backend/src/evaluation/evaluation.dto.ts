@@ -69,3 +69,14 @@ export class SavePeerEvaluationDto {
   @Type(() => EvaluationItemAnswerDto)
   items!: EvaluationItemAnswerDto[];
 }
+
+/** 上级评估身份只从 participant 的当前 Leader 快照派生，不接受人工初评等级。 */
+export class SaveManagerEvaluationDto {
+  @IsInt()
+  participantId!: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EvaluationItemAnswerDto)
+  items!: EvaluationItemAnswerDto[];
+}

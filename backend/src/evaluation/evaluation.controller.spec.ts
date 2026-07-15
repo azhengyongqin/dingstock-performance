@@ -11,6 +11,9 @@ jest.mock('./peer-evaluation-submission.service', () => ({
 jest.mock('./peer-stage-result.service', () => ({
   PeerStageResultService: class {},
 }));
+jest.mock('./manager-evaluation-submission.service', () => ({
+  ManagerEvaluationSubmissionService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -31,10 +34,17 @@ describe('EvaluationController 薄壳转调', () => {
     submitPeer: jest.fn(),
   };
   const peerStageResultService = { getForManager: jest.fn() };
+  const managerService = {
+    getManagerContext: jest.fn(),
+    saveManagerDraft: jest.fn(),
+    submitManager: jest.fn(),
+    getManagerResult: jest.fn(),
+  };
   const controller = new EvaluationController(
     service as never,
     peerService as never,
     peerStageResultService as never,
+    managerService as never,
   );
   const request = { user: { open_id: 'ou_me' } } as never;
 
@@ -81,5 +91,19 @@ describe('EvaluationController 薄壳转调', () => {
       'ou_me',
       7,
     );
+  });
+
+  it('上级评估上下文、草稿、提交与权威结果均只使用 JWT Leader 身份', async () => {
+    const dto = { participantId: 7, items: [] };
+
+    await controller.getManagerContext(request, 7);
+    await controller.saveManagerDraft(request, dto);
+    await controller.submitManager(request, dto);
+    await controller.getManagerStageResult(request, 7);
+
+    expect(managerService.getManagerContext).toHaveBeenCalledWith('ou_me', 7);
+    expect(managerService.saveManagerDraft).toHaveBeenCalledWith('ou_me', dto);
+    expect(managerService.submitManager).toHaveBeenCalledWith('ou_me', dto);
+    expect(managerService.getManagerResult).toHaveBeenCalledWith('ou_me', 7);
   });
 });

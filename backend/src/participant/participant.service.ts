@@ -49,6 +49,20 @@ export class ParticipantService {
       include: {
         selfReview: { select: { status: true, submittedAt: true } },
         managerReview: { select: { status: true, initialLevel: true } },
+        evaluationSubmissions: {
+          where: {
+            stage: PerfEvaluationTaskType.MANAGER,
+            status: 'SUBMITTED',
+          },
+          select: { status: true },
+          take: 1,
+        },
+        stageResults: {
+          where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
+          orderBy: { calculatedAt: 'desc' },
+          take: 1,
+          select: { stageLevel: true },
+        },
         result: { select: { finalLevel: true, confirmedByEmployee: true } },
         _count: { select: { reviewerAssignments: true } },
       },
@@ -94,8 +108,20 @@ export class ParticipantService {
           participant.leaderOpenIdSnapshot ?? user?.leader_user_id ?? null;
         const departmentId =
           participant.departmentIdSnapshot ?? user?.department_ids?.[0] ?? null;
+        const managerSubmission = participant.evaluationSubmissions[0];
+        const managerStageResult = participant.stageResults[0];
         return {
           ...participant,
+          // 内部过渡查询不扩散到既有参与者列表响应。
+          evaluationSubmissions: undefined,
+          stageResults: undefined,
+          // 对外兼容既有字段名，但读取优先切换到统一提交与系统计算结果。
+          managerReview: managerSubmission
+            ? {
+                status: managerSubmission.status,
+                initialLevel: managerStageResult?.stageLevel ?? null,
+              }
+            : participant.managerReview,
           employee: user ?? null,
           leader: leaderOpenId
             ? (userMap.get(leaderOpenId) ?? { open_id: leaderOpenId })

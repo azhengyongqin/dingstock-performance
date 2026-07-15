@@ -18,8 +18,13 @@ import {
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../rbac/roles.guard';
-import { SavePeerEvaluationDto, SaveSelfEvaluationDto } from './evaluation.dto';
+import {
+  SaveManagerEvaluationDto,
+  SavePeerEvaluationDto,
+  SaveSelfEvaluationDto,
+} from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
+import { ManagerEvaluationSubmissionService } from './manager-evaluation-submission.service';
 import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 
@@ -33,6 +38,7 @@ export class EvaluationController {
     private readonly evaluationSubmissionService: EvaluationSubmissionService,
     private readonly peerEvaluationSubmissionService: PeerEvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
+    private readonly managerEvaluationSubmissionService: ManagerEvaluationSubmissionService,
   ) {}
 
   @Get('self')
@@ -125,6 +131,60 @@ export class EvaluationController {
     @Query('participantId', ParseIntPipe) participantId: number,
   ) {
     return this.peerStageResultService.getForManager(
+      req.user.open_id,
+      participantId,
+    );
+  }
+
+  @Get('manager')
+  @ApiOperation({
+    summary: '当前 Leader 的上级评估上下文（动态表单、自评与 360°参考）',
+  })
+  @ApiQuery({ name: 'participantId', required: true })
+  getManagerContext(
+    @Req() req: AuthenticatedRequest,
+    @Query('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.managerEvaluationSubmissionService.getManagerContext(
+      req.user.open_id,
+      participantId,
+    );
+  }
+
+  @Put('manager/draft')
+  @ApiOperation({ summary: '保存上级评估更新草稿（允许不完整）' })
+  saveManagerDraft(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: SaveManagerEvaluationDto,
+  ) {
+    return this.managerEvaluationSubmissionService.saveManagerDraft(
+      req.user.open_id,
+      dto,
+    );
+  }
+
+  @Post('manager/submit')
+  @ApiOperation({
+    summary: '提交/重新提交上级评估并计算校准前权威阶段等级',
+  })
+  submitManager(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: SaveManagerEvaluationDto,
+  ) {
+    return this.managerEvaluationSubmissionService.submitManager(
+      req.user.open_id,
+      dto,
+    );
+  }
+
+  @Get('manager/result')
+  @ApiOperation({ summary: '当前 Leader 查看上级评估权威阶段结果' })
+  @ApiQuery({ name: 'participantId', required: true })
+  getManagerStageResult(
+    @Req() req: AuthenticatedRequest,
+    @Query('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.managerEvaluationSubmissionService.getManagerResult(
       req.user.open_id,
       participantId,
     );

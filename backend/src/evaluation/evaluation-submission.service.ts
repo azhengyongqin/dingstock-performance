@@ -411,6 +411,32 @@ export class EvaluationSubmissionService {
       }));
   }
 
+  /** 上级仅填写 MANAGER 子表单及启用晋升时 PROMOTION 的 LEADER 区段。 */
+  selectManagerSubforms(
+    content: FormSnapshotContent,
+    isPromotionEnabled: boolean,
+  ) {
+    const subforms: FormSnapshotSubform[] = [];
+    for (const subform of content.subforms) {
+      if (subform.type === 'MANAGER') {
+        subforms.push({
+          ...subform,
+          dimensions: subform.dimensions.filter(
+            (dimension) => dimension.audience === 'LEADER',
+          ),
+        });
+      } else if (subform.type === 'PROMOTION' && isPromotionEnabled) {
+        subforms.push({
+          ...subform,
+          dimensions: subform.dimensions.filter(
+            (dimension) => dimension.audience === 'LEADER',
+          ),
+        });
+      }
+    }
+    return subforms;
+  }
+
   validatePeerAnswers(
     content: FormSnapshotContent,
     answers: EvaluationItemAnswerDto[],
@@ -420,6 +446,20 @@ export class EvaluationSubmissionService {
       this.selectPeerSubforms(content),
       answers,
       '360°评审员可填范围',
+    );
+  }
+
+  validateManagerAnswers(
+    content: FormSnapshotContent,
+    isPromotionEnabled: boolean,
+    answers: EvaluationItemAnswerDto[],
+  ) {
+    return this.validateAnswersInSubforms(
+      content,
+      this.selectManagerSubforms(content, isPromotionEnabled),
+      answers,
+      'Leader 可填范围',
+      isPromotionEnabled,
     );
   }
 

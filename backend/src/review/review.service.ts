@@ -92,7 +92,14 @@ export class ReviewService {
         },
       },
       include: {
-        managerReview: { select: { status: true, submittedAt: true } },
+        evaluationSubmissions: {
+          where: {
+            stage: PerfEvaluationTaskType.MANAGER,
+            status: PerfReviewStatus.SUBMITTED,
+          },
+          select: { submittedAt: true },
+          take: 1,
+        },
         cycle: { select: { id: true, name: true, status: true } },
       },
       orderBy: { id: 'desc' },
@@ -155,10 +162,10 @@ export class ReviewService {
         taskType: 'MANAGER_REVIEW',
         participantId: participant.id,
         status:
-          participant.managerReview?.status === PerfReviewStatus.SUBMITTED
+          participant.evaluationSubmissions.length > 0
             ? 'SUBMITTED'
             : 'PENDING',
-        submittedAt: participant.managerReview?.submittedAt ?? null,
+        submittedAt: participant.evaluationSubmissions[0]?.submittedAt ?? null,
         task: taskMap.get(`${participant.id}:MANAGER`) ?? null,
         cycle: participant.cycle,
         employee: userMap.get(participant.employeeOpenId) ?? null,
