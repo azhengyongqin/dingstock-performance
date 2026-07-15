@@ -28,3 +28,5 @@ Status: resolved
 ## Comments
 
 2026-07-15 resolved：legacy 周期沿用 CycleService.applyTemplate。新版快照周期在 8e7ca91/3b33f3c 补齐 CycleSetupService.reapplyPublishedConfig（POST /cycles/:id/config-snapshot/reapply）：仅 DRAFT/SCHEDULED，整套复制为 version+1 新配置快照（旧版本保留），更新周期级来源模板与参与人表单绑定，写一条 cycle.template.apply 审计（coverage 体现评估规则+维度）。前端入口 ddfbe70：仅启动前渲染「重新套用模板」。
+
+2026-07-15 评审修正：重新套用只覆盖评估规则、关系权重与评估维度（表单快照），日程预设与通知规则沿用当前周期设置不被重置（PRD Out of Scope 明确排除时间窗/通知复制）。

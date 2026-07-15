@@ -8,11 +8,13 @@ import {
   ClipboardCheckIcon,
   ComponentIcon,
   FileStackIcon,
+  HistoryIcon,
   Layers3Icon,
   PanelLeftIcon,
   SlidersHorizontalIcon,
   UsersIcon
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
 import { LarkMemberPickerDialog, type LarkPickerMember } from '@/components/shared/lark'
@@ -33,9 +35,11 @@ import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import type {
   PerfConfigTemplateVersion,
+  PerfCycleConfigSnapshot,
   PerfCyclePlan,
   PerfCycleProgress,
   PerfCycleSetupParticipant,
@@ -43,6 +47,7 @@ import type {
   PerfParticipantPrefixCheck
 } from '@/lib/perf-api'
 import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboard'
+import SnapshotProvenanceCard from '@/views/cycles/detail/snapshot-provenance-card'
 import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
@@ -57,6 +62,7 @@ type ComponentKey =
   | 'config-template'
   | 'cycle-setup'
   | 'cycle-progress'
+  | 'snapshot-provenance'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -119,6 +125,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '周期任务进度',
     description: '任务事实 / 缺失项 / 软截止',
     icon: CheckCircle2Icon
+  },
+  {
+    key: 'snapshot-provenance',
+    title: '配置快照溯源卡片',
+    description: '来源模板展示 / 手动修改提示',
+    icon: HistoryIcon
   }
 ]
 
@@ -602,9 +614,15 @@ const CYCLE_SETUP_PREFIX_CHECKS: PerfParticipantPrefixCheck[] = [
   }
 ]
 
-/** Ticket 04 业务组件示例：完全使用本地受控状态，不访问周期接口。 */
+/**
+ * Ticket 04 业务组件示例：完全使用本地受控状态，不访问周期接口。
+ * sourceConfigLabel 固定非空以展示「已创建周期」的只读来源块，
+ * 顶部开关驱动 snapshotManuallyModified，用来验证「重新套用模板」在未修改/已修改两种状态下的行为差异；
+ * onReapplyTemplate 只 toast 提示并返回 true，不做真实覆盖，供人工验证覆盖确认弹窗与入口可达性。
+ */
 const CycleSetupPreview = () => {
   const [status, setStatus] = useState<'DRAFT' | 'SCHEDULED'>('DRAFT')
+  const [snapshotManuallyModified, setSnapshotManuallyModified] = useState(false)
 
   const [draft, setDraft] = useState<CycleSetupDraft>({
     name: '2026 上半年绩效评定',
@@ -623,36 +641,58 @@ const CycleSetupPreview = () => {
   })
 
   return (
-    <CycleSetupEditor
-      status={status}
-      draft={draft}
-      configTemplates={[{ ...CONFIG_TEMPLATE_PREVIEW_VALUE, isUsable: true }]}
-      sourceConfigLabel=''
-      participants={CYCLE_SETUP_PARTICIPANTS}
-      prefixChecks={CYCLE_SETUP_PREFIX_CHECKS}
-      plan={plan}
-      checkItems={[
-        { key: 'snapshot', ok: true, message: '周期配置与 D/M 表单快照完整' },
-        { key: 'participants', ok: true, message: '参与者职级前缀均唯一匹配' },
-        { key: 'plan', ok: true, message: '三类任务实际计划完整' }
-      ]}
-      checkOk
-      editable
-      saving={false}
-      onDraftChange={setDraft}
-      onSaveBasic={async () => true}
-      onAddMember={() => {}}
-      onAddDepartment={() => {}}
-      onRemoveMember={() => {}}
-      onTogglePromotion={() => {}}
-      onPlanChange={setPlan}
-      onSavePlan={async () => true}
-      onRunChecks={() => {}}
-      onSaveDraft={() => {}}
-      onSchedule={() => setStatus('SCHEDULED')}
-      onReturnToDraft={() => setStatus('DRAFT')}
-      onOpenAdvanced={() => {}}
-    />
+    <div className='flex flex-col gap-4'>
+      <Card>
+        <CardHeader>
+          <CardTitle>重新套用模板入口开关</CardTitle>
+          <CardDescription>模拟「快照是否已被手动修改」，验证套用时静默替换 / 覆盖确认两种路径。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <label className='flex items-center justify-between gap-3 rounded-md border p-3 text-sm'>
+            当前快照已被手动修改（snapshotManuallyModified）
+            <Switch checked={snapshotManuallyModified} onCheckedChange={checked => setSnapshotManuallyModified(Boolean(checked))} />
+          </label>
+        </CardContent>
+      </Card>
+
+      <CycleSetupEditor
+        status={status}
+        draft={draft}
+        configTemplates={[{ ...CONFIG_TEMPLATE_PREVIEW_VALUE, isUsable: true }]}
+        sourceConfigLabel={`${CONFIG_TEMPLATE_PREVIEW_VALUE.name} · v${CONFIG_TEMPLATE_PREVIEW_VALUE.version}`}
+        snapshotManuallyModified={snapshotManuallyModified}
+        participants={CYCLE_SETUP_PARTICIPANTS}
+        prefixChecks={CYCLE_SETUP_PREFIX_CHECKS}
+        plan={plan}
+        checkItems={[
+          { key: 'snapshot', ok: true, message: '周期配置与 D/M 表单快照完整' },
+          { key: 'participants', ok: true, message: '参与者职级前缀均唯一匹配' },
+          { key: 'plan', ok: true, message: '三类任务实际计划完整' }
+        ]}
+        checkOk
+        editable
+        saving={false}
+        onDraftChange={setDraft}
+        onSaveBasic={async () => true}
+        onAddMember={() => {}}
+        onAddDepartment={() => {}}
+        onRemoveMember={() => {}}
+        onTogglePromotion={() => {}}
+        onPlanChange={setPlan}
+        onSavePlan={async () => true}
+        onRunChecks={() => {}}
+        onSaveDraft={() => {}}
+        onSchedule={() => setStatus('SCHEDULED')}
+        onReturnToDraft={() => setStatus('DRAFT')}
+        onOpenAdvanced={() => {}}
+        onReapplyTemplate={async configTemplateVersionId => {
+          toast.success(`已重新套用模板 #${configTemplateVersionId}（示例台不发起真实请求）`)
+          setSnapshotManuallyModified(false)
+
+          return true
+        }}
+      />
+    </div>
   )
 }
 
@@ -728,6 +768,45 @@ const CYCLE_PROGRESS_PREVIEW: PerfCycleProgress = {
 /** Ticket 05 业务组件示例：用固定任务事实同时展示硬开放门槛与软截止提醒。 */
 const CycleProgressPreview = () => <CycleProgressDashboard progress={CYCLE_PROGRESS_PREVIEW} onNavigate={() => {}} />
 
+const SNAPSHOT_PROVENANCE_PREVIEW_VALUE: PerfCycleConfigSnapshot = {
+  id: 9501,
+  cycleId: 920,
+  version: 2,
+  sourceConfigTemplateVersionId: CONFIG_TEMPLATE_PREVIEW_VALUE.id,
+  source: {
+    id: CONFIG_TEMPLATE_PREVIEW_VALUE.id,
+    templateId: CONFIG_TEMPLATE_PREVIEW_VALUE.templateId,
+    name: CONFIG_TEMPLATE_PREVIEW_VALUE.name,
+    version: CONFIG_TEMPLATE_PREVIEW_VALUE.version
+  },
+  stageModes: CONFIG_TEMPLATE_PREVIEW_VALUE.stageModes,
+  ratings: CONFIG_TEMPLATE_PREVIEW_VALUE.ratings,
+  constraintProfiles: CONFIG_TEMPLATE_PREVIEW_VALUE.constraintProfiles,
+  reviewerRelationWeights: CONFIG_TEMPLATE_PREVIEW_VALUE.reviewerRelationWeights,
+  notificationRules: CONFIG_TEMPLATE_PREVIEW_VALUE.notificationRules,
+  allowStageOverlap: CONFIG_TEMPLATE_PREVIEW_VALUE.schedulePreset.allowStageOverlap,
+  forms: [{ id: 9301, jobLevelPrefix: 'D', sourceFormTemplateVersionId: 9001, name: 'D 普通岗评估表单' }],
+  manuallyModified: false
+}
+
+/** Finding 2 补充示例：SnapshotProvenanceCard 有来源 + manuallyModified true/false 两种状态，以及无来源退化态。 */
+const SnapshotProvenanceCardPreview = () => (
+  <div className='grid gap-4 xl:grid-cols-3'>
+    <div className='flex flex-col gap-2'>
+      <p className='text-muted-foreground text-sm'>未手动修改</p>
+      <SnapshotProvenanceCard snapshot={SNAPSHOT_PROVENANCE_PREVIEW_VALUE} />
+    </div>
+    <div className='flex flex-col gap-2'>
+      <p className='text-muted-foreground text-sm'>已手动修改</p>
+      <SnapshotProvenanceCard snapshot={{ ...SNAPSHOT_PROVENANCE_PREVIEW_VALUE, manuallyModified: true }} />
+    </div>
+    <div className='flex flex-col gap-2'>
+      <p className='text-muted-foreground text-sm'>无来源退化态</p>
+      <SnapshotProvenanceCard snapshot={{ ...SNAPSHOT_PROVENANCE_PREVIEW_VALUE, source: null }} />
+    </div>
+  </div>
+)
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -737,6 +816,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
   if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
   if (activeComponent === 'cycle-progress') return <CycleProgressPreview />
+  if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
 
   return <DateTimePreview />
 }

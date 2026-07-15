@@ -28,3 +28,5 @@ Status: resolved
 ## Comments
 
 2026-07-15 resolved：新版向导创建前切换模板天然静默（快照在创建时才复制）。已创建周期的“是否手动修改”由后端 getConfigSnapshot.manuallyModified 判定（快照行 updatedAt>createdAt，覆盖高级配置与计划调整两条路径）；ddfbe70 实现：未修改直接套用，已修改先弹确认（文案明确覆盖评估规则与评估维度、重置日程与通知规则、不做字段级合并），取消不发请求。4 条前端行为测试见 cycle-setup-editor.test.tsx。
+
+2026-07-15 评审修正：重新套用只覆盖评估规则、关系权重与评估维度（表单快照），日程预设与通知规则沿用当前周期设置不被重置（PRD Out of Scope 明确排除时间窗/通知复制）。
