@@ -1,6 +1,6 @@
 # 配置模板可用性贯穿模板选择
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -22,3 +22,7 @@ Status: ready-for-agent
 ## Blocked by
 
 None - can start immediately
+
+## Comments
+
+2026-07-15 resolved：初版实现见 3de3c7e（legacy 模型：isUsable + 不可用原因 + 下拉置灰）。版本化重构（ADR-0022）后，“可用于创建”由发布状态承载：未发布/不可用版本在向导下拉中置灰并展示原因（web cycle-setup-utils.toConfigTemplateOptions，后端 template.service 可用性测试保留）。注意：新版模型没有“默认模板”概念，“默认且可用自动选中”仅存在于 legacy 流程；新版向导要求显式选择已发布配置模板版本。

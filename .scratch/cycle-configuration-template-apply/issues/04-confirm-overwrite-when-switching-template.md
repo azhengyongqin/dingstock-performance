@@ -1,6 +1,6 @@
 # 模板切换与重新套用的覆盖确认
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -18,9 +18,13 @@ Status: ready-for-agent
 - [x] 确认弹窗文案明确说明会覆盖当前评分规则与评估维度。
 - [x] 用户取消确认时，不发起覆盖操作，当前周期配置快照保持不变。
 - [x] 用户确认后，执行整体覆盖，不做字段级合并。
-- [ ] 覆盖未编辑静默替换、已编辑确认覆盖、取消不覆盖的前端可观察行为测试。
+- [x] 覆盖未编辑静默替换、已编辑确认覆盖、取消不覆盖的前端可观察行为测试。
 
 ## Blocked by
 
 - .scratch/cycle-configuration-template-apply/issues/02-create-cycle-from-usable-template.md
 - .scratch/cycle-configuration-template-apply/issues/03-apply-template-before-cycle-start.md
+
+## Comments
+
+2026-07-15 resolved：新版向导创建前切换模板天然静默（快照在创建时才复制）。已创建周期的“是否手动修改”由后端 getConfigSnapshot.manuallyModified 判定（快照行 updatedAt>createdAt，覆盖高级配置与计划调整两条路径）；ddfbe70 实现：未修改直接套用，已修改先弹确认（文案明确覆盖评估规则与评估维度、重置日程与通知规则、不做字段级合并），取消不发请求。4 条前端行为测试见 cycle-setup-editor.test.tsx。

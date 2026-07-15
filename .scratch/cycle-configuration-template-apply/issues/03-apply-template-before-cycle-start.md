@@ -1,6 +1,6 @@
 # 启动前重新套用配置模板
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -24,3 +24,7 @@ Status: ready-for-agent
 ## Blocked by
 
 - .scratch/cycle-configuration-template-apply/issues/01-template-usability-selection.md
+
+## Comments
+
+2026-07-15 resolved：legacy 周期沿用 CycleService.applyTemplate。新版快照周期在 8e7ca91/3b33f3c 补齐 CycleSetupService.reapplyPublishedConfig（POST /cycles/:id/config-snapshot/reapply）：仅 DRAFT/SCHEDULED，整套复制为 version+1 新配置快照（旧版本保留），更新周期级来源模板与参与人表单绑定，写一条 cycle.template.apply 审计（coverage 体现评估规则+维度）。前端入口 ddfbe70：仅启动前渲染「重新套用模板」。

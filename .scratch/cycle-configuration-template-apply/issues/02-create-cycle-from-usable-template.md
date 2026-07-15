@@ -1,6 +1,6 @@
 # 创建绩效周期时复制可用配置模板快照
 
-Status: ready-for-agent
+Status: resolved
 
 ## Parent
 
@@ -18,8 +18,12 @@ Status: ready-for-agent
 - [x] 选择不可用配置模板创建绩效周期时，后端拒绝并返回业务可读错误。
 - [x] 前端创建成功提示明确说明已从模板复制评分规则与评估维度。
 - [x] 后续评分规则和评估维度步骤展示的是周期配置快照，编辑不会回写配置模板。
-- [ ] 覆盖创建周期复制模板快照、拒绝不可用模板、模板后续修改不影响周期快照的后端测试。
+- [x] 覆盖创建周期复制模板快照、拒绝不可用模板、模板后续修改不影响周期快照的后端测试。
 
 ## Blocked by
 
 - .scratch/cycle-configuration-template-apply/issues/01-template-usability-selection.md
+
+## Comments
+
+2026-07-15 resolved：功能由 CycleSetupService.createFromPublishedConfig 承载（复制为 PerfCycleConfigVersion + D/M 表单快照，周期级 sourceConfigTemplateVersionId 溯源）。缺失的后端测试补齐于 d70620a：快照内容深拷贝断言、DRAFT/ARCHIVED 版本拒绝（业务可读中文错误）、模板后续修改不影响已创建周期快照。
