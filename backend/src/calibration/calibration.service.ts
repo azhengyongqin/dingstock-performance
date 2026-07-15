@@ -38,16 +38,28 @@ export class CalibrationService {
     private readonly rbacService: RbacService,
   ) {}
 
-  /** 校准工作台列表：各参与者的初评/当前评级 + 评级分布对比 */
-  async listForCycle(cycleId: number) {
+  /** 校准工作台列表：只聚合当前 Leader 或授权 HR/Admin 可见的参与者。 */
+  async listForCycle(operatorOpenId: string, cycleId: number) {
     const cycle = await this.prisma.perfCycle.findFirst({
       where: { id: cycleId, deletedAt: null },
       include: { evaluationRule: true },
     });
     if (!cycle) throw new NotFoundException('绩效周期不存在');
 
+    const orgScope = await this.rbacService.getOrgScope(operatorOpenId);
+    const participantWhere: Prisma.PerfParticipantWhereInput = { cycleId };
+    if (orgScope !== null) {
+      // Leader 始终只看当前负责员工；范围 HR 额外看授权部门，普通员工没有扩展范围。
+      participantWhere.OR = [
+        { leaderOpenIdSnapshot: operatorOpenId },
+        ...(orgScope.length > 0
+          ? [{ departmentIdSnapshot: { in: orgScope } }]
+          : []),
+      ];
+    }
+
     const participants = await this.prisma.perfParticipant.findMany({
-      where: { cycleId },
+      where: participantWhere,
       include: {
         managerReview: {
           select: {

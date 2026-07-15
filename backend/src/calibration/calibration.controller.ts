@@ -72,10 +72,12 @@ export class CalibrationController {
   // ---- 校准（当前 Leader / 授权 HR / Admin） ----
 
   @Get('cycles/:cycleId/calibrations')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
   @ApiOperation({ summary: '校准工作台：参与者等级列表 + 分布对比' })
-  list(@Param('cycleId', ParseIntPipe) cycleId: number) {
-    return this.calibrationService.listForCycle(cycleId);
+  list(
+    @Req() req: AuthenticatedRequest,
+    @Param('cycleId', ParseIntPipe) cycleId: number,
+  ) {
+    return this.calibrationService.listForCycle(req.user.open_id, cycleId);
   }
 
   @Post('calibrations/:participantId/adjust')

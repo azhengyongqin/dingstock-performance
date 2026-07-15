@@ -212,7 +212,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
       },
     ]);
 
-    const result = await service.listForCycle(1);
+    const result = await service.listForCycle('ou_new_leader', 1);
 
     expect(result.items[0]).toMatchObject({
       aiReportStatus: 'SUCCESS',
@@ -221,5 +221,34 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
         summary: 'AI 参考摘要',
       },
     });
+  });
+
+  it('校准工作台按当前 Leader 与 HR 组织范围过滤敏感 AI 内容', async () => {
+    prisma.perfCycle.findFirst.mockResolvedValue({
+      id: 1,
+      evaluationRule: { levels: [] },
+    });
+    prisma.perfParticipant.findMany.mockResolvedValue([]);
+    rbac.getOrgScope.mockResolvedValue(['od_product']);
+
+    await service.listForCycle('ou_hr', 1);
+
+    expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          cycleId: 1,
+          OR: [
+            { leaderOpenIdSnapshot: 'ou_hr' },
+            { departmentIdSnapshot: { in: ['od_product'] } },
+          ],
+        },
+      }),
+    );
+
+    rbac.getOrgScope.mockResolvedValue(null);
+    await service.listForCycle('ou_admin', 1);
+    expect(prisma.perfParticipant.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { cycleId: 1 } }),
+    );
   });
 });
