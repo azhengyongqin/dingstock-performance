@@ -792,6 +792,129 @@ export const schedulePerfCycle = (cycleId: number) =>
 export const returnPerfCycleToDraft = (cycleId: number) =>
   apiFetch<{ changed: boolean; cycle: PerfCycle }>(`/cycles/${cycleId}/return-to-draft`, { method: 'POST' })
 
+// ===== 统一评估提交（Ticket 06，员工自评） =====
+
+/** 表单快照中的单个评估项（GET /evaluations/self 下发内容，key 用于定位作答归属） */
+export type PerfEvalFormItem = {
+  key: string
+  type: PerfFormItemType
+  title: string
+  description?: string | null
+  placeholder?: string | null
+  required: boolean
+  sortOrder: number
+  config?: PerfFormItemConfig | null
+}
+
+export type PerfEvalFormDimension = {
+  key: string
+  kind?: PerfFormDimensionKind
+  audience: PerfFormAudience
+  name: string
+  description?: string | null
+  weight?: string | number | null
+  isCore?: boolean
+  sortOrder: number
+  items: PerfEvalFormItem[]
+}
+
+export type PerfEvalFormSubform = {
+  key: string
+  type: PerfFormSubformType
+  title: string
+  description?: string | null
+  sortOrder: number
+  dimensions: PerfEvalFormDimension[]
+}
+
+/** PUT /evaluations/self/draft、POST /evaluations/self/submit 共用的单项作答载荷 */
+export type PerfEvaluationItemAnswer = {
+  subformKey: string
+  dimensionKey: string
+  itemKey: string
+  rawLevel?: PerfPerformanceLevel
+  rawScore?: number
+  value?: unknown
+}
+
+/** 已保存明细行（PerfEvaluationItemResult 投影）：Decimal 字段以字符串下发 */
+export type PerfEvaluationItemResult = {
+  id: number
+  submissionId: number
+  subformKey: string
+  dimensionKey: string
+  itemKey: string
+  itemType: PerfFormItemType
+  rawLevel?: PerfPerformanceLevel | null
+  rawScore?: string | null
+  calculationScore?: string | null
+  value?: unknown
+}
+
+export type PerfEvaluationSubmissionRecord = {
+  id: number
+  cycleId: number
+  participantId: number
+  stage: PerfEvaluationTaskType
+  reviewerOpenId: string
+  status: PerfReviewStatus
+  submittedAt?: string | null
+  submittedByOpenId?: string | null
+  items: PerfEvaluationItemResult[]
+}
+
+/** 自评任务事实：只取前端网关需要的开放门槛字段，其余原样透传但不声明 */
+export type PerfSelfEvaluationTask = {
+  id: number
+  startAt: string | null
+  openedAt: string | null
+  completedAt?: string | null
+  reminderDeadlineAt?: string | null
+} | null
+
+export type PerfSelfEvaluationState = 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT' | null
+
+export type PerfSelfEvaluationParticipant = {
+  id: number
+  cycleId: number
+  employeeOpenId: string
+  status: PerfParticipantStatus
+  isPromotionEnabled: boolean
+  formSnapshotId: number | null
+  cycle: {
+    id: number
+    name: string
+    status: PerfCycleStatus
+    currentConfigVersion?: { ratings: PerfConfigTemplateRating[] } | null
+  }
+} | null
+
+export type PerfSelfEvaluationContext = {
+  participant: PerfSelfEvaluationParticipant
+  task: PerfSelfEvaluationTask
+  form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
+  submitted: PerfEvaluationSubmissionRecord | null
+  draft: PerfEvaluationSubmissionRecord | null
+  state: PerfSelfEvaluationState
+}
+
+export type SaveSelfEvaluationInput = {
+  cycleId: number
+  items: PerfEvaluationItemAnswer[]
+}
+
+export const getSelfEvaluationContext = (cycleId?: number) =>
+  apiFetch<PerfSelfEvaluationContext>(`/evaluations/self${cycleId ? `?cycleId=${cycleId}` : ''}`)
+
+export const saveSelfEvaluationDraft = (input: SaveSelfEvaluationInput) =>
+  apiFetch<PerfEvaluationSubmissionRecord>('/evaluations/self/draft', {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  })
+
+export const submitSelfEvaluation = (input: SaveSelfEvaluationInput) =>
+  apiFetch<{ ok: true }>('/evaluations/self/submit', { method: 'POST', body: JSON.stringify(input) })
+
 // ===== 小工具 =====
 
 /** 头像 URL 提取（LarkUser.avatar JSONB） */

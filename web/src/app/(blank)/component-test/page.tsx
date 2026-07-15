@@ -10,6 +10,7 @@ import {
   FileStackIcon,
   HistoryIcon,
   Layers3Icon,
+  ListChecksIcon,
   PanelLeftIcon,
   SlidersHorizontalIcon,
   UsersIcon
@@ -38,17 +39,22 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import type {
+  PerfConfigTemplateRating,
   PerfConfigTemplateVersion,
   PerfCycleConfigSnapshot,
   PerfCyclePlan,
   PerfCycleProgress,
   PerfCycleSetupParticipant,
+  PerfEvalFormSubform,
   PerfFormTemplateVersion,
   PerfParticipantPrefixCheck
 } from '@/lib/perf-api'
 import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboard'
 import SnapshotProvenanceCard from '@/views/cycles/detail/snapshot-provenance-card'
 import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
+import EvaluationForm from '@/views/self-review/evaluation-form'
+import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
+import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 
@@ -63,6 +69,7 @@ type ComponentKey =
   | 'cycle-setup'
   | 'cycle-progress'
   | 'snapshot-provenance'
+  | 'evaluation-form'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -131,6 +138,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '配置快照溯源卡片',
     description: '来源模板展示 / 手动修改提示',
     icon: HistoryIcon
+  },
+  {
+    key: 'evaluation-form',
+    title: '动态评估表单',
+    description: '9 种评估项类型 / 必填校验 / 禁用态',
+    icon: ListChecksIcon
   }
 ]
 
@@ -807,6 +820,174 @@ const SnapshotProvenanceCardPreview = () => (
   </div>
 )
 
+const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
+  { symbol: 'S', name: '卓越', description: '大幅超出预期，可作为标杆案例', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
+  { symbol: 'A', name: '优秀', description: '完全达成目标，多项亮点', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
+  { symbol: 'B', name: '良好', description: '基本达成目标，符合预期', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
+  { symbol: 'C', name: '待改进', description: '未达成目标，需重点关注', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+]
+
+/** Ticket 06 业务组件示例：覆盖全部 9 种评估项类型 + 必填/禁用态，固定 mock 子表单数据，不访问后端 */
+const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
+  {
+    key: 'subform:SELF',
+    type: 'SELF',
+    title: '员工自评',
+    sortOrder: 0,
+    dimensions: [
+      {
+        key: 'dimension:SELF:EMPLOYEE:0',
+        audience: 'EMPLOYEE',
+        name: '综合评估',
+        description: '按维度逐项完成自评',
+        isCore: true,
+        sortOrder: 0,
+        items: [
+          { key: 'item:rating', type: 'RATING', title: '本周期综合评级', required: true, sortOrder: 0 },
+          {
+            key: 'item:score',
+            type: 'SCORE',
+            title: '目标完成度',
+            description: '按 OKR 完成百分比填写',
+            required: false,
+            sortOrder: 1
+          },
+          { key: 'item:short', type: 'SHORT_TEXT', title: '一句话总结', required: true, sortOrder: 2, config: { maxLength: 30 } },
+          { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
+          { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: true, sortOrder: 4 },
+          {
+            key: 'item:single',
+            type: 'SINGLE_SELECT',
+            title: '是否有晋升意愿',
+            required: true,
+            sortOrder: 5,
+            config: {
+              options: [
+                { value: 'YES', label: '是' },
+                { value: 'NO', label: '否' }
+              ]
+            }
+          },
+          {
+            key: 'item:multi',
+            type: 'MULTI_SELECT',
+            title: '本周期协作方式',
+            description: '至少选择 1 项，最多选择 2 项',
+            required: true,
+            sortOrder: 6,
+            config: {
+              options: [
+                { value: 'A', label: '跨团队协作' },
+                { value: 'B', label: '导师带教' },
+                { value: 'C', label: '文档沉淀' }
+              ],
+              minSelections: 1,
+              maxSelections: 2
+            }
+          },
+          {
+            key: 'item:attachment',
+            type: 'ATTACHMENT',
+            title: '证明材料',
+            required: false,
+            sortOrder: 7,
+            config: { maxFiles: 3 }
+          },
+          { key: 'item:link', type: 'LINK', title: '参考链接', required: false, sortOrder: 8 }
+        ]
+      }
+    ]
+  },
+  {
+    key: 'subform:PROMOTION',
+    type: 'PROMOTION',
+    title: '晋升评估',
+    sortOrder: 1,
+    dimensions: [
+      {
+        key: 'dimension:PROMOTION:EMPLOYEE:0',
+        audience: 'EMPLOYEE',
+        name: '突出贡献',
+        sortOrder: 0,
+        items: [{ key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }]
+      }
+    ]
+  }
+]
+
+/** 可编辑态：本地受控 answers + 点击「校验」按钮触发与自评页相同的必填/格式校验，观察错误如何内联展示 */
+const EvaluationFormEditablePreview = () => {
+  const [answers, setAnswers] = useState<EvaluationAnswers>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  return (
+    <div className='flex flex-col gap-4'>
+      <Card>
+        <CardContent className='flex items-center justify-between gap-3'>
+          <CardDescription>点击「校验」触发与自评页提交前一致的必填/格式校验，观察错误如何内联展示在对应评估项下方。</CardDescription>
+          <Button
+            type='button'
+            onClick={() => setErrors(buildSubmitPayload(EVALUATION_FORM_SUBFORMS, answers).errors)}
+          >
+            校验
+          </Button>
+        </CardContent>
+      </Card>
+      <EvaluationForm
+        subforms={EVALUATION_FORM_SUBFORMS}
+        answers={answers}
+        errors={errors}
+        ratings={EVALUATION_FORM_RATINGS}
+        onAnswerChange={(itemKey, answer) => {
+          setAnswers(prev => ({ ...prev, [itemKey]: answer }))
+          setErrors(prev => {
+            if (!prev[itemKey]) return prev
+            const next = { ...prev }
+
+            delete next[itemKey]
+
+            return next
+          })
+        }}
+      />
+    </div>
+  )
+}
+
+/** 禁用态：与「未开放」「已收口」等场景一致，全部控件不可交互 */
+const EvaluationFormDisabledPreview = () => (
+  <EvaluationForm
+    subforms={EVALUATION_FORM_SUBFORMS}
+    answers={{ 'item:rating': { rawLevel: 'A' }, 'item:multi': { value: ['A', 'B'] } }}
+    ratings={EVALUATION_FORM_RATINGS}
+    disabled
+    onAnswerChange={() => {}}
+  />
+)
+
+const EvaluationFormPreview = () => (
+  <div className='flex flex-col gap-6'>
+    <Card>
+      <CardHeader>
+        <CardTitle>可编辑态</CardTitle>
+        <CardDescription>覆盖 RATING/SCORE/SHORT_TEXT/LONG_TEXT/MARKDOWN/SINGLE_SELECT/MULTI_SELECT/ATTACHMENT/LINK 九种类型</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <EvaluationFormEditablePreview />
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>禁用态</CardTitle>
+        <CardDescription>任务未开放或已收口时，全部控件不可交互</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <EvaluationFormDisabledPreview />
+      </CardContent>
+    </Card>
+  </div>
+)
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -817,6 +998,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
   if (activeComponent === 'cycle-progress') return <CycleProgressPreview />
   if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
+  if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
 
   return <DateTimePreview />
 }

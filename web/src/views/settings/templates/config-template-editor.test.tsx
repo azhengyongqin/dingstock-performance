@@ -52,6 +52,14 @@ const candidates = [
   { id: 103, templateId: 13, name: 'D 草稿', version: 1, status: 'DRAFT', jobLevelPrefix: 'D', updatedAt: '' }
 ] as PerfFormTemplateVersionSummary[]
 
+// Base UI Select 触发器在同一 jsdom 文档内以鼠标点击方式打开时，指针捕获状态可能被同一 worker 内
+// 早先打开过的 Select 残留污染导致再次点击无法展开；用键盘 Enter 展开是等价且更稳定的用户交互方式
+// （同款 helper 见 cycle-setup-editor.test.tsx）。
+const openFormBindingSelect = async (user: ReturnType<typeof userEvent.setup>) => {
+  screen.getByRole('combobox', { name: 'D 职级表单版本' }).focus()
+  await user.keyboard('{Enter}')
+}
+
 describe('ConfigTemplateEditor', () => {
   it('允许周期高级配置只暴露复杂计算规则，不把表单绑定和日程变成默认入口', () => {
     render(
@@ -86,7 +94,7 @@ describe('ConfigTemplateEditor', () => {
 
     render(<ConfigTemplateEditor value={version} candidates={candidates} editable onChange={vi.fn()} />)
     await user.click(screen.getByRole('tab', { name: '表单绑定' }))
-    await user.click(screen.getByRole('combobox', { name: 'D 职级表单版本' }))
+    await openFormBindingSelect(user)
 
     expect(screen.getByText('D 表单 · v2')).toBeInTheDocument()
     expect(screen.queryByText('M 表单 · v3')).not.toBeInTheDocument()
@@ -110,7 +118,7 @@ describe('ConfigTemplateEditor', () => {
     const view = render(<ConfigTemplateEditor value={value} candidates={candidates} editable onChange={onChange} />)
 
     await user.click(screen.getByRole('tab', { name: '表单绑定' }))
-    await user.click(screen.getByRole('combobox', { name: 'D 职级表单版本' }))
+    await openFormBindingSelect(user)
     await user.click(screen.getByRole('option', { name: 'D 表单 · v2' }))
 
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ formTemplateVersionIds: [102, 101] }))
