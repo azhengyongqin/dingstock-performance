@@ -44,7 +44,7 @@ export class AppealService {
         where: { id: participantId },
         include: {
           resultVersions: {
-            where: { supersededAt: null },
+            where: { supersededAt: null, invalidatedAt: null },
             orderBy: { version: 'desc' },
             take: 1,
             select: {
@@ -54,7 +54,11 @@ export class AppealService {
               confirmedAt: true,
             },
           },
-          appeals: { select: { id: true, status: true }, take: 1 },
+          appeals: {
+            where: { invalidatedAt: null },
+            select: { id: true, status: true },
+            take: 1,
+          },
         },
       });
       if (!participant || participant.employeeOpenId !== employeeOpenId) {
@@ -109,6 +113,7 @@ export class AppealService {
     const appeals = await this.prisma.perfAppeal.findMany({
       where: {
         status: filters.status || undefined,
+        invalidatedAt: null,
         participant: {
           ...(filters.cycleId ? { cycleId: filters.cycleId } : {}),
           ...scope,
@@ -123,7 +128,7 @@ export class AppealService {
             status: true,
             cycle: { select: { id: true, name: true } },
             resultVersions: {
-              where: { supersededAt: null },
+              where: { supersededAt: null, invalidatedAt: null },
               select: { id: true, version: true, finalLevel: true },
               take: 1,
             },
@@ -225,7 +230,6 @@ export class AppealService {
       },
     });
     if (!appeal) throw new NotFoundException('申诉不存在');
-
     const isOwner = appeal.participant.employeeOpenId === operatorOpenId;
     if (!isOwner)
       await this.assertCanManage(operatorOpenId, appeal.participant);
@@ -268,6 +272,9 @@ export class AppealService {
       include: { participant: true },
     });
     if (!appeal) throw new NotFoundException('申诉不存在');
+    if (appeal.invalidatedAt) {
+      throw new ConflictException('申诉已因周期整体退回而失效');
+    }
     await this.assertCanManage(operatorOpenId, appeal.participant);
     const updated = await this.prisma.perfAppeal.update({
       where: { id },
@@ -306,6 +313,9 @@ export class AppealService {
         include: { participant: true },
       });
       if (!appeal) throw new NotFoundException('申诉不存在');
+      if (appeal.invalidatedAt) {
+        throw new ConflictException('申诉已因周期整体退回而失效');
+      }
       await this.assertCanManage(operatorOpenId, appeal.participant);
       if (appeal.status === PerfAppealStatus.RESOLVED) {
         throw new ConflictException('申诉已处理完成');
@@ -399,6 +409,9 @@ export class AppealService {
         include: { participant: true },
       });
       if (!appeal) throw new NotFoundException('申诉不存在');
+      if (appeal.invalidatedAt) {
+        throw new ConflictException('申诉已因周期整体退回而失效');
+      }
       if (appeal.status === PerfAppealStatus.RESOLVED) {
         throw new ConflictException('申诉已处理');
       }

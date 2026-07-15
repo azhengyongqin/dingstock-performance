@@ -6,6 +6,7 @@
     "<rootDir>/test/calibration-postgres.integration-spec.ts",
     "<rootDir>/test/result-version-postgres.integration-spec.ts",
     "<rootDir>/test/active-cycle-config-postgres.integration-spec.ts",
+    "<rootDir>/test/active-cycle-rollback-postgres.integration-spec.ts",
     "<rootDir>/test/active-cycle-config-service.integration-spec.ts"
   ],
   "transform": {

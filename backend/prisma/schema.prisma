@@ -350,6 +350,7 @@ enum PerfNotificationEventType {
   TASK_REMINDER_DUE /// 人工评估任务到达软提醒时间
   CYCLE_START_FAILED /// 待启动周期到时复核失败
   RESULT_PUBLISHED /// 结果版本发布，通知员工查看并确认
+  RESULT_INVALIDATED /// 周期整体退回后，通知已收到结果的员工旧结果链失效
 
   @@schema("performance")
 }
@@ -815,11 +816,34 @@ model PerfCycle {
   reviewerAssignments   PerfReviewerAssignment[]
   stageResults          PerfStageResult[]
   exportTasks           ReportExportTask[]
+  rollbacks             PerfCycleRollback[]
 
   @@index([status, plannedStartAt])
   @@index([deletedAt])
   @@index([templateId])
   @@map("perf_cycles")
+  @@schema("performance")
+}
+
+/// ACTIVE 周期整体退回记录；append-only 保存操作者、目标状态与执行时完整影响统计。
+model PerfCycleRollback {
+  id             Int             @id @default(autoincrement()) /// 内部自增主键，同时作为失效链与通知幂等业务键
+  cycleId        Int             @map("cycle_id") /// 被退回的周期
+  targetStatus   PerfCycleStatus @map("target_status") /// 仅允许 DRAFT / SCHEDULED，由服务与迁移约束双重保证
+  reason         String /// 超级管理员填写的退回原因
+  impactSummary  Json            @map("impact_summary") /// 执行时冻结的影响统计与预览修订
+  operatorOpenId String          @map("operator_open_id") /// 执行退回的超级管理员 open_id
+  createdAt      DateTime        @default(now()) @map("created_at") /// 退回发生时间
+
+  cycle                     PerfCycle           @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  invalidatedCalibrations   PerfCalibration[]
+  invalidatedResults        PerfResult[]
+  invalidatedResultVersions PerfResultVersion[]
+  invalidatedAppeals        PerfAppeal[]
+
+  @@index([cycleId, createdAt])
+  @@index([operatorOpenId])
+  @@map("perf_cycle_rollbacks")
   @@schema("performance")
 }
 
@@ -1204,23 +1228,28 @@ model PerfAiReport {
 
 /// 校准决定（产品 §8.15）：append-only，不可更新/删除；KEEP 与 ADJUST 都新增一条
 model PerfCalibration {
-  id             Int                     @id @default(autoincrement()) /// 内部自增主键
-  participantId  Int                     @map("participant_id") /// 所属参与者
-  decision       PerfCalibrationDecision /// 显式 KEEP / ADJUST；所有新增记录必须由业务显式写入
-  isLegacy       Boolean                 @default(false) @map("is_legacy") /// 仅迁移前历史为 true；数据库拒绝新增 legacy 记录
-  beforeLevel    String?                 @map("before_level") /// 决定前当前等级；首条取 MANAGER 权威阶段等级
-  afterLevel     String                  @map("after_level") /// 决定后的等级；KEEP 取当时 MANAGER 权威等级，可能与上次校准等级不同
-  reason         String? /// ADJUST 必填；KEEP 可选说明
-  inputRevision  String?                 @map("input_revision") /// 决定时完整人工评估、阶段结果与红线输入的 SHA-256；历史记录可空
-  operatorOpenId String                  @map("operator_open_id") /// 操作人（当前 Leader/授权 HR/Admin）open_id
-  createdAt      DateTime                @default(now()) @map("created_at") /// 记录时间
+  id                      Int                     @id @default(autoincrement()) /// 内部自增主键
+  participantId           Int                     @map("participant_id") /// 所属参与者
+  decision                PerfCalibrationDecision /// 显式 KEEP / ADJUST；所有新增记录必须由业务显式写入
+  isLegacy                Boolean                 @default(false) @map("is_legacy") /// 仅迁移前历史为 true；数据库拒绝新增 legacy 记录
+  beforeLevel             String?                 @map("before_level") /// 决定前当前等级；首条取 MANAGER 权威阶段等级
+  afterLevel              String                  @map("after_level") /// 决定后的等级；KEEP 取当时 MANAGER 权威等级，可能与上次校准等级不同
+  reason                  String? /// ADJUST 必填；KEEP 可选说明
+  inputRevision           String?                 @map("input_revision") /// 决定时完整人工评估、阶段结果与红线输入的 SHA-256；历史记录可空
+  operatorOpenId          String                  @map("operator_open_id") /// 操作人（当前 Leader/授权 HR/Admin）open_id
+  createdAt               DateTime                @default(now()) @map("created_at") /// 记录时间
+  invalidatedAt           DateTime?               @map("invalidated_at") /// 周期整体退回时一次性写入；决定历史仍永久保留
+  invalidatedByRollbackId Int?                    @map("invalidated_by_rollback_id") /// 导致本决定失效的周期退回记录
 
-  participant     PerfParticipant     @relation(fields: [participantId], references: [id], onDelete: Restrict)
-  resultVersions  PerfResultVersion[] /// 以本决定为来源发布的结果版本
-  resolvedAppeals PerfAppeal[]        @relation("AppealResolutionCalibration") /// 以本决定作为处理依据关闭的申诉
+  participant           PerfParticipant     @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  invalidatedByRollback PerfCycleRollback?  @relation(fields: [invalidatedByRollbackId], references: [id], onDelete: Restrict)
+  resultVersions        PerfResultVersion[] /// 以本决定为来源发布的结果版本
+  resolvedAppeals       PerfAppeal[]        @relation("AppealResolutionCalibration") /// 以本决定作为处理依据关闭的申诉
 
   @@unique([id, participantId]) /// 申诉处理复合外键保证决定与参与者一致
   @@index([participantId])
+  @@index([participantId, invalidatedAt])
+  @@index([invalidatedByRollbackId])
   @@map("perf_calibrations")
   @@schema("performance")
 }
@@ -1250,19 +1279,23 @@ model PerfRedLineFinding {
 /// 最终绩效结果（产品 §8.16），每参与者一份（1:1）。
 /// archived_at 落定后业务代码禁止 UPDATE；任何调整必须经校准记录/操作日志产生新记录。
 model PerfResult {
-  id                  Int       @id @default(autoincrement()) /// 内部自增主键
-  participantId       Int       @unique @map("participant_id") /// 所属参与者
-  finalLevel          String    @map("final_level") /// 最终绩效评级；取值受周期评估规则约束
-  dimensionResults    Json?     @map("dimension_results") /// 维度结果快照：[{ dimensionId, name, level/score, comment }]
-  promotionResult     String?   @map("promotion_result") /// 晋升评估结论；仅启用晋升评估时存在，员工可见性看维度配置
-  confirmedByEmployee Boolean   @default(false) @map("confirmed_by_employee") /// 员工是否已确认
-  confirmedAt         DateTime? @map("confirmed_at") /// 员工确认时间
-  archivedAt          DateTime? @map("archived_at") /// 归档时间；非空后本行不可变
-  createdAt           DateTime  @default(now()) @map("created_at") /// 创建时间（结果推送时生成）
-  updatedAt           DateTime  @updatedAt @map("updated_at") /// 最近更新时间
+  id                      Int       @id @default(autoincrement()) /// 内部自增主键
+  participantId           Int       @unique @map("participant_id") /// 所属参与者
+  finalLevel              String    @map("final_level") /// 最终绩效评级；取值受周期评估规则约束
+  dimensionResults        Json?     @map("dimension_results") /// 维度结果快照：[{ dimensionId, name, level/score, comment }]
+  promotionResult         String?   @map("promotion_result") /// 晋升评估结论；仅启用晋升评估时存在，员工可见性看维度配置
+  confirmedByEmployee     Boolean   @default(false) @map("confirmed_by_employee") /// 员工是否已确认
+  confirmedAt             DateTime? @map("confirmed_at") /// 员工确认时间
+  archivedAt              DateTime? @map("archived_at") /// 归档时间；非空后本行不可变
+  createdAt               DateTime  @default(now()) @map("created_at") /// 创建时间（结果推送时生成）
+  updatedAt               DateTime  @updatedAt @map("updated_at") /// 最近更新时间
+  invalidatedAt           DateTime? @map("invalidated_at") /// 当前投影因周期退回失效的时间
+  invalidatedByRollbackId Int?      @map("invalidated_by_rollback_id") /// 导致当前投影失效的周期退回记录
 
-  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  participant           PerfParticipant    @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  invalidatedByRollback PerfCycleRollback? @relation(fields: [invalidatedByRollbackId], references: [id], onDelete: Restrict)
 
+  @@index([invalidatedByRollbackId])
   @@map("perf_results")
   @@schema("performance")
 }
@@ -1272,28 +1305,33 @@ model PerfResult {
 /// 从 NULL 一次性回填，其余列禁止 UPDATE，且禁止 DELETE。
 /// 员工确认精确绑定版本；同一参与者仅一个当前版本（superseded_at IS NULL 部分唯一索引）。
 model PerfResultVersion {
-  id                  Int              @id @default(autoincrement()) /// 内部自增主键
-  participantId       Int              @map("participant_id") /// 所属参与者
-  version             Int /// 参与者内递增版本号，从 1 开始
-  finalLevel          PerfRatingSymbol @map("final_level") /// 员工可见的最终等级；有效红线强制为 C（数据库触发器兜底）
-  employeeExplanation String?          @map("employee_explanation") /// 员工可见解释；发布时收敛，不含内部校准讨论
-  sourceCalibrationId Int?             @map("source_calibration_id") /// 来源校准决定；仅迁移回填的历史版本可为空
-  resultSnapshot      Json             @map("result_snapshot") /// 隐私收敛后的员工可见结果快照：{ cycle, manager{compositeScore,dimensions,overallComment}, self, promotion }
-  publishedByOpenId   String           @map("published_by_open_id") /// 发布操作人 open_id；迁移回填为 system:migration
-  publishedAt         DateTime         @default(now()) @map("published_at") /// 发布时间
-  supersededAt        DateTime?        @map("superseded_at") /// 被新版本替代时间；新版本发布同事务一次性写入
-  confirmedAt         DateTime?        @map("confirmed_at") /// 员工确认本版本的时间
-  confirmedByOpenId   String?          @map("confirmed_by_open_id") /// 确认人 open_id（员工本人）
-  createdAt           DateTime         @default(now()) @map("created_at") /// 创建时间
+  id                      Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId           Int              @map("participant_id") /// 所属参与者
+  version                 Int /// 参与者内递增版本号，从 1 开始
+  finalLevel              PerfRatingSymbol @map("final_level") /// 员工可见的最终等级；有效红线强制为 C（数据库触发器兜底）
+  employeeExplanation     String?          @map("employee_explanation") /// 员工可见解释；发布时收敛，不含内部校准讨论
+  sourceCalibrationId     Int?             @map("source_calibration_id") /// 来源校准决定；仅迁移回填的历史版本可为空
+  resultSnapshot          Json             @map("result_snapshot") /// 隐私收敛后的员工可见结果快照：{ cycle, manager{compositeScore,dimensions,overallComment}, self, promotion }
+  publishedByOpenId       String           @map("published_by_open_id") /// 发布操作人 open_id；迁移回填为 system:migration
+  publishedAt             DateTime         @default(now()) @map("published_at") /// 发布时间
+  supersededAt            DateTime?        @map("superseded_at") /// 被新版本替代时间；新版本发布同事务一次性写入
+  confirmedAt             DateTime?        @map("confirmed_at") /// 员工确认本版本的时间
+  confirmedByOpenId       String?          @map("confirmed_by_open_id") /// 确认人 open_id（员工本人）
+  createdAt               DateTime         @default(now()) @map("created_at") /// 创建时间
+  invalidatedAt           DateTime?        @map("invalidated_at") /// 周期整体退回时一次性写入；与正常新版本替代语义分离
+  invalidatedByRollbackId Int?             @map("invalidated_by_rollback_id") /// 导致本版本失效的周期退回记录
 
-  participant       PerfParticipant  @relation(fields: [participantId], references: [id], onDelete: Restrict)
-  sourceCalibration PerfCalibration? @relation(fields: [sourceCalibrationId], references: [id], onDelete: Restrict)
-  appeals           PerfAppeal[]     @relation("AppealedResultVersion") /// 针对本版本发起的申诉（每参与者至多一次）
+  participant           PerfParticipant    @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  sourceCalibration     PerfCalibration?   @relation(fields: [sourceCalibrationId], references: [id], onDelete: Restrict)
+  invalidatedByRollback PerfCycleRollback? @relation(fields: [invalidatedByRollbackId], references: [id], onDelete: Restrict)
+  appeals               PerfAppeal[]       @relation("AppealedResultVersion") /// 针对本版本发起的申诉（每参与者至多一次）
 
   @@unique([id, participantId]) /// 申诉复合外键保证版本与参与者一致
   @@unique([participantId, version]) /// 参与者内版本号唯一
   @@index([participantId, supersededAt]) /// 读取当前有效版本
   @@index([sourceCalibrationId])
+  @@index([participantId, invalidatedAt])
+  @@index([invalidatedByRollbackId])
   @@map("perf_result_versions")
   @@schema("performance")
 }
@@ -1314,16 +1352,21 @@ model PerfAppeal {
   resolvedAt              DateTime?        @map("resolved_at") /// 处理完成时间
   createdAt               DateTime         @default(now()) @map("created_at") /// 申诉发起时间
   updatedAt               DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+  invalidatedAt           DateTime?        @map("invalidated_at") /// 周期整体退回时一次性写入；申诉历史仍永久保留
+  invalidatedByRollbackId Int?             @map("invalidated_by_rollback_id") /// 导致本申诉链失效的周期退回记录
 
-  participant           PerfParticipant   @relation(fields: [participantId], references: [id], onDelete: Restrict)
-  resultVersion         PerfResultVersion @relation("AppealedResultVersion", fields: [resultVersionId, participantId], references: [id, participantId], onDelete: Restrict)
-  resolutionCalibration PerfCalibration?  @relation("AppealResolutionCalibration", fields: [resolutionCalibrationId, participantId], references: [id, participantId], onDelete: Restrict)
+  participant           PerfParticipant    @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  resultVersion         PerfResultVersion  @relation("AppealedResultVersion", fields: [resultVersionId, participantId], references: [id, participantId], onDelete: Restrict)
+  resolutionCalibration PerfCalibration?   @relation("AppealResolutionCalibration", fields: [resolutionCalibrationId, participantId], references: [id, participantId], onDelete: Restrict)
+  invalidatedByRollback PerfCycleRollback? @relation(fields: [invalidatedByRollbackId], references: [id], onDelete: Restrict)
   interviews            PerfInterview[]
 
   @@index([resultVersionId])
   @@index([resolutionCalibrationId])
   @@index([status]) /// 申诉处理队列
   @@index([handlerOpenId])
+  @@index([participantId, invalidatedAt])
+  @@index([invalidatedByRollbackId])
   @@map("perf_appeals")
   @@schema("performance")
 }

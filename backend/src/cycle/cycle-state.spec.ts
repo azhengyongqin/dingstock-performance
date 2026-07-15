@@ -7,6 +7,8 @@ describe('周期状态机', () => {
     [PerfCycleStatus.DRAFT, PerfCycleStatus.SCHEDULED],
     [PerfCycleStatus.SCHEDULED, PerfCycleStatus.DRAFT],
     [PerfCycleStatus.SCHEDULED, PerfCycleStatus.ACTIVE],
+    [PerfCycleStatus.ACTIVE, PerfCycleStatus.DRAFT],
+    [PerfCycleStatus.ACTIVE, PerfCycleStatus.SCHEDULED],
     [PerfCycleStatus.ACTIVE, PerfCycleStatus.ARCHIVED],
   ];
 

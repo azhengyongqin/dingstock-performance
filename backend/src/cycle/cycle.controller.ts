@@ -25,11 +25,13 @@ import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
   ApplyTemplateDto,
+  ApplyActiveCycleRollbackDto,
   CreateCycleDto,
   InitializeCycleSetupDto,
   ReapplyCycleSetupDto,
   UpdateCycleAdvancedConfigDto,
   UpdateCycleDto,
+  PreviewActiveCycleRollbackDto,
   UpsertDimensionsDto,
   UpsertCyclePlanDto,
   UpsertNotificationRulesDto,
@@ -39,6 +41,7 @@ import {
 import { CycleService } from './cycle.service';
 import { CycleSetupService } from './cycle-setup.service';
 import { CycleProgressService } from './cycle-progress.service';
+import { ActiveCycleRollbackService } from './active-cycle-rollback.service';
 
 // 周期管理为 HR/ADMIN 专属操作域（产品 §3.7）；员工/评审员侧走 self-reviews、review-tasks 等接口
 @ApiTags('cycle')
@@ -51,6 +54,7 @@ export class CycleController {
     private readonly cycleService: CycleService,
     private readonly cycleSetupService: CycleSetupService,
     private readonly cycleProgressService: CycleProgressService,
+    private readonly activeCycleRollbackService: ActiveCycleRollbackService,
   ) {}
 
   @Get()
@@ -250,6 +254,32 @@ export class CycleController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.cycleSetupService.returnToDraft(req.user.open_id, id);
+  }
+
+  @Post(':id/rollback/preview')
+  @Roles(PerfRole.ADMIN)
+  @ApiOperation({ summary: '超级管理员预览活动周期整体退回影响' })
+  previewRollback(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewActiveCycleRollbackDto,
+  ) {
+    return this.activeCycleRollbackService.preview(
+      req.user.open_id,
+      id,
+      dto.targetStatus,
+    );
+  }
+
+  @Post(':id/rollback')
+  @Roles(PerfRole.ADMIN)
+  @ApiOperation({ summary: '超级管理员确认后整体退回活动周期' })
+  rollback(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ApplyActiveCycleRollbackDto,
+  ) {
+    return this.activeCycleRollbackService.rollback(req.user.open_id, id, dto);
   }
 
   @Post(':id/close')

@@ -105,7 +105,7 @@ export class ResultService {
             PerfParticipantStatus.CONFIRMED,
           ],
         },
-        calibrations: { some: {} },
+        calibrations: { some: { invalidatedAt: null } },
         ...(participantIds?.length ? { id: { in: participantIds } } : {}),
       },
       select: { id: true },
@@ -132,22 +132,37 @@ export class ResultService {
           ? PerfRatingSymbol.C
           : this.requireRatingSymbol(calibration.afterLevel);
         const currentVersion = await tx.perfResultVersion.findFirst({
-          where: { participantId: participant.id, supersededAt: null },
+          where: {
+            participantId: participant.id,
+            supersededAt: null,
+            invalidatedAt: null,
+          },
           orderBy: { version: 'desc' },
         });
         if (currentVersion?.finalLevel === finalLevel) return 'unchanged';
+        const latestHistoricalVersion =
+          currentVersion ??
+          (await tx.perfResultVersion.findFirst({
+            where: { participantId: participant.id },
+            orderBy: { version: 'desc' },
+          }));
 
         const publishedAt = new Date();
         if (currentVersion) {
           const superseded = await tx.perfResultVersion.updateMany({
-            where: { id: currentVersion.id, supersededAt: null },
+            where: {
+              id: currentVersion.id,
+              supersededAt: null,
+              invalidatedAt: null,
+            },
             data: { supersededAt: publishedAt },
           });
           if (superseded.count !== 1) {
             throw new ConflictException('结果版本已变化，请刷新后重试');
           }
         }
-        const version = (currentVersion?.version ?? 0) + 1;
+        // 周期退回后当前有效版本为空，但版本号必须继续沿历史链递增，不能与失效版本冲突。
+        const version = (latestHistoricalVersion?.version ?? 0) + 1;
         const snapshot = this.buildResultSnapshot(participant);
         const resultVersion = await tx.perfResultVersion.create({
           data: {
@@ -184,6 +199,9 @@ export class ResultService {
               : null,
             confirmedByEmployee: false,
             confirmedAt: null,
+            // 旧投影曾因周期整体退回失效；新版本发布后重新成为当前投影。
+            invalidatedAt: null,
+            invalidatedByRollbackId: null,
           },
         });
         await tx.perfParticipant.update({
@@ -230,6 +248,7 @@ export class ResultService {
       include: {
         cycle: { select: { id: true, name: true, status: true } },
         resultVersions: {
+          where: { invalidatedAt: null },
           orderBy: { version: 'desc' },
           take: 2,
           select: {
@@ -307,7 +326,11 @@ export class ResultService {
       });
     }
     const currentVersion = await tx.perfResultVersion.findFirst({
-      where: { participantId: input.participantId, supersededAt: null },
+      where: {
+        participantId: input.participantId,
+        supersededAt: null,
+        invalidatedAt: null,
+      },
       orderBy: { version: 'desc' },
     });
     if (
@@ -424,7 +447,7 @@ export class ResultService {
         where: { id: participantId },
         include: {
           resultVersions: {
-            where: { supersededAt: null },
+            where: { supersededAt: null, invalidatedAt: null },
             orderBy: { version: 'desc' },
             take: 1,
             select: { id: true, version: true },
@@ -453,6 +476,7 @@ export class ResultService {
           id: resultVersionId,
           participantId,
           supersededAt: null,
+          invalidatedAt: null,
           confirmedAt: null,
         },
         data: { confirmedAt, confirmedByOpenId: employeeOpenId },
@@ -523,7 +547,11 @@ export class ResultService {
             },
           },
         },
-        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        calibrations: {
+          where: { invalidatedAt: null },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
         redLineFindings: {
           where: {
             action: PerfRedLineAction.CONFIRM,

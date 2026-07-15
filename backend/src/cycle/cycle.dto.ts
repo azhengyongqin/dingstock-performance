@@ -309,6 +309,31 @@ export class AdvanceCycleDto {
   reason?: string;
 }
 
+/** Ticket 17：预览只需要目标状态；执行必须回传预览修订并二次确认。 */
+export class PreviewActiveCycleRollbackDto {
+  @IsIn([PerfCycleStatus.DRAFT, PerfCycleStatus.SCHEDULED])
+  targetStatus!: PerfCycleStatus;
+}
+
+export class ApplyActiveCycleRollbackDto extends PreviewActiveCycleRollbackDto {
+  @IsString()
+  @Matches(/^[a-f0-9]{64}$/)
+  impactRevision!: string;
+
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @IsBoolean()
+  confirmed!: boolean;
+
+  /** 退回 SCHEDULED 时必填且必须为未来时间；DRAFT 不使用。 */
+  @IsOptional()
+  @IsDateString()
+  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'plannedStartAt 必须包含时区' })
+  plannedStartAt?: string;
+}
+
 export class CreateTemplateDto {
   @IsString()
   @MaxLength(100)

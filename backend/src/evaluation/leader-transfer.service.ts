@@ -86,7 +86,7 @@ export class LeaderTransferService {
       const [calibration, effectiveManagerSubmission, removedDrafts] =
         await Promise.all([
           tx.perfCalibration.findFirst({
-            where: { participantId: participant.id },
+            where: { participantId: participant.id, invalidatedAt: null },
             select: { id: true },
             orderBy: { id: 'desc' },
           }),

@@ -7,7 +7,11 @@ import { PerfCycleStatus } from '../generated/prisma/enums';
 const CYCLE_TRANSITIONS: Record<PerfCycleStatus, PerfCycleStatus[]> = {
   DRAFT: [PerfCycleStatus.SCHEDULED],
   SCHEDULED: [PerfCycleStatus.DRAFT, PerfCycleStatus.ACTIVE],
-  ACTIVE: [PerfCycleStatus.ARCHIVED],
+  ACTIVE: [
+    PerfCycleStatus.DRAFT,
+    PerfCycleStatus.SCHEDULED,
+    PerfCycleStatus.ARCHIVED,
+  ],
   ARCHIVED: [],
 };
 

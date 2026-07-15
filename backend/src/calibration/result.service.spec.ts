@@ -271,6 +271,32 @@ describe('ResultService 不可变结果版本', () => {
     );
   });
 
+  it('周期退回后的新结果沿失效历史递增版本号，不与旧版本冲突', async () => {
+    tx.perfResultVersion.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 41,
+        participantId: 7,
+        version: 1,
+        finalLevel: 'B',
+        invalidatedAt: new Date('2026-07-16T08:00:00.000Z'),
+      });
+    tx.perfResultVersion.create.mockResolvedValue({
+      id: 42,
+      participantId: 7,
+      version: 2,
+      finalLevel: 'A',
+      publishedAt: new Date('2026-07-20T10:00:00.000Z'),
+    });
+
+    await service.publishCycle('ou_hr', 1, [7]);
+
+    expect(tx.perfResultVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ version: 2, finalLevel: 'A' }),
+    });
+    expect(tx.perfResultVersion.updateMany).not.toHaveBeenCalled();
+  });
+
   it('同等级后续校准只保留决定审计，不创建版本、不通知也不重开确认', async () => {
     tx.perfResultVersion.findFirst.mockResolvedValue({
       id: 41,
@@ -312,7 +338,7 @@ describe('ResultService 不可变结果版本', () => {
     await service.publishCycle('ou_hr', 1, [7]);
 
     expect(tx.perfResultVersion.updateMany).toHaveBeenCalledWith({
-      where: { id: 41, supersededAt: null },
+      where: { id: 41, supersededAt: null, invalidatedAt: null },
       data: { supersededAt: expect.any(Date) },
     });
     expect(tx.perfResultVersion.create).toHaveBeenCalledWith({
@@ -550,6 +576,7 @@ describe('ResultService 不可变结果版本', () => {
         id: 42,
         participantId: 7,
         supersededAt: null,
+        invalidatedAt: null,
         confirmedAt: null,
       },
       data: {
@@ -580,6 +607,7 @@ describe('ResultService 不可变结果版本', () => {
         id: 42,
         participantId: 7,
         supersededAt: null,
+        invalidatedAt: null,
         confirmedAt: null,
       },
       data: {

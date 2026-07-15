@@ -12,6 +12,7 @@ import { CycleProgressService } from './cycle-progress.service';
 import { NotificationModule } from '../notification/notification.module';
 import { TemplateController } from './template.controller';
 import { TemplateService } from './template.service';
+import { ActiveCycleRollbackService } from './active-cycle-rollback.service';
 
 /** 周期 + 模板 + 评估规则 + 评估维度 + 时间窗口（研发文档 §8.1 Cycle/Dimension 域） */
 @Module({
@@ -30,6 +31,7 @@ import { TemplateService } from './template.service';
     EvaluationTaskAccessService,
     CycleProgressService,
     TemplateService,
+    ActiveCycleRollbackService,
   ],
   exports: [
     CycleService,

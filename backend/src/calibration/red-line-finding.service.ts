@@ -127,7 +127,7 @@ export class RedLineFindingService {
           select: { id: true },
         }),
         tx.perfCalibration.findFirst({
-          where: { participantId },
+          where: { participantId, invalidatedAt: null },
           select: { afterLevel: true },
           orderBy: { id: 'desc' },
         }),

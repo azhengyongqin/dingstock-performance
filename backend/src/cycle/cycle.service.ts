@@ -621,6 +621,13 @@ export class CycleService {
     dto: AdvanceCycleDto,
   ) {
     const cycle = await this.requireCycle(cycleId);
+    if (
+      cycle.status === PerfCycleStatus.ACTIVE &&
+      (dto.to === PerfCycleStatus.DRAFT || dto.to === PerfCycleStatus.SCHEDULED)
+    ) {
+      // ACTIVE 退回必须走 Ticket 17 的专用事务，禁止绕过失效、解锁、审计与通知。
+      throw new ConflictException('活动周期退回必须使用整体退回接口');
+    }
     assertCycleTransition(cycle.status, dto.to);
     const updated = await this.prisma.perfCycle.update({
       where: { id: cycleId },

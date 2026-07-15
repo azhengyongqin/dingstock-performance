@@ -199,6 +199,31 @@ describe('NotificationEventService', () => {
     ]);
   });
 
+  it('同一次周期退回对同一员工重复入队仍只保留一条结果失效通知', async () => {
+    const service = buildService();
+    const input = {
+      rollbackId: 71,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      resultVersionId: 41,
+      receiverOpenId: 'ou_employee',
+      targetStatus: 'DRAFT',
+    };
+
+    const first = await service.enqueueResultInvalidatedEvent(input);
+    const duplicate = await service.enqueueResultInvalidatedEvent(input);
+
+    expect(first.id).toBe(duplicate.id);
+    expect([...events.values()]).toEqual([
+      expect.objectContaining({
+        dedupeKey: 'result-invalidated:71:ou_employee',
+        type: 'RESULT_INVALIDATED',
+        template: 'result_invalidated_by_cycle_rollback',
+      }),
+    ]);
+  });
+
   it('申诉改判的新版本使用再次确认通知模板并携带前后等级', async () => {
     const service = buildService();
 

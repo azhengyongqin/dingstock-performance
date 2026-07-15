@@ -38,6 +38,9 @@ jest.mock('./cycle-setup.service', () => ({ CycleSetupService: class {} }));
 jest.mock('./cycle-progress.service', () => ({
   CycleProgressService: class {},
 }));
+jest.mock('./active-cycle-rollback.service', () => ({
+  ActiveCycleRollbackService: class {},
+}));
 
 describe('CycleController 四步创建 API', () => {
   const cycleService = {
@@ -58,10 +61,12 @@ describe('CycleController 四步创建 API', () => {
     returnToDraft: jest.fn(),
   };
   const progressService = { getProgress: jest.fn() };
+  const rollbackService = { preview: jest.fn(), rollback: jest.fn() };
   const controller = new CycleController(
     cycleService as never,
     setupService as never,
     progressService as never,
+    rollbackService as never,
   );
   const request = { user: { open_id: 'ou_hr' } } as never;
 
@@ -124,6 +129,22 @@ describe('CycleController 四步创建 API', () => {
   it('周期进度接口只转发任务事实聚合查询', async () => {
     await controller.progress(9);
     expect(progressService.getProgress).toHaveBeenCalledWith(9);
+  });
+
+  it('整体退回预览与确认执行均传递超级管理员和影响修订', async () => {
+    await controller.previewRollback(request, 9, {
+      targetStatus: 'DRAFT' as never,
+    });
+    const dto = {
+      targetStatus: 'DRAFT',
+      impactRevision: 'a'.repeat(64),
+      reason: '配置严重错误',
+      confirmed: true,
+    } as never;
+    await controller.rollback(request, 9, dto);
+
+    expect(rollbackService.preview).toHaveBeenCalledWith('ou_hr', 9, 'DRAFT');
+    expect(rollbackService.rollback).toHaveBeenCalledWith('ou_hr', 9, dto);
   });
 
   it('旧草稿初始化接口原样转发配置选择与基础信息', async () => {

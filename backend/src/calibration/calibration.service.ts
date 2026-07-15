@@ -69,7 +69,11 @@ export class CalibrationService {
           orderBy: { calculatedAt: 'desc' },
           take: 1,
         },
-        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        calibrations: {
+          where: { invalidatedAt: null },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
         aiReport: {
           select: {
             status: true,

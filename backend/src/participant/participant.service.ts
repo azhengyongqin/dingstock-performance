@@ -63,7 +63,10 @@ export class ParticipantService {
           take: 1,
           select: { stageLevel: true },
         },
-        result: { select: { finalLevel: true, confirmedByEmployee: true } },
+        result: {
+          where: { invalidatedAt: null },
+          select: { finalLevel: true, confirmedByEmployee: true },
+        },
         _count: { select: { reviewerAssignments: true } },
       },
     });

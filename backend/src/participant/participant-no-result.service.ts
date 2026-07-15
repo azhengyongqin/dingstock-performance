@@ -188,8 +188,12 @@ export class ParticipantNoResultService {
             },
             select: { id: true, stage: true, status: true },
           }),
-          tx.perfResult.count({ where: { participantId } }),
-          tx.perfCalibration.count({ where: { participantId } }),
+          tx.perfResult.count({
+            where: { participantId, invalidatedAt: null },
+          }),
+          tx.perfCalibration.count({
+            where: { participantId, invalidatedAt: null },
+          }),
         ]);
         const effectiveSelf =
           participant.selfReview?.status === PerfSelfReviewStatus.SUBMITTED ||

@@ -17,6 +17,7 @@ import type { NotificationRules } from '../config-template/config-template.contr
 import {
   cycleStartFailedDedupeKey,
   resultPublishedDedupeKey,
+  resultInvalidatedDedupeKey,
   type EnqueueNotificationEventInput,
   type TaskNotificationContext,
   type TaskOpenedEventInput,
@@ -152,6 +153,40 @@ export class NotificationEventService {
             ? { previousFinalLevel: input.previousFinalLevel }
             : {}),
           ...(input.appealId !== undefined ? { appealId: input.appealId } : {}),
+        },
+      },
+      transaction,
+    );
+  }
+
+  /** 周期退回与失效通知 outbox 同事务提交；稳定键保证重复消费不会重复提醒。 */
+  enqueueResultInvalidatedEvent(
+    input: {
+      rollbackId: number;
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      resultVersionId: number;
+      receiverOpenId: string;
+      targetStatus: PerfCycleStatus.DRAFT | PerfCycleStatus.SCHEDULED;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    return this.enqueue(
+      {
+        dedupeKey: resultInvalidatedDedupeKey(input),
+        type: 'RESULT_INVALIDATED',
+        cycleId: input.cycleId,
+        receiverOpenId: input.receiverOpenId,
+        channel: PerfNotificationChannel.BOT_DM,
+        template: 'result_invalidated_by_cycle_rollback',
+        payload: {
+          rollbackId: input.rollbackId,
+          cycleId: input.cycleId,
+          cycleName: input.cycleName,
+          participantId: input.participantId,
+          resultVersionId: input.resultVersionId,
+          targetStatus: input.targetStatus,
         },
       },
       transaction,

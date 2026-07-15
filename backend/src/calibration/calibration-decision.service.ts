@@ -181,9 +181,13 @@ export class CalibrationDecisionService {
       include: {
         cycle: { include: { evaluationRule: true } },
         managerReview: { select: { initialLevel: true, status: true } },
-        calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        calibrations: {
+          where: { invalidatedAt: null },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
         appeals: {
-          where: { status: { not: 'RESOLVED' } },
+          where: { status: { not: 'RESOLVED' }, invalidatedAt: null },
           select: { id: true, status: true },
           take: 1,
         },

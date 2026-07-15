@@ -18,7 +18,8 @@ export type EnqueueNotificationEventInput = {
     | 'TASK_OPENED'
     | 'TASK_REMINDER_DUE'
     | 'CYCLE_START_FAILED'
-    | 'RESULT_PUBLISHED';
+    | 'RESULT_PUBLISHED'
+    | 'RESULT_INVALIDATED';
   cycleId?: number;
   taskId?: number;
   stage?: PerfEvaluationTaskType;
@@ -68,6 +69,14 @@ export function resultPublishedDedupeKey(input: {
   receiverOpenId: string;
 }) {
   return `result-published:${input.resultVersionId}:${input.receiverOpenId}`;
+}
+
+/** 一次周期退回只向一个已收到结果的员工生成一条失效通知。 */
+export function resultInvalidatedDedupeKey(input: {
+  rollbackId: number;
+  receiverOpenId: string;
+}) {
+  return `result-invalidated:${input.rollbackId}:${input.receiverOpenId}`;
 }
 
 export type TaskNotificationContext = {

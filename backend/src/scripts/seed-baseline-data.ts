@@ -95,6 +95,16 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
  */
 async function cleanupBaseline(prisma: PrismaClient) {
   await prisma.$transaction(async (tx) => {
+    const historicalRollback = await tx.perfCycleRollback.findFirst({
+      where: { cycle: { name: CYCLE_NAME } },
+      select: { id: true, cycleId: true },
+    });
+    if (historicalRollback) {
+      // 周期退回是不可删除的高风险审计事实；seed 不得为了“幂等”绕过触发器抹历史。
+      throw new Error(
+        `基线周期 #${historicalRollback.cycleId} 已存在退回记录 #${historicalRollback.id}，不能由 seed 清理；请保留该历史并使用新的周期名称`,
+      );
+    }
     const removedCycles = await tx.perfCycle.deleteMany({
       where: { name: CYCLE_NAME },
     });

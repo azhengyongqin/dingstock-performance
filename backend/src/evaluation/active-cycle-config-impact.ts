@@ -88,6 +88,7 @@ export const cycleImpactInclude = {
         orderBy: [{ stage: 'asc' as const }, { id: 'asc' as const }],
       },
       calibrations: {
+        where: { invalidatedAt: null },
         select: {
           id: true,
           afterLevel: true,
@@ -97,7 +98,7 @@ export const cycleImpactInclude = {
         orderBy: { id: 'asc' as const },
       },
       resultVersions: {
-        where: { supersededAt: null },
+        where: { supersededAt: null, invalidatedAt: null },
         select: {
           id: true,
           version: true,

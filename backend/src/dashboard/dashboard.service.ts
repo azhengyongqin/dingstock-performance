@@ -97,13 +97,19 @@ export class DashboardService {
         where: { ...where, status: { in: CONFIRM_DONE } },
       }),
       this.prisma.perfAppeal.count({
-        where: { participant: { cycleId: resolvedCycleId } },
+        where: {
+          participant: { cycleId: resolvedCycleId },
+          invalidatedAt: null,
+        },
       }),
       this.prisma.perfParticipant.findMany({
         where,
         select: {
           status: true,
-          result: { select: { finalLevel: true } },
+          result: {
+            where: { invalidatedAt: null },
+            select: { finalLevel: true },
+          },
           managerReview: { select: { initialLevel: true } },
           stageResults: {
             where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
@@ -112,6 +118,7 @@ export class DashboardService {
             select: { stageLevel: true },
           },
           calibrations: {
+            where: { invalidatedAt: null },
             orderBy: { id: 'desc' },
             take: 1,
             select: { afterLevel: true },
@@ -346,6 +353,7 @@ export class DashboardService {
       this.prisma.perfAppeal.count({
         where: {
           status: { not: PerfAppealStatus.RESOLVED },
+          invalidatedAt: null,
           handlerOpenId: openId,
         },
       }),

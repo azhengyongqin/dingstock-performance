@@ -293,7 +293,11 @@ describe('AppealService 结果版本申诉链', () => {
     await service.list('ou_admin', { cycleId: 1 });
     expect(prisma.perfAppeal.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { status: undefined, participant: { cycleId: 1 } },
+        where: {
+          status: undefined,
+          invalidatedAt: null,
+          participant: { cycleId: 1 },
+        },
       }),
     );
   });
