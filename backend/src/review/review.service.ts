@@ -1,12 +1,12 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import {
   PerfAssignmentStatus,
+  PerfEvaluationTaskType,
   PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
@@ -18,6 +18,7 @@ import { AuditService } from '../audit/audit.service';
 import { hasRatingSymbol } from '../cycle/evaluation-rule';
 import { ParticipantService } from '../participant/participant.service';
 import type { SaveManagerReviewDto, SaveReviewDto } from './review.dto';
+import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
 
 /** 我的评审任务条目：360° 与上级评估共用任务模型（研发文档 §8.3），按 taskType 区分 */
 export type ReviewTaskItem = {
@@ -27,6 +28,13 @@ export type ReviewTaskItem = {
   relation?: string;
   status: 'PENDING' | 'SUBMITTED';
   submittedAt?: Date | null;
+  task: {
+    id: number;
+    startAt: Date | null;
+    reminderDeadlineAt: Date | null;
+    openedAt: Date | null;
+    completedAt: Date | null;
+  } | null;
   cycle: { id: number; name: string; status: string };
   employee: {
     open_id: string;
@@ -42,6 +50,7 @@ export class ReviewService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
+    private readonly taskAccessService: EvaluationTaskAccessService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -81,6 +90,32 @@ export class ReviewService {
       orderBy: { id: 'desc' },
     });
 
+    const taskFacts = await this.prisma.perfEvaluationTask.findMany({
+      where: {
+        participantId: {
+          in: [
+            ...assignments.map((item) => item.participantId),
+            ...managed.map((item) => item.id),
+          ],
+        },
+        type: {
+          in: [PerfEvaluationTaskType.PEER, PerfEvaluationTaskType.MANAGER],
+        },
+      },
+      select: {
+        id: true,
+        participantId: true,
+        type: true,
+        startAt: true,
+        reminderDeadlineAt: true,
+        openedAt: true,
+        completedAt: true,
+      },
+    });
+    const taskMap = new Map(
+      taskFacts.map((task) => [`${task.participantId}:${task.type}`, task]),
+    );
+
     const employeeIds = [
       ...new Set([
         ...assignments.map((a) => a.participant.employeeOpenId),
@@ -103,6 +138,7 @@ export class ReviewService {
           assignment.status === PerfAssignmentStatus.SUBMITTED
             ? 'SUBMITTED'
             : 'PENDING',
+        task: taskMap.get(`${assignment.participantId}:PEER`) ?? null,
         cycle: assignment.cycle,
         employee: userMap.get(assignment.participant.employeeOpenId) ?? null,
       })),
@@ -114,6 +150,7 @@ export class ReviewService {
             ? 'SUBMITTED'
             : 'PENDING',
         submittedAt: participant.managerReview?.submittedAt ?? null,
+        task: taskMap.get(`${participant.id}:MANAGER`) ?? null,
         cycle: participant.cycle,
         employee: userMap.get(participant.employeeOpenId) ?? null,
       })),
@@ -169,6 +206,34 @@ export class ReviewService {
           },
         },
       });
+    }
+
+    const taskTypeValue = isManager
+      ? PerfEvaluationTaskType.MANAGER
+      : PerfEvaluationTaskType.PEER;
+    // 对象级鉴权已经完成，读取路径才允许惰性写入不可逆的开放事实与通知事件。
+    const task = await this.taskAccessService.openIfDue(
+      participantId,
+      taskTypeValue,
+    );
+    if (!task?.openedAt) {
+      // 开始前只返回预告所需事实，不向填写人泄露动态表单与评估参考内容。
+      return {
+        participant: { ...participant, cycle: undefined },
+        cycle: {
+          id: participant.cycle.id,
+          name: participant.cycle.name,
+          status: participant.cycle.status,
+        },
+        task,
+        employee: null,
+        selfReview: null,
+        dimensions: [],
+        evaluationRule: null,
+        myDraft: null,
+        peerReviews: [],
+        history: [],
+      };
     }
 
     const dimensions = await this.prisma.perfDimension.findMany({
@@ -249,6 +314,7 @@ export class ReviewService {
       selfReview,
       dimensions,
       evaluationRule: participant.cycle.evaluationRule,
+      task,
       myDraft,
       peerReviews,
       history,
@@ -275,13 +341,12 @@ export class ReviewService {
   }
 
   async saveReviewDraft(reviewerOpenId: string, dto: SaveReviewDto) {
-    const assignment = await this.requireActiveAssignment(
+    // 必须先验证当前评审关系，再进入可能写 openedAt/outbox 的统一门槛。
+    await this.requireActiveAssignment(dto.participantId, reviewerOpenId);
+    await this.taskAccessService.ensureWritable(
       dto.participantId,
-      reviewerOpenId,
+      PerfEvaluationTaskType.PEER,
     );
-    if (assignment.status === PerfAssignmentStatus.SUBMITTED) {
-      throw new ConflictException('评估已提交，不可修改');
-    }
     const data = {
       dimensionScores: dto.dimensionScores as unknown as
         Prisma.InputJsonValue | undefined,
@@ -307,9 +372,10 @@ export class ReviewService {
       participantId,
       reviewerOpenId,
     );
-    if (assignment.status === PerfAssignmentStatus.SUBMITTED) {
-      throw new ConflictException('评估已提交');
-    }
+    await this.taskAccessService.ensureWritable(
+      participantId,
+      PerfEvaluationTaskType.PEER,
+    );
     const review = await this.prisma.perfReview.findUnique({
       where: {
         participantId_reviewerOpenId: { participantId, reviewerOpenId },
@@ -317,16 +383,31 @@ export class ReviewService {
     });
     if (!review) throw new BadRequestException('尚未填写评估内容');
 
-    await this.prisma.$transaction([
-      this.prisma.perfReview.update({
+    const completedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.perfReview.update({
         where: { id: review.id },
-        data: { status: PerfReviewStatus.SUBMITTED, submittedAt: new Date() },
-      }),
-      this.prisma.perfReviewerAssignment.update({
+        data: { status: PerfReviewStatus.SUBMITTED, submittedAt: completedAt },
+      });
+      await tx.perfReviewerAssignment.update({
         where: { id: assignment.id },
         data: { status: PerfAssignmentStatus.SUBMITTED },
-      }),
-    ]);
+      });
+      const pending = await tx.perfReviewerAssignment.count({
+        where: { participantId, status: PerfAssignmentStatus.PENDING },
+      });
+      if (pending === 0) {
+        await tx.perfEvaluationTask.update({
+          where: {
+            participantId_type: {
+              participantId,
+              type: PerfEvaluationTaskType.PEER,
+            },
+          },
+          data: { completedAt },
+        });
+      }
+    });
     await this.auditService.record({
       operatorOpenId: reviewerOpenId,
       action: 'review.submit',
@@ -358,16 +439,15 @@ export class ReviewService {
     leaderOpenId: string,
     dto: SaveManagerReviewDto,
   ) {
+    // Leader 快照鉴权必须早于惰性开放，避免越权请求产生任何任务副作用。
     const participant = await this.requireLeaderOf(
       dto.participantId,
       leaderOpenId,
     );
-    const existing = await this.prisma.perfManagerReview.findUnique({
-      where: { participantId: dto.participantId },
-    });
-    if (existing?.status === PerfReviewStatus.SUBMITTED) {
-      throw new ConflictException('上级评估已提交，不可修改');
-    }
+    await this.taskAccessService.ensureWritable(
+      dto.participantId,
+      PerfEvaluationTaskType.MANAGER,
+    );
     // 初评评级取值受周期评估规则约束
     if (dto.initialLevel) {
       if (
@@ -401,19 +481,33 @@ export class ReviewService {
 
   async submitManagerReview(leaderOpenId: string, participantId: number) {
     await this.requireLeaderOf(participantId, leaderOpenId);
+    await this.taskAccessService.ensureWritable(
+      participantId,
+      PerfEvaluationTaskType.MANAGER,
+    );
     const review = await this.prisma.perfManagerReview.findUnique({
       where: { participantId },
     });
     if (!review) throw new BadRequestException('尚未填写上级评估');
-    if (review.status === PerfReviewStatus.SUBMITTED)
-      throw new ConflictException('上级评估已提交');
     if (!review.initialLevel)
       throw new BadRequestException('提交前必须给出初步绩效评级');
 
-    await this.prisma.perfManagerReview.update({
-      where: { id: review.id },
-      data: { status: PerfReviewStatus.SUBMITTED, submittedAt: new Date() },
-    });
+    const completedAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.perfManagerReview.update({
+        where: { id: review.id },
+        data: { status: PerfReviewStatus.SUBMITTED, submittedAt: completedAt },
+      }),
+      this.prisma.perfEvaluationTask.update({
+        where: {
+          participantId_type: {
+            participantId,
+            type: PerfEvaluationTaskType.MANAGER,
+          },
+        },
+        data: { completedAt },
+      }),
+    ]);
     await this.auditService.record({
       operatorOpenId: leaderOpenId,
       action: 'manager_review.submit',

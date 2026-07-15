@@ -14,6 +14,14 @@ import { REDIS_CLIENT } from '../shared/redis/redis.constants';
 const MAX_RETRY = 3;
 const SEND_LOCK_KEY = 'perf:notification:send:lock';
 
+function displayText(value: unknown, fallback: string) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+}
+
 /** 通知模板 → 文本内容（产品 §9.10；一期用文本消息，卡片模板二期升级） */
 function renderText(
   template: string,
@@ -29,6 +37,27 @@ function renderText(
       return `【自评提醒】${cycleName} 自评截止在即，请尽快提交工作总结与自评。`;
     case 'review_remind':
       return `【打分催办】你还有未完成的评审任务，请尽快完成打分。`;
+    case 'evaluation_task_opened':
+      return `【评估任务已开放】${cycleName} 的评估任务现已开放，请前往绩效系统填写。`;
+    case 'evaluation_task_reminder':
+      return `【评估填写提醒】${cycleName} 的评估填写提醒时间已到。任务仍可继续填写，请尽快完成。`;
+    case 'cycle_start_failed': {
+      const issues = Array.isArray(payload.issues)
+        ? payload.issues
+            .map((issue) => {
+              if (!issue || typeof issue !== 'object') {
+                return displayText(issue, '启动检查未通过');
+              }
+              const item = issue as { path?: unknown; message?: unknown };
+              const path = item.path
+                ? `${displayText(item.path, '配置项')}：`
+                : '';
+              return `${path}${displayText(item.message, '启动检查未通过')}`;
+            })
+            .join('；')
+        : displayText(payload.issues, '启动检查未通过');
+      return `【绩效周期启动失败】${cycleName} 未能按计划启动，周期仍保持待启动。具体问题：${issues}`;
+    }
     case 'result_pushed':
       return `【结果确认】你的绩效结果已发布，请前往绩效系统查看并确认。`;
     case 'appeal_resolved':

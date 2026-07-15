@@ -37,10 +37,12 @@ import { cn } from '@/lib/utils'
 import type {
   PerfConfigTemplateVersion,
   PerfCyclePlan,
+  PerfCycleProgress,
   PerfCycleSetupParticipant,
   PerfFormTemplateVersion,
   PerfParticipantPrefixCheck
 } from '@/lib/perf-api'
+import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboard'
 import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
@@ -54,6 +56,7 @@ type ComponentKey =
   | 'form-template'
   | 'config-template'
   | 'cycle-setup'
+  | 'cycle-progress'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -110,6 +113,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '周期四步创建',
     description: '基本信息 / 参与者 / 计划 / 检查',
     icon: ClipboardCheckIcon
+  },
+  {
+    key: 'cycle-progress',
+    title: '周期任务进度',
+    description: '任务事实 / 缺失项 / 软截止',
+    icon: CheckCircle2Icon
   }
 ]
 
@@ -647,6 +656,78 @@ const CycleSetupPreview = () => {
   )
 }
 
+const CYCLE_PROGRESS_PREVIEW: PerfCycleProgress = {
+  generatedAt: '2026-08-05T03:00:00.000Z',
+  cycle: { id: 920, name: '2026 上半年绩效评定', status: 'ACTIVE', plannedStartAt: '2026-08-01T01:00:00.000Z' },
+  totals: { participants: 1, tasks: 4, notStarted: 1, open: 2, submitted: 1, locked: 0 },
+  stages: [],
+  tasks: [
+    {
+      id: 9401,
+      participantId: 9201,
+      type: 'SELF',
+      startAt: '2026-08-01T01:00:00.000Z',
+      reminderDeadlineAt: '2026-08-04T01:00:00.000Z',
+      openedAt: '2026-08-01T01:00:00.000Z',
+      completedAt: '2026-08-03T02:00:00.000Z',
+      status: 'COMPLETED'
+    },
+    {
+      id: 9402,
+      participantId: 9201,
+      type: 'PEER',
+      startAt: '2026-08-02T01:00:00.000Z',
+      reminderDeadlineAt: '2026-08-04T01:00:00.000Z',
+      openedAt: '2026-08-02T01:00:00.000Z',
+      completedAt: null,
+      status: 'OPEN'
+    },
+    {
+      id: 9403,
+      participantId: 9201,
+      type: 'MANAGER',
+      startAt: '2026-08-06T01:00:00.000Z',
+      reminderDeadlineAt: '2026-08-08T01:00:00.000Z',
+      openedAt: null,
+      completedAt: null,
+      status: 'WAITING'
+    },
+    {
+      id: 9404,
+      participantId: 9201,
+      type: 'AI',
+      startAt: null,
+      reminderDeadlineAt: null,
+      openedAt: '2026-08-03T01:00:00.000Z',
+      completedAt: null,
+      status: 'OPEN'
+    }
+  ],
+  missingItems: [
+    {
+      code: 'TASK_INCOMPLETE',
+      participantId: 9201,
+      employeeOpenId: '周期示例员工',
+      stage: 'PEER',
+      message: 'PEER 任务尚未完成'
+    },
+    {
+      code: 'TASK_NOT_OPEN',
+      participantId: 9201,
+      employeeOpenId: '周期示例员工',
+      stage: 'MANAGER',
+      message: 'MANAGER 任务尚未开放'
+    }
+  ],
+  nextActions: [],
+  startFailure: null,
+  activationIssues: null,
+  schedules: []
+}
+
+/** Ticket 05 业务组件示例：用固定任务事实同时展示硬开放门槛与软截止提醒。 */
+const CycleProgressPreview = () => <CycleProgressDashboard progress={CYCLE_PROGRESS_PREVIEW} onNavigate={() => {}} />
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -655,6 +736,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
   if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
+  if (activeComponent === 'cycle-progress') return <CycleProgressPreview />
 
   return <DateTimePreview />
 }

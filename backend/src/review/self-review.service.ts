@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  PerfEvaluationTaskType,
   PerfParticipantStatus,
   PerfRole,
   PerfSelfReviewStatus,
@@ -15,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
 import { RbacService } from '../rbac/rbac.service';
 import type { SaveSelfReviewDto } from './review.dto';
+import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
 
 /** 员工自评（产品 §5.3）：员工只能操作"自己在指定周期"的记录 */
 @Injectable()
@@ -24,6 +26,7 @@ export class SelfReviewService {
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
     private readonly rbacService: RbacService,
+    private readonly taskAccessService: EvaluationTaskAccessService,
   ) {}
 
   /** 找到我在指定周期（或最近一个进行中周期）的参与记录 */
@@ -42,7 +45,14 @@ export class SelfReviewService {
             }),
       },
       orderBy: { id: 'desc' },
-      include: { cycle: true, selfReview: true },
+      include: {
+        cycle: true,
+        selfReview: true,
+        evaluationTasks: {
+          where: { type: PerfEvaluationTaskType.SELF },
+          take: 1,
+        },
+      },
     });
     return participant;
   }
@@ -54,6 +64,23 @@ export class SelfReviewService {
       return {
         participant: null,
         selfReview: null,
+        task: null,
+        dimensions: [],
+        evaluationRule: null,
+      };
+    }
+
+    // 员工身份已由 participant 查询确认，此后才允许惰性写入开放事实与通知事件。
+    const task = await this.taskAccessService.openIfDue(
+      participant.id,
+      PerfEvaluationTaskType.SELF,
+    );
+    if (!task?.openedAt) {
+      // 开始前只展示任务预告，不下发表单结构与评级规则。
+      return {
+        participant,
+        selfReview: participant.selfReview,
+        task,
         dimensions: [],
         evaluationRule: null,
       };
@@ -77,24 +104,23 @@ export class SelfReviewService {
     return {
       participant,
       selfReview: participant.selfReview,
+      task,
       dimensions,
       evaluationRule,
     };
   }
 
-  /** 草稿保存（自动保存调用）；提交后仅在被退回时可再编辑 */
+  /** 草稿保存（自动保存调用）；首次校准前允许原填写人持续修改 */
   async saveDraft(employeeOpenId: string, dto: SaveSelfReviewDto) {
     const participant = await this.findMyParticipant(
       employeeOpenId,
       dto.cycleId,
     );
     if (!participant) throw new NotFoundException('你不在本周期考核名单中');
-    if (
-      participant.status !== PerfParticipantStatus.PENDING_SELF_REVIEW &&
-      participant.status !== PerfParticipantStatus.RETURNED
-    ) {
-      throw new ConflictException('自评已提交，不可修改');
-    }
+    await this.taskAccessService.ensureWritable(
+      participant.id,
+      PerfEvaluationTaskType.SELF,
+    );
 
     const data = {
       okrContent: dto.okrContent as Prisma.InputJsonValue | undefined,
@@ -117,18 +143,43 @@ export class SelfReviewService {
   async submit(employeeOpenId: string, cycleId: number) {
     const participant = await this.findMyParticipant(employeeOpenId, cycleId);
     if (!participant) throw new NotFoundException('你不在本周期考核名单中');
+    await this.taskAccessService.ensureWritable(
+      participant.id,
+      PerfEvaluationTaskType.SELF,
+    );
     const selfReview = participant.selfReview;
     if (!selfReview) throw new ConflictException('尚未填写自评内容');
 
-    await this.prisma.perfSelfReview.update({
-      where: { id: selfReview.id },
-      data: { status: PerfSelfReviewStatus.SUBMITTED, submittedAt: new Date() },
-    });
-    await this.participantService.transition(
-      employeeOpenId,
-      participant.id,
-      PerfParticipantStatus.SELF_SUBMITTED,
-    );
+    const completedAt = new Date();
+    await this.prisma.$transaction([
+      this.prisma.perfSelfReview.update({
+        where: { id: selfReview.id },
+        data: {
+          status: PerfSelfReviewStatus.SUBMITTED,
+          submittedAt: completedAt,
+        },
+      }),
+      this.prisma.perfEvaluationTask.update({
+        where: {
+          participantId_type: {
+            participantId: participant.id,
+            type: PerfEvaluationTaskType.SELF,
+          },
+        },
+        data: { completedAt },
+      }),
+    ]);
+    if (
+      participant.status === PerfParticipantStatus.PENDING_SELF_REVIEW ||
+      participant.status === PerfParticipantStatus.RETURNED
+    ) {
+      // 重新提交不能回退已经推进到评审/AI 的参与者进度。
+      await this.participantService.transition(
+        employeeOpenId,
+        participant.id,
+        PerfParticipantStatus.SELF_SUBMITTED,
+      );
+    }
     await this.auditService.record({
       operatorOpenId: employeeOpenId,
       action: 'self_review.submit',

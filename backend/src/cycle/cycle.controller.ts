@@ -37,6 +37,7 @@ import {
 } from './cycle.dto';
 import { CycleService } from './cycle.service';
 import { CycleSetupService } from './cycle-setup.service';
+import { CycleProgressService } from './cycle-progress.service';
 
 // 周期管理为 HR/ADMIN 专属操作域（产品 §3.7）；员工/评审员侧走 self-reviews、review-tasks 等接口
 @ApiTags('cycle')
@@ -48,6 +49,7 @@ export class CycleController {
   constructor(
     private readonly cycleService: CycleService,
     private readonly cycleSetupService: CycleSetupService,
+    private readonly cycleProgressService: CycleProgressService,
   ) {}
 
   @Get()
@@ -70,6 +72,12 @@ export class CycleController {
   @ApiOperation({ summary: '周期详情（含评估规则、维度、人数）' })
   detail(@Param('id', ParseIntPipe) id: number) {
     return this.cycleService.getCycle(id);
+  }
+
+  @Get(':id/progress')
+  @ApiOperation({ summary: '按任务与参与人事实聚合周期进度和下一步操作' })
+  progress(@Param('id', ParseIntPipe) id: number) {
+    return this.cycleProgressService.getProgress(id);
   }
 
   @Get(':id/config-snapshot')

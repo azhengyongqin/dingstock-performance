@@ -6,14 +6,37 @@ import { SharedModule } from '../shared/shared.module';
 import { CycleController } from './cycle.controller';
 import { CycleService } from './cycle.service';
 import { CycleSetupService } from './cycle-setup.service';
+import { CycleActivationService } from './cycle-activation.service';
+import { EvaluationTaskAccessService } from './evaluation-task-access.service';
+import { CycleProgressService } from './cycle-progress.service';
+import { NotificationModule } from '../notification/notification.module';
 import { TemplateController } from './template.controller';
 import { TemplateService } from './template.service';
 
 /** 周期 + 模板 + 评估规则 + 评估维度 + 时间窗口（研发文档 §8.1 Cycle/Dimension 域） */
 @Module({
-  imports: [SharedModule, AuthModule, RbacModule, AuditModule],
+  imports: [
+    SharedModule,
+    AuthModule,
+    RbacModule,
+    AuditModule,
+    NotificationModule,
+  ],
   controllers: [CycleController, TemplateController],
-  providers: [CycleService, CycleSetupService, TemplateService],
-  exports: [CycleService, CycleSetupService],
+  providers: [
+    CycleService,
+    CycleSetupService,
+    CycleActivationService,
+    EvaluationTaskAccessService,
+    CycleProgressService,
+    TemplateService,
+  ],
+  exports: [
+    CycleService,
+    CycleSetupService,
+    CycleActivationService,
+    EvaluationTaskAccessService,
+    CycleProgressService,
+  ],
 })
 export class CycleModule {}

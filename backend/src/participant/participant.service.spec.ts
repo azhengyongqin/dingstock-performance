@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
+import { NotificationEventService } from '../notification/notification-event.service';
 import { ParticipantService } from './participant.service';
 
 // 生成的 Prisma client 是 ESM 产物，单测中统一 mock，避免依赖真实数据库。
@@ -29,6 +30,15 @@ jest.mock(
       PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
       ARCHIVED: 'ARCHIVED',
     },
+    PerfEvaluationTaskType: {
+      SELF: 'SELF',
+      PEER: 'PEER',
+      MANAGER: 'MANAGER',
+      AI: 'AI',
+    },
+    PerfAssignmentStatus: {
+      REPLACED: 'REPLACED',
+    },
   }),
   { virtual: true },
 );
@@ -50,6 +60,10 @@ describe('ParticipantService', () => {
       findMany: jest.fn(),
       createMany: jest.fn(),
       update: jest.fn(),
+    },
+    perfEvaluationTask: {
+      createMany: jest.fn(),
+      findMany: jest.fn(),
     },
     larkUser: { findMany: jest.fn() },
     larkCorehrEmployee: { findMany: jest.fn() },
@@ -79,6 +93,7 @@ describe('ParticipantService', () => {
   };
   const auditMock = { record: jest.fn() };
   const rbacMock = { isAdmin: jest.fn().mockResolvedValue(false) };
+  const notificationEventMock = { enqueueTaskOpenedEvents: jest.fn() };
 
   let service: ParticipantService;
 
@@ -108,16 +123,20 @@ describe('ParticipantService', () => {
         { provide: PrismaService, useValue: prismaMock },
         { provide: AuditService, useValue: auditMock },
         { provide: RbacService, useValue: rbacMock },
+        {
+          provide: NotificationEventService,
+          useValue: notificationEventMock,
+        },
       ],
     }).compile();
 
     service = moduleRef.get(ParticipantService);
   });
 
-  it('HR 在周期启动后不可增删考核人员', async () => {
+  it('HR/Admin 均不可向 ARCHIVED 周期新增考核人员', async () => {
     txMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
-      status: 'ACTIVE',
+      status: 'ARCHIVED',
     });
 
     await expect(
@@ -125,11 +144,14 @@ describe('ParticipantService', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('ADMIN 进行中新增考核人员时回填 Leader/部门快照并置自评待办', async () => {
-    rbacMock.isAdmin.mockResolvedValue(true);
+  it('HR 向 ACTIVE 周期补加参与人时同事务生成四类任务并开放已到时任务', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-14T03:00:00.000Z'));
     txMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
+      name: '2026 半年度绩效',
+      ownerOpenId: 'ou_hr',
       status: 'ACTIVE',
+      plannedStartAt: new Date('2026-07-14T01:00:00.000Z'),
     });
     txMock.larkUser.findMany
       .mockResolvedValueOnce([{ open_id: 'ou_new' }]) // 校验有效 open_id
@@ -143,28 +165,166 @@ describe('ParticipantService', () => {
     txMock.perfParticipant.findMany
       .mockResolvedValueOnce([]) // 新增前已存在者
       .mockResolvedValueOnce([{ id: 9, employeeOpenId: 'ou_new' }]); // 待快照的新参与者
-    txMock.larkCorehrEmployee.findMany.mockResolvedValue([]);
+    txMock.larkCorehrEmployee.findMany.mockResolvedValue([
+      {
+        open_id: 'ou_new',
+        direct_manager_id: 'ou_leader',
+        department_id: 'd1',
+        job_level: { code: 'D3' },
+      },
+    ]);
     txMock.perfCycle.findUnique.mockResolvedValue({
-      currentConfigVersion: { formSnapshots: [] },
+      name: '2026 半年度绩效',
+      ownerOpenId: 'ou_hr',
+      plannedStartAt: new Date('2026-07-14T01:00:00.000Z'),
+      currentConfigVersion: {
+        formSnapshots: [{ id: 88, jobLevelPrefix: 'D' }],
+        schedulePreset: {
+          allowStageOverlap: true,
+          stages: [
+            {
+              stage: 'SELF',
+              startOffsetMinutes: 0,
+              reminderDeadlineOffsetMinutes: 60,
+            },
+            {
+              stage: 'PEER',
+              startOffsetMinutes: 180,
+              reminderDeadlineOffsetMinutes: 240,
+            },
+            {
+              stage: 'MANAGER',
+              startOffsetMinutes: -60,
+              reminderDeadlineOffsetMinutes: 120,
+            },
+          ],
+        },
+        notificationRules: {
+          stages: [
+            {
+              stage: 'SELF',
+              taskOpened: { enabled: true, ccLeader: false, ccHr: false },
+            },
+          ],
+        },
+      },
     });
     txMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
+    txMock.perfEvaluationTask.createMany.mockResolvedValue({ count: 4 });
+    txMock.perfEvaluationTask.findMany.mockResolvedValue([
+      {
+        id: 201,
+        cycleId: 100,
+        type: 'SELF',
+        assigneeOpenId: 'ou_new',
+        openedAt: new Date('2026-07-14T03:00:00.000Z'),
+        reminderDeadlineAt: new Date('2026-07-14T02:00:00.000Z'),
+        participant: {
+          leaderOpenIdSnapshot: 'ou_leader',
+          reviewerAssignments: [],
+        },
+      },
+    ]);
 
-    await service.addByOpenIds('ou_admin', 100, ['ou_new']);
+    try {
+      await service.addByOpenIds('ou_hr', 100, ['ou_new']);
+    } finally {
+      jest.useRealTimers();
+    }
 
     expect(txMock.perfParticipant.update).toHaveBeenCalledWith({
       where: { id: 9 },
       data: expect.objectContaining({
         leaderOpenIdSnapshot: 'ou_leader',
         departmentIdSnapshot: 'd1',
+        jobLevelPrefixSnapshot: 'D',
+        formSnapshotId: 88,
         status: 'PENDING_SELF_REVIEW',
       }),
     });
+    expect(txMock.perfEvaluationTask.createMany).toHaveBeenCalledWith({
+      data: expect.arrayContaining([
+        expect.objectContaining({
+          participantId: 9,
+          type: 'SELF',
+          assigneeOpenId: 'ou_new',
+          openedAt: new Date('2026-07-14T03:00:00.000Z'),
+        }),
+        expect.objectContaining({
+          participantId: 9,
+          type: 'PEER',
+          assigneeOpenId: null,
+          openedAt: null,
+        }),
+        expect.objectContaining({
+          participantId: 9,
+          type: 'MANAGER',
+          assigneeOpenId: 'ou_leader',
+          openedAt: new Date('2026-07-14T03:00:00.000Z'),
+        }),
+        expect.objectContaining({
+          participantId: 9,
+          type: 'AI',
+          startAt: null,
+          reminderDeadlineAt: null,
+          openedAt: null,
+        }),
+      ]),
+      skipDuplicates: true,
+    });
+    expect(notificationEventMock.enqueueTaskOpenedEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 201, type: 'SELF' }),
+      txMock,
+    );
     expect(auditMock.record).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'participant.add',
-        reason: '管理员进行中编辑',
+        reason: 'HR/Admin 进行中补加参与人',
       }),
     );
+  });
+
+  it('ACTIVE 补加参与人的组织或表单快照不完整时整笔拒绝且不建任务', async () => {
+    txMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'ACTIVE',
+    });
+    txMock.larkUser.findMany
+      .mockResolvedValueOnce([{ open_id: 'ou_invalid' }])
+      .mockResolvedValueOnce([{ open_id: 'ou_invalid', department_ids: [] }]);
+    txMock.perfParticipant.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 10, employeeOpenId: 'ou_invalid' }]);
+    txMock.larkCorehrEmployee.findMany.mockResolvedValue([]);
+    txMock.perfCycle.findUnique.mockResolvedValue({
+      name: '2026 半年度绩效',
+      ownerOpenId: 'ou_hr',
+      plannedStartAt: new Date('2026-07-14T01:00:00.000Z'),
+      currentConfigVersion: {
+        formSnapshots: [],
+        schedulePreset: { allowStageOverlap: true, stages: [] },
+        notificationRules: { stages: [] },
+      },
+    });
+    txMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.addByOpenIds('ou_hr', 100, ['ou_invalid']),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'ACTIVE_PARTICIPANT_SNAPSHOT_INVALID',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ code: 'PARTICIPANT_JOB_LEVEL_MISSING' }),
+          expect.objectContaining({ code: 'PARTICIPANT_LEADER_MISSING' }),
+          expect.objectContaining({ code: 'PARTICIPANT_DEPARTMENT_MISSING' }),
+        ]),
+      }),
+    });
+    expect(txMock.perfParticipant.update).not.toHaveBeenCalled();
+    expect(txMock.perfEvaluationTask.createMany).not.toHaveBeenCalled();
+    expect(
+      notificationEventMock.enqueueTaskOpenedEvents,
+    ).not.toHaveBeenCalled();
   });
 
   it('SCHEDULED 增员在同一事务内完成 D/M 表单绑定', async () => {
@@ -203,6 +363,7 @@ describe('ParticipantService', () => {
         formSnapshotId: 88,
       }),
     });
+    expect(txMock.perfEvaluationTask.createMany).not.toHaveBeenCalled();
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
   });
 
@@ -219,6 +380,18 @@ describe('ParticipantService', () => {
     prismaMock.perfResult.count.mockResolvedValue(1);
 
     await expect(service.remove('ou_admin', 100, 9)).rejects.toThrow(
+      ConflictException,
+    );
+    expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
+  });
+
+  it('HR 在 ACTIVE 周期仍不可移除考核人员', async () => {
+    prismaMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'ACTIVE',
+    });
+
+    await expect(service.remove('ou_hr', 100, 9)).rejects.toThrow(
       ConflictException,
     );
     expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();

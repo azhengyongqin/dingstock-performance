@@ -6,6 +6,7 @@ import { apiFetch } from './api'
 // ===== 枚举（与 backend/prisma schema 对齐） =====
 
 export type PerfCycleStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'ARCHIVED'
+export type PerfEvaluationTaskType = 'SELF' | 'PEER' | 'MANAGER' | 'AI'
 
 export type PerfParticipantStatus =
   | 'PENDING_SELF_REVIEW'
@@ -186,6 +187,69 @@ export type PerfCycle = {
   dimensions?: PerfDimension[]
   _count?: { participants: number; dimensions?: number }
 }
+
+/** 周期看板的任务事实；openedAt 是硬开放的权威标记，提醒时间不参与可写判断。 */
+export type PerfEvaluationTaskFact = {
+  id: number
+  participantId: number
+  type: PerfEvaluationTaskType
+  assigneeOpenId?: string | null
+  startAt: string | null
+  reminderDeadlineAt: string | null
+  openedAt: string | null
+  completedAt: string | null
+  status: 'WAITING' | 'OPEN' | 'COMPLETED'
+}
+
+export type PerfCycleActivationIssue = {
+  code: string
+  message: string
+  path?: string
+  participantId?: number
+  employeeOpenId?: string
+}
+
+export type PerfCycleProgress = {
+  generatedAt: string
+  cycle: Pick<PerfCycle, 'id' | 'name' | 'status' | 'plannedStartAt'>
+  totals: {
+    participants: number
+    tasks: number
+    notStarted: number
+    open: number
+    submitted: number
+    locked: number
+  }
+  stages: Array<{
+    stage: PerfEvaluationTaskType
+    total: number
+    notStarted: number
+    open: number
+    submitted: number
+    failed: number
+  }>
+  tasks: PerfEvaluationTaskFact[]
+  missingItems: Array<{
+    code: string
+    participantId?: number
+    employeeOpenId?: string | null
+    employeeName?: string | null
+    stage?: PerfEvaluationTaskType
+    message: string
+    action?: string
+  }>
+  nextActions: Array<{ code: string; label: string; href?: string }>
+  startFailure?: { occurredAt: string; issues: PerfCycleActivationIssue[] } | null
+  activationIssues: PerfCycleActivationIssue[] | null
+  schedules: Array<{
+    stage: PerfEvaluationTaskType
+    startAt: string | null
+    reminderDeadlineAt: string | null
+  }>
+}
+
+export const getPerfCycleProgress = (cycleId: number) =>
+  apiFetch<PerfCycleProgress>(`/cycles/${cycleId}/progress`)
 
 export type PerfParticipantItem = {
   id: number

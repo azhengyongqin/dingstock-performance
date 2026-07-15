@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 
 import type { ColumnDef, PaginationState, VisibilityState } from '@tanstack/react-table'
 import { getCoreRowModel, getPaginationRowModel, getSortedRowModel, useReactTable } from '@tanstack/react-table'
@@ -10,7 +11,7 @@ import { Loader2Icon, PencilIcon } from 'lucide-react'
 
 import { DataTable, DataTablePagination, DataTableToolbar, DataTableViewOptions } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
-import { StatsCards } from '@/components/shared/StatsCards'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,6 +22,7 @@ import type {
   PerfCycle,
   PerfCycleConfigSnapshot,
   PerfCyclePlan,
+  PerfCycleProgress,
   PerfParticipantItem
 } from '@/lib/perf-api'
 import {
@@ -28,10 +30,12 @@ import {
   CYCLE_STATUS_LABEL,
   formatDateTime,
   getPerfCycleConfigSnapshot,
-  getPerfCyclePlan
+  getPerfCyclePlan,
+  getPerfCycleProgress
 } from '@/lib/perf-api'
 
 import { participantColumns, stageWindowColumns } from './cycle-detail-columns'
+import CycleProgressDashboard from './cycle-progress-dashboard'
 
 function BasicDataTable<TData>({
   data,
@@ -77,10 +81,13 @@ const MemberTable = ({ participants }: { participants: PerfParticipantItem[] }) 
 }
 
 const CycleDetail = ({ cycleId }: { cycleId: string }) => {
+  const router = useRouter()
   const [cycle, setCycle] = useState<PerfCycle | null>(null)
   const [participants, setParticipants] = useState<PerfParticipantItem[]>([])
   const [snapshot, setSnapshot] = useState<PerfCycleConfigSnapshot | null>(null)
   const [plan, setPlan] = useState<PerfCyclePlan | null>(null)
+  const [progress, setProgress] = useState<PerfCycleProgress | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'snapshot' | 'plan'>('overview')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -89,17 +96,20 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
     setError(null)
 
     try {
-      const [cycleData, participantData, snapshotData, planData] = await Promise.all([
+      // 进度接口异常时保留详情骨架，但绝不回退用旧参与者状态猜测任务进度。
+      const [cycleData, participantData, snapshotData, planData, progressData] = await Promise.all([
         apiFetch<PerfCycle>(`/cycles/${cycleId}`),
         apiFetch<ListResponse<PerfParticipantItem>>(`/cycles/${cycleId}/participants`),
         getPerfCycleConfigSnapshot(Number(cycleId)).catch(() => null),
-        getPerfCyclePlan(Number(cycleId)).catch(() => null)
+        getPerfCyclePlan(Number(cycleId)).catch(() => null),
+        getPerfCycleProgress(Number(cycleId)).catch(() => null)
       ])
 
       setCycle(cycleData)
       setParticipants(participantData.items ?? [])
       setSnapshot(snapshotData)
       setPlan(planData)
+      setProgress(progressData)
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : '无法加载周期详情')
     } finally {
@@ -133,18 +143,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
     )
   }
 
-  const total = participants.length
-  const selfDone = participants.filter(participant => participant.selfReview?.status === 'SUBMITTED').length
-  const managerDone = participants.filter(participant => participant.managerReview?.status === 'SUBMITTED').length
-  const rate = (count: number) => (total > 0 ? `${Math.round((count / total) * 100)}%` : '-')
   const canEdit = cycle.status === 'DRAFT' || cycle.status === 'SCHEDULED'
-
-  const overviewStats = [
-    { label: '参与者', value: `${total} 人` },
-    { label: '自评提交率', value: rate(selfDone) },
-    { label: '上级评估完成率', value: rate(managerDone) },
-    { label: '周期状态', value: CYCLE_STATUS_LABEL[cycle.status] }
-  ]
 
   return (
     <div className='flex flex-col gap-6'>
@@ -164,7 +163,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
         }
       />
 
-      <Tabs defaultValue='overview'>
+      <Tabs value={activeTab} onValueChange={value => setActiveTab(value as typeof activeTab)}>
         <TabsList>
           <TabsTrigger value='overview'>概览</TabsTrigger>
           <TabsTrigger value='members'>参与者</TabsTrigger>
@@ -173,19 +172,27 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
         </TabsList>
 
         <TabsContent value='overview' className='mt-4'>
-          <div className='flex flex-col gap-4'>
-            <StatsCards items={overviewStats} />
-            <Card>
-              <CardHeader>
-                <CardTitle>启动说明</CardTitle>
-                <CardDescription>
-                  {cycle.status === 'SCHEDULED'
-                    ? '周期已通过启动检查，等待计划启动时间。当前不会提前生成可填写任务。'
-                    : '任务开放读取实际计划；填写提醒时间仅触发通知，不关闭任务。'}
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
+          {progress ? (
+            <CycleProgressDashboard
+              progress={progress}
+              onNavigate={target => {
+                if (progress.cycle.status === 'DRAFT' || progress.cycle.status === 'SCHEDULED') {
+                  router.push(`/cycles/${cycleId}/edit`)
+
+                  return
+                }
+
+                if (target === 'participants') setActiveTab('members')
+                if (target === 'plan') setActiveTab('plan')
+                if (target === 'basic' || target === 'advanced') setActiveTab('snapshot')
+              }}
+            />
+          ) : (
+            <Alert variant='destructive'>
+              <AlertTitle>无法读取任务事实</AlertTitle>
+              <AlertDescription>请刷新后重试；周期看板不会回退使用细粒度周期状态猜测进度。</AlertDescription>
+            </Alert>
+          )}
         </TabsContent>
 
         <TabsContent value='members' className='mt-4'>

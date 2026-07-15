@@ -35,6 +35,9 @@ jest.mock(
 );
 jest.mock('./cycle.service', () => ({ CycleService: class {} }));
 jest.mock('./cycle-setup.service', () => ({ CycleSetupService: class {} }));
+jest.mock('./cycle-progress.service', () => ({
+  CycleProgressService: class {},
+}));
 
 describe('CycleController 四步创建 API', () => {
   const cycleService = {
@@ -53,9 +56,11 @@ describe('CycleController 四步创建 API', () => {
     schedule: jest.fn(),
     returnToDraft: jest.fn(),
   };
+  const progressService = { getProgress: jest.fn() };
   const controller = new CycleController(
     cycleService as never,
     setupService as never,
+    progressService as never,
   );
   const request = { user: { open_id: 'ou_hr' } } as never;
 
@@ -101,6 +106,11 @@ describe('CycleController 四步创建 API', () => {
       9,
       dto,
     );
+  });
+
+  it('周期进度接口只转发任务事实聚合查询', async () => {
+    await controller.progress(9);
+    expect(progressService.getProgress).toHaveBeenCalledWith(9);
   });
 
   it('旧草稿初始化接口原样转发配置选择与基础信息', async () => {

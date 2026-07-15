@@ -61,7 +61,7 @@ export class ParticipantController {
   }
 
   @Post()
-  @ApiOperation({ summary: '按 open_id 名单批量添加考核人员（启动前）' })
+  @ApiOperation({ summary: '按 open_id 名单批量添加考核人员（含进行中补加）' })
   addByOpenIds(
     @Req() req: AuthenticatedRequest,
     @Param('cycleId', ParseIntPipe) cycleId: number,
@@ -75,7 +75,7 @@ export class ParticipantController {
   }
 
   @Post('by-departments')
-  @ApiOperation({ summary: '按部门圈人（含子部门；启动前）' })
+  @ApiOperation({ summary: '按部门圈人（含子部门与进行中补加）' })
   addByDepartments(
     @Req() req: AuthenticatedRequest,
     @Param('cycleId', ParseIntPipe) cycleId: number,

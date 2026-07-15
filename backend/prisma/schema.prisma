@@ -182,6 +182,16 @@ enum PerfCycleStatus {
   @@schema("performance")
 }
 
+/// 周期启动时生成的统一任务事实类型；AI 独立异步，不属于人工阶段状态机。
+enum PerfEvaluationTaskType {
+  SELF /// 员工自评
+  PEER /// 360° 评估协调任务
+  MANAGER /// 上级评估
+  AI /// AI 异步参考任务
+
+  @@schema("performance")
+}
+
 /// 参与者状态机（研发文档 §8.2），周期整体状态按参与者聚合推进
 enum PerfParticipantStatus {
   PENDING_SELF_REVIEW /// 待自评
@@ -328,6 +338,25 @@ enum PerfNotificationStatus {
   SUCCESS /// 发送成功
   FAILED /// 重试上限后失败，支持手动补发
   RETRYING /// 重试中
+
+  @@schema("performance")
+}
+
+/// 业务通知事件类型；业务动作先写 outbox，再由通知模块异步转换为发送记录。
+enum PerfNotificationEventType {
+  TASK_OPENED /// 人工评估任务到时开放
+  TASK_REMINDER_DUE /// 人工评估任务到达软提醒时间
+  CYCLE_START_FAILED /// 待启动周期到时复核失败
+
+  @@schema("performance")
+}
+
+/// 通知事件消费状态；RETRYING 按 availableAt 退避，FAILED 保留供人工补偿。
+enum PerfNotificationEventStatus {
+  PENDING /// 等待消费
+  RETRYING /// 消费失败，等待重试
+  COMPLETED /// 已幂等转换为通知发送记录
+  FAILED /// 超过自动重试上限
 
   @@schema("performance")
 }
@@ -741,6 +770,8 @@ model PerfCycle {
   evaluationRule       PerfEvaluationRule?
   dimensions           PerfDimension[]
   participants         PerfParticipant[]
+  evaluationTasks      PerfEvaluationTask[]
+  notificationEvents   PerfNotificationEvent[]
   reviewerAssignments  PerfReviewerAssignment[]
   exportTasks          ReportExportTask[]
 
@@ -826,14 +857,44 @@ model PerfParticipant {
   result              PerfResult?
   appeals             PerfAppeal[]
   interviews          PerfInterview[]
+  evaluationTasks     PerfEvaluationTask[]
 
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
+  @@unique([id, cycleId]) /// 供统一任务复合外键保证任务与参与人属于同一周期
   @@index([cycleId, status])
   @@index([cycleId, leaderOpenIdSnapshot])
   @@index([cycleId, jobLevelPrefixSnapshot])
   @@index([employeeOpenId])
   @@index([formSnapshotId])
   @@map("perf_participants")
+  @@schema("performance")
+}
+
+/// 统一评估任务事实；开始时间是硬门槛，提醒截止仅供通知，不会关闭任务。
+/// openedAt 一旦写入不得清空，以免调整计划后把已经开放的任务重新关闭。
+model PerfEvaluationTask {
+  id                 Int                    @id @default(autoincrement()) /// 内部自增主键
+  cycleId            Int                    @map("cycle_id") /// 所属周期，冗余保存便于启动与通知队列查询
+  participantId      Int                    @map("participant_id") /// 所属参与者
+  type               PerfEvaluationTaskType /// SELF / PEER / MANAGER / AI
+  assigneeOpenId     String?                @map("assignee_open_id") /// 自评员工或 Leader；PEER 指派人和 AI 任务为空
+  startAt            DateTime?              @map("start_at") /// 人工任务硬开放时间；AI 等待有效输入时为空
+  reminderDeadlineAt DateTime?              @map("reminder_deadline_at") /// 软提醒时间，超过后仍允许首次提交与重新提交
+  openedAt           DateTime?              @map("opened_at") /// 首次开放时间；不可逆开放事实
+  completedAt        DateTime?              @map("completed_at") /// 当前任务完成时间；后续重开规则由对应业务 Ticket 定义
+  createdAt          DateTime               @default(now()) @map("created_at") /// 创建时间
+  updatedAt          DateTime               @updatedAt @map("updated_at") /// 最近更新时间
+
+  cycle              PerfCycle               @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  participant        PerfParticipant         @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Cascade)
+  notificationEvents PerfNotificationEvent[]
+
+  @@unique([participantId, type])
+  @@index([cycleId, type, startAt])
+  @@index([cycleId, type, reminderDeadlineAt])
+  @@index([reminderDeadlineAt, completedAt, openedAt]) /// 通知模块全局扫描已开放且未完成的软截止任务
+  @@index([assigneeOpenId, type, openedAt])
+  @@map("perf_evaluation_tasks")
   @@schema("performance")
 }
 
@@ -1035,9 +1096,10 @@ model PerfInterview {
 }
 
 /// 通知发送记录（产品 §8.19）：每次发送落库；重试更新本行 retry_count/status。
-/// 幂等去重键（receiver+template+业务键+日期）走 Redis SETNX，不在库中约束。
+/// sourceEventId 是事件消费幂等底线；手工通知可为空。
 model PerfNotification {
   id             Int                     @id @default(autoincrement()) /// 内部自增主键
+  sourceEventId  Int?                    @unique @map("source_event_id") /// 来源通知事件；同一事件最多产生一条发送记录
   receiverOpenId String                  @map("receiver_open_id") /// 接收人飞书 open_id
   channel        PerfNotificationChannel @map("channel") /// 发送通道
   template       String                  @map("template") /// 通知模板标识（产品 §9.10：评审启动/自评提醒/催办/结果推送等）
@@ -1049,9 +1111,46 @@ model PerfNotification {
   createdAt      DateTime                @default(now()) @map("created_at") /// 创建时间
   updatedAt      DateTime                @updatedAt @map("updated_at") /// 最近更新时间（重试簿记）
 
+  sourceEvent PerfNotificationEvent? @relation(fields: [sourceEventId], references: [id], onDelete: Restrict)
+
   @@index([receiverOpenId])
   @@index([status]) /// 重试队列扫描
   @@map("perf_notifications")
+  @@schema("performance")
+}
+
+/// 通知事件 outbox：业务事务写入后，由通知消费者幂等生成 perf_notifications。
+/// dedupeKey 是稳定业务键；payload 保存渲染上下文与启动失败的具体问题。
+model PerfNotificationEvent {
+  id             Int                         @id @default(autoincrement()) /// 内部自增主键
+  dedupeKey      String                      @unique @map("dedupe_key") @db.VarChar(512) /// 任务/周期事件稳定去重键
+  type           PerfNotificationEventType /// 任务开放、软提醒或周期启动失败
+  status         PerfNotificationEventStatus @default(PENDING) /// 消费状态
+  cycleId        Int?                        @map("cycle_id") /// 所属周期；历史事件保留关系并禁止删除来源
+  taskId         Int?                        @map("task_id") /// 所属评估任务；启动失败事件为空
+  stage          PerfEvaluationTaskType?     @map("stage") /// SELF / PEER / MANAGER；启动失败事件为空
+  openedAt       DateTime?                   @map("opened_at") /// 任务实际首次开放时间
+  deadlineAt     DateTime?                   @map("deadline_at") /// 任务软提醒截止时间
+  receiverOpenId String                      @map("receiver_open_id") /// 事件最终接收人 open_id；抄送人拆成独立事件
+  channel        PerfNotificationChannel     @map("channel") /// 发送通道
+  template       String                      @map("template") /// 受控通知模板标识
+  payload        Json?                       @map("payload") /// 消息上下文；启动失败包含 issues 数组
+  attemptCount   Int                         @default(0) @map("attempt_count") /// 事件消费失败次数
+  availableAt    DateTime                    @default(now()) @map("available_at") /// 下一次允许消费时间
+  processedAt    DateTime?                   @map("processed_at") /// 成功生成发送记录时间
+  errorMessage   String?                     @map("error_message") /// 最近一次消费失败原因
+  createdAt      DateTime                    @default(now()) @map("created_at") /// 业务事件首次入队时间
+  updatedAt      DateTime                    @updatedAt @map("updated_at") /// 重试状态更新时间
+
+  cycle         PerfCycle?          @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  task          PerfEvaluationTask? @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  notifications PerfNotification[]
+
+  @@index([status, availableAt])
+  @@index([cycleId, type, stage])
+  @@index([taskId, type, openedAt, deadlineAt])
+  @@index([receiverOpenId, createdAt])
+  @@map("perf_notification_events")
   @@schema("performance")
 }
 

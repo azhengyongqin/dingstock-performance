@@ -132,5 +132,37 @@ describe('NotificationService', () => {
       // 发送循环结束后释放 Redis 锁
       expect(redisMock.del).toHaveBeenCalled();
     });
+
+    it('周期启动失败消息向 HR/Admin 展示具体检查问题', async () => {
+      prismaMock.perfNotification.findMany.mockResolvedValue([{ id: 2 }]);
+      prismaMock.perfNotification.findUnique.mockResolvedValue({
+        id: 2,
+        status: 'PENDING',
+        receiverOpenId: 'ou_hr',
+        template: 'cycle_start_failed',
+        payload: {
+          cycleName: '2026 上半年绩效评定',
+          issues: [
+            {
+              path: 'participants',
+              message: '尚未添加人员',
+            },
+          ],
+        },
+        retryCount: 0,
+      });
+      larkMessageCreate.mockResolvedValue({});
+      const service = buildService(true);
+
+      await service.sendPendingBatch();
+
+      expect(larkMessageCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            content: expect.stringContaining('participants：尚未添加人员'),
+          }),
+        }),
+      );
+    });
   });
 });

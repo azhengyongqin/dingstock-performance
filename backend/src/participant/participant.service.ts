@@ -5,7 +5,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  PerfAssignmentStatus,
   PerfCycleStatus,
+  PerfEvaluationTaskType,
   PerfParticipantStatus,
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
@@ -14,6 +16,12 @@ import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { assertParticipantTransition } from './participant-state';
 import { analyzeParticipantFormMatch } from '../cycle/participant-prefix';
+import type {
+  NotificationRules,
+  SchedulePreset,
+} from '../config-template/config-template.contract';
+import { buildEvaluationTaskSeeds } from '../cycle/evaluation-task-plan';
+import { NotificationEventService } from '../notification/notification-event.service';
 
 @Injectable()
 export class ParticipantService {
@@ -21,6 +29,7 @@ export class ParticipantService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
+    private readonly notificationEventService: NotificationEventService,
   ) {}
 
   private async requireCycle(cycleId: number) {
@@ -101,17 +110,17 @@ export class ParticipantService {
   }
 
   /**
-   * 名单可增删校验（角色感知）：
-   * - ADMIN：除已归档外的任何状态都可增删考核人员；
-   * - 其余（HR）：仅 DRAFT/SCHEDULED 可增删。
+   * 移除名单校验（角色感知）：
+   * - ADMIN：除已归档外的任何状态都可移除考核人员；
+   * - 其余（HR）：仅 DRAFT/SCHEDULED 可移除。
    */
-  private async assertMutable(
+  private async assertRemovableByRole(
     cycleStatus: PerfCycleStatus,
     operatorOpenId: string,
   ) {
     if (await this.rbacService.isAdmin(operatorOpenId)) {
       if (cycleStatus === PerfCycleStatus.ARCHIVED) {
-        throw new ConflictException('周期已归档，考核人员名单不可增删');
+        throw new ConflictException('周期已归档，考核人员名单不可移除');
       }
       return;
     }
@@ -119,7 +128,14 @@ export class ParticipantService {
       cycleStatus !== PerfCycleStatus.DRAFT &&
       cycleStatus !== PerfCycleStatus.SCHEDULED
     ) {
-      throw new ConflictException('周期已启动，考核人员名单不可增删');
+      throw new ConflictException('周期已启动，HR 不可移除考核人员');
+    }
+  }
+
+  /** Controller 已限制 HR/Admin；两者均可补加 ACTIVE 参与人，但归档周期永久只读。 */
+  private assertAddable(cycleStatus: PerfCycleStatus) {
+    if (cycleStatus === PerfCycleStatus.ARCHIVED) {
+      throw new ConflictException('周期已归档，考核人员名单不可新增');
     }
   }
 
@@ -141,7 +157,9 @@ export class ParticipantService {
     const participants = await tx.perfParticipant.findMany({
       where: { cycleId, employeeOpenId: { in: openIds } },
     });
-    if (participants.length === 0) return;
+    if (participants.length === 0) {
+      return { participants: [], cycle: null };
+    }
     const [users, corehrs, cycle] = await Promise.all([
       tx.larkUser.findMany({
         where: { open_id: { in: openIds } },
@@ -165,10 +183,13 @@ export class ParticipantService {
     ]);
     const userMap = new Map(users.map((u) => [u.open_id, u]));
     const corehrMap = new Map(corehrs.map((c) => [c.open_id, c]));
-
-    for (const participant of participants) {
+    const preparedParticipants = participants.map((participant) => {
       const user = userMap.get(participant.employeeOpenId);
       const corehr = corehrMap.get(participant.employeeOpenId);
+      const leaderOpenIdSnapshot =
+        corehr?.direct_manager_id ?? user?.leader_user_id ?? null;
+      const departmentIdSnapshot =
+        corehr?.department_id ?? user?.department_ids?.[0] ?? null;
       const formMatch = analyzeParticipantFormMatch(
         {
           id: participant.id,
@@ -177,23 +198,172 @@ export class ParticipantService {
         },
         cycle?.currentConfigVersion?.formSnapshots ?? [],
       );
+      return {
+        participant,
+        corehr,
+        leaderOpenIdSnapshot,
+        departmentIdSnapshot,
+        formMatch,
+      };
+    });
+
+    if (active) {
+      const issues = preparedParticipants.flatMap((item) => {
+        const participantIssues: Array<{
+          code: string;
+          path: string;
+          message: string;
+          participantId: number;
+          employeeOpenId: string;
+        }> = [];
+        const issueBase = {
+          participantId: item.participant.id,
+          employeeOpenId: item.participant.employeeOpenId,
+        };
+        if (!item.corehr?.job_level) {
+          participantIssues.push({
+            ...issueBase,
+            code: 'PARTICIPANT_JOB_LEVEL_MISSING',
+            path: `participants.${item.participant.id}.jobLevel`,
+            message: '补加参与人时未获取到当前职级',
+          });
+        } else if (item.formMatch.status !== 'MATCHED') {
+          participantIssues.push({
+            ...issueBase,
+            code: `PARTICIPANT_${item.formMatch.status}`,
+            path: `participants.${item.participant.id}.jobLevel`,
+            message: item.formMatch.message,
+          });
+        }
+        if (!item.leaderOpenIdSnapshot) {
+          participantIssues.push({
+            ...issueBase,
+            code: 'PARTICIPANT_LEADER_MISSING',
+            path: `participants.${item.participant.id}.leader`,
+            message: '补加参与人时未获取到当前直属 Leader',
+          });
+        }
+        if (!item.departmentIdSnapshot) {
+          participantIssues.push({
+            ...issueBase,
+            code: 'PARTICIPANT_DEPARTMENT_MISSING',
+            path: `participants.${item.participant.id}.department`,
+            message: '补加参与人时未获取到当前部门',
+          });
+        }
+        return participantIssues;
+      });
+      if (issues.length > 0) {
+        // ACTIVE 不再有后续启动检查，缺失快照时必须整笔回滚，不能留下无法填写的任务。
+        throw new ConflictException({
+          code: 'ACTIVE_PARTICIPANT_SNAPSHOT_INVALID',
+          message: '补加参与人的组织或表单快照不完整，请先修复主数据',
+          issues,
+        });
+      }
+    }
+
+    for (const item of preparedParticipants) {
       await tx.perfParticipant.update({
-        where: { id: participant.id },
+        where: { id: item.participant.id },
         data: {
-          leaderOpenIdSnapshot:
-            corehr?.direct_manager_id ?? user?.leader_user_id ?? null,
-          departmentIdSnapshot:
-            corehr?.department_id ?? user?.department_ids?.[0] ?? null,
-          jobLevelSnapshot: corehr?.job_level ?? undefined,
+          leaderOpenIdSnapshot: item.leaderOpenIdSnapshot,
+          departmentIdSnapshot: item.departmentIdSnapshot,
+          jobLevelSnapshot: item.corehr?.job_level ?? undefined,
           jobLevelPrefixSnapshot:
-            formMatch.status === 'MATCHED' ? formMatch.jobLevelPrefix : null,
+            item.formMatch.status === 'MATCHED'
+              ? item.formMatch.jobLevelPrefix
+              : null,
           formSnapshotId:
-            formMatch.status === 'MATCHED' ? formMatch.formSnapshotId : null,
+            item.formMatch.status === 'MATCHED'
+              ? item.formMatch.formSnapshotId
+              : null,
           status: active
             ? PerfParticipantStatus.PENDING_SELF_REVIEW
             : undefined,
         },
       });
+    }
+    return {
+      participants: preparedParticipants.map((item) => ({
+        id: item.participant.id,
+        employeeOpenId: item.participant.employeeOpenId,
+        leaderOpenIdSnapshot: item.leaderOpenIdSnapshot,
+      })),
+      cycle,
+    };
+  }
+
+  /** ACTIVE 补加参与人的任务与开放通知必须和参与人记录在同一事务提交。 */
+  private async createActiveParticipantTasks(
+    tx: Prisma.TransactionClient,
+    cycleId: number,
+    snapshot: Awaited<
+      ReturnType<ParticipantService['snapshotNewParticipants']>
+    >,
+    now: Date,
+  ) {
+    if (snapshot.participants.length === 0) return;
+    const config = snapshot.cycle?.currentConfigVersion;
+    const plannedStartAt = snapshot.cycle?.plannedStartAt;
+    if (!snapshot.cycle || !config || !plannedStartAt) {
+      // ACTIVE 周期按模型必须已有计划与配置快照；异常时整体回滚，避免出现无任务参与人。
+      throw new ConflictException('进行中周期缺少任务计划，暂不能补加参与人');
+    }
+    const tasks = buildEvaluationTaskSeeds({
+      cycleId,
+      participants: snapshot.participants,
+      plannedStartAt,
+      schedulePreset: config.schedulePreset as unknown as SchedulePreset,
+      now,
+    });
+    await tx.perfEvaluationTask.createMany({
+      data: tasks,
+      skipDuplicates: true,
+    });
+
+    const openedTasks = await tx.perfEvaluationTask.findMany({
+      where: {
+        participantId: { in: snapshot.participants.map((item) => item.id) },
+        openedAt: now,
+        type: { not: PerfEvaluationTaskType.AI },
+      },
+      include: {
+        participant: {
+          select: {
+            leaderOpenIdSnapshot: true,
+            reviewerAssignments: {
+              where: { status: { not: PerfAssignmentStatus.REPLACED } },
+              select: { reviewerOpenId: true },
+            },
+          },
+        },
+      },
+    });
+    const rules = config.notificationRules as unknown as NotificationRules;
+    for (const task of openedTasks) {
+      const rule = rules.stages.find(
+        (item) => item.stage === task.type,
+      )?.taskOpened;
+      if (!rule) continue;
+      await this.notificationEventService.enqueueTaskOpenedEvents(
+        {
+          id: task.id,
+          cycleId,
+          type: task.type,
+          assigneeOpenId: task.assigneeOpenId,
+          openedAt: task.openedAt,
+          reminderDeadlineAt: task.reminderDeadlineAt,
+          cycleName: snapshot.cycle.name,
+          cycleOwnerOpenId: snapshot.cycle.ownerOpenId,
+          leaderOpenId: task.participant.leaderOpenIdSnapshot,
+          peerReviewerOpenIds: task.participant.reviewerAssignments.map(
+            (assignment) => assignment.reviewerOpenId,
+          ),
+          rule,
+        },
+        tx,
+      );
     }
   }
 
@@ -238,6 +408,7 @@ export class ParticipantService {
     openIds: string[],
   ) {
     if (openIds.length === 0) throw new BadRequestException('人员名单为空');
+    const now = new Date();
 
     const mutation = await this.prisma.$transaction(async (tx) => {
       // 与 schedule 使用同一周期行锁，保证增员提交时 SCHEDULED 完整性始终成立。
@@ -246,7 +417,7 @@ export class ParticipantService {
         where: { id: cycleId, deletedAt: null },
       });
       if (!cycle) throw new NotFoundException('绩效周期不存在');
-      await this.assertMutable(cycle.status, operatorOpenId);
+      this.assertAddable(cycle.status);
 
       const users = await tx.larkUser.findMany({
         where: { open_id: { in: openIds } },
@@ -266,12 +437,15 @@ export class ParticipantService {
       });
       const freshOpenIds = toAdd.filter((id) => !existingSet.has(id));
       if (freshOpenIds.length > 0) {
-        await this.snapshotNewParticipants(
+        const snapshot = await this.snapshotNewParticipants(
           tx,
           cycleId,
           freshOpenIds,
           this.isInProgress(cycle.status),
         );
+        if (this.isInProgress(cycle.status)) {
+          await this.createActiveParticipantTasks(tx, cycleId, snapshot, now);
+        }
       }
       return { cycle, result, missing };
     });
@@ -287,7 +461,7 @@ export class ParticipantService {
         missing: mutation.missing,
       },
       reason: this.isInProgress(mutation.cycle.status)
-        ? '管理员进行中编辑'
+        ? 'HR/Admin 进行中补加参与人'
         : undefined,
     });
     return { added: mutation.result.count, missing: mutation.missing };
@@ -300,7 +474,7 @@ export class ParticipantService {
     departmentIds: string[],
   ) {
     const cycle = await this.requireCycle(cycleId);
-    await this.assertMutable(cycle.status, operatorOpenId);
+    this.assertAddable(cycle.status);
     if (departmentIds.length === 0)
       throw new BadRequestException('部门列表为空');
 
@@ -325,7 +499,7 @@ export class ParticipantService {
     confirm?: boolean,
   ) {
     const cycle = await this.requireCycle(cycleId);
-    await this.assertMutable(cycle.status, operatorOpenId);
+    await this.assertRemovableByRole(cycle.status, operatorOpenId);
     const participant = await this.prisma.perfParticipant.findFirst({
       where: { id: participantId, cycleId },
     });
