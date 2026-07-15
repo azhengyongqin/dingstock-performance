@@ -13,6 +13,7 @@ import { ContactModule } from './contact/contact.module';
 import { ConfigTemplateModule } from './config-template/config-template.module';
 import { CycleModule } from './cycle/cycle.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { EvaluationModule } from './evaluation/evaluation.module';
 import { FormTemplateModule } from './form-template/form-template.module';
 import { NotificationModule } from './notification/notification.module';
 import { ParticipantModule } from './participant/participant.module';
@@ -37,6 +38,7 @@ import { SharedModule } from './shared/shared.module';
     CycleModule,
     ParticipantModule,
     ReviewModule,
+    EvaluationModule,
     CalibrationModule,
     AppealModule,
     NotificationModule,
