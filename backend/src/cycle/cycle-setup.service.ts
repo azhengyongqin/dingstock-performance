@@ -33,6 +33,7 @@ import {
 import type {
   CreateCycleDto,
   InitializeCycleSetupDto,
+  ReapplyCycleSetupDto,
   UpdateCycleAdvancedConfigDto,
   UpsertCyclePlanDto,
 } from './cycle.dto';
@@ -321,69 +322,11 @@ export class CycleSetupService {
         },
       });
 
-      if (cycle.participants.length > 0) {
-        const openIds = cycle.participants.map(
-          (participant) => participant.employeeOpenId,
-        );
-        const [users, corehrs] = await Promise.all([
-          tx.larkUser.findMany({
-            where: { open_id: { in: openIds } },
-            select: {
-              open_id: true,
-              leader_user_id: true,
-              department_ids: true,
-            },
-          }),
-          tx.larkCorehrEmployee.findMany({
-            where: { open_id: { in: openIds } },
-            select: {
-              open_id: true,
-              direct_manager_id: true,
-              department_id: true,
-              job_level: true,
-            },
-          }),
-        ]);
-        const userMap = new Map(users.map((user) => [user.open_id, user]));
-        const corehrMap = new Map(
-          corehrs.map((employee) => [employee.open_id, employee]),
-        );
-
-        for (const participant of cycle.participants) {
-          const user = userMap.get(participant.employeeOpenId);
-          const corehr = corehrMap.get(participant.employeeOpenId);
-          // CoreHR 暂缺时保留旧快照；没有任何职级则留空，由启动检查给出可操作阻塞项。
-          const jobLevel =
-            corehr?.job_level ?? participant.jobLevelSnapshot ?? null;
-          const match = analyzeParticipantFormMatch(
-            {
-              id: participant.id,
-              employeeOpenId: participant.employeeOpenId,
-              jobLevelSnapshot: jobLevel,
-            },
-            snapshot.formSnapshots,
-          );
-          await tx.perfParticipant.update({
-            where: { id: participant.id },
-            data: {
-              leaderOpenIdSnapshot:
-                corehr?.direct_manager_id ??
-                user?.leader_user_id ??
-                participant.leaderOpenIdSnapshot,
-              departmentIdSnapshot:
-                corehr?.department_id ??
-                user?.department_ids?.[0] ??
-                participant.departmentIdSnapshot,
-              jobLevelSnapshot:
-                jobLevel === null ? undefined : this.inputJson(jobLevel),
-              jobLevelPrefixSnapshot:
-                match.status === 'MATCHED' ? match.jobLevelPrefix : null,
-              formSnapshotId:
-                match.status === 'MATCHED' ? match.formSnapshotId : null,
-            },
-          });
-        }
-      }
+      await this.rebindParticipantsToSnapshot(
+        tx,
+        cycle.participants,
+        snapshot.formSnapshots,
+      );
     });
 
     await this.auditService.record({
@@ -394,6 +337,218 @@ export class CycleSetupService {
       after: dto,
     });
     return this.getSetup(cycleId);
+  }
+
+  /**
+   * 启动前重新套用已发布配置模板版本：整套覆盖当前快照（评估规则、维度），
+   * 不做字段级合并；旧配置版本保留（ADR-0026 语义），仅切换 currentConfigVersionId。
+   */
+  async reapplyPublishedConfig(
+    operatorOpenId: string,
+    cycleId: number,
+    dto: ReapplyCycleSetupDto,
+  ) {
+    let auditPayload!: { before: unknown; after: unknown };
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockCycle(tx, cycleId);
+      const cycle = await this.getSetup(cycleId, tx);
+      if (
+        cycle.status !== PerfCycleStatus.DRAFT &&
+        cycle.status !== PerfCycleStatus.SCHEDULED
+      ) {
+        throw new ConflictException('只有草稿或待启动周期允许重新套用配置模板');
+      }
+      const currentSnapshot = cycle.currentConfigVersion;
+      if (!currentSnapshot) {
+        throw new ConflictException('周期尚无配置快照，请先初始化配置快照');
+      }
+      if (!cycle.plannedStartAt) {
+        throw new BadRequestException(
+          '周期缺少计划启动时间，无法重新套用配置模板',
+        );
+      }
+
+      await tx.$queryRaw`SELECT "id" FROM "performance"."perf_config_template_versions" WHERE "id" = ${dto.configTemplateVersionId} FOR SHARE`;
+      const source = await tx.perfConfigTemplateVersion.findUnique({
+        where: { id: dto.configTemplateVersionId },
+        include: sourceVersionInclude,
+      });
+      if (!source || source.status !== 'PUBLISHED') {
+        throw new BadRequestException('配置模板版本未发布或已不可用');
+      }
+      const prefixes = source.formBindings.map(
+        (binding) => binding.jobLevelPrefix,
+      );
+      if (
+        source.formBindings.length !== 2 ||
+        !prefixes.includes('D') ||
+        !prefixes.includes('M')
+      ) {
+        throw new BadRequestException('配置模板版本未完整覆盖 D/M 表单');
+      }
+
+      const plan = generateCyclePlan(
+        cycle.plannedStartAt.toISOString(),
+        source.schedulePreset as unknown as SchedulePreset,
+      );
+      const planIssues = validateCyclePlan(plan);
+      if (planIssues.length > 0) {
+        throw new BadRequestException({
+          code: 'CONFIG_SCHEDULE_INVALID',
+          message: '配置模板计划不可用',
+          issues: planIssues,
+        });
+      }
+
+      const snapshot = await tx.perfCycleConfigVersion.create({
+        data: {
+          cycleId,
+          // 周期内版本递增，旧版本不删除，版本链保留供追溯（ADR-0026）。
+          version: currentSnapshot.version + 1,
+          sourceConfigTemplateVersionId: source.id,
+          selfStageMode: source.selfStageMode,
+          peerStageMode: source.peerStageMode,
+          managerStageMode: source.managerStageMode,
+          aiStageMode: source.aiStageMode,
+          ratings: this.inputJson(source.ratings),
+          constraintProfiles: this.inputJson(source.constraintProfiles),
+          orgOwnerWeight: source.orgOwnerWeight,
+          projectOwnerWeight: source.projectOwnerWeight,
+          peerWeight: source.peerWeight,
+          crossDeptWeight: source.crossDeptWeight,
+          schedulePreset: this.inputJson(source.schedulePreset),
+          notificationRules: this.inputJson(source.notificationRules),
+          createdByOpenId: operatorOpenId,
+          formSnapshots: {
+            create: source.formBindings.map((binding) => ({
+              cycleId,
+              jobLevelPrefix: binding.jobLevelPrefix,
+              sourceFormTemplateVersionId: binding.formTemplateVersionId,
+              content: this.inputJson(
+                this.toFormSnapshotContent(binding.formTemplateVersion),
+              ),
+            })),
+          },
+        },
+        include: { formSnapshots: true },
+      });
+      await tx.perfCycle.update({
+        where: { id: cycleId },
+        data: { currentConfigVersionId: snapshot.id },
+      });
+
+      await this.rebindParticipantsToSnapshot(
+        tx,
+        cycle.participants,
+        snapshot.formSnapshots,
+      );
+
+      auditPayload = {
+        before: {
+          sourceConfigTemplateVersionId:
+            currentSnapshot.sourceConfigTemplateVersionId,
+          version: currentSnapshot.version,
+        },
+        after: {
+          sourceConfigTemplateVersionId: snapshot.sourceConfigTemplateVersionId,
+          version: snapshot.version,
+          coverage: ['evaluation_rule', 'dimensions'],
+        },
+      };
+    });
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'cycle.template.apply',
+      targetType: 'perf_cycle',
+      targetId: String(cycleId),
+      before: auditPayload.before,
+      after: auditPayload.after,
+    });
+    return this.getConfigSnapshot(cycleId);
+  }
+
+  /**
+   * 参与人重绑定：新快照写入后按 CoreHR 主数据刷新 Leader/部门快照，并按 D/M 前缀重新匹配表单。
+   * initializeLegacyDraft 与 reapplyPublishedConfig 共用，行为语义保持一致。
+   */
+  private async rebindParticipantsToSnapshot(
+    tx: Prisma.TransactionClient,
+    participants: ReadonlyArray<{
+      id: number;
+      employeeOpenId: string;
+      leaderOpenIdSnapshot: string | null;
+      departmentIdSnapshot: string | null;
+      jobLevelSnapshot: Prisma.JsonValue | null;
+    }>,
+    formSnapshots: ReadonlyArray<{
+      id: number;
+      jobLevelPrefix: 'D' | 'M';
+    }>,
+  ) {
+    if (participants.length === 0) return;
+    const openIds = participants.map(
+      (participant) => participant.employeeOpenId,
+    );
+    const [users, corehrs] = await Promise.all([
+      tx.larkUser.findMany({
+        where: { open_id: { in: openIds } },
+        select: {
+          open_id: true,
+          leader_user_id: true,
+          department_ids: true,
+        },
+      }),
+      tx.larkCorehrEmployee.findMany({
+        where: { open_id: { in: openIds } },
+        select: {
+          open_id: true,
+          direct_manager_id: true,
+          department_id: true,
+          job_level: true,
+        },
+      }),
+    ]);
+    const userMap = new Map(users.map((user) => [user.open_id, user]));
+    const corehrMap = new Map(
+      corehrs.map((employee) => [employee.open_id, employee]),
+    );
+
+    for (const participant of participants) {
+      const user = userMap.get(participant.employeeOpenId);
+      const corehr = corehrMap.get(participant.employeeOpenId);
+      // CoreHR 暂缺时保留旧快照；没有任何职级则留空，由启动检查给出可操作阻塞项。
+      const jobLevel =
+        corehr?.job_level ?? participant.jobLevelSnapshot ?? null;
+      const match = analyzeParticipantFormMatch(
+        {
+          id: participant.id,
+          employeeOpenId: participant.employeeOpenId,
+          jobLevelSnapshot: jobLevel,
+        },
+        formSnapshots,
+      );
+      await tx.perfParticipant.update({
+        where: { id: participant.id },
+        data: {
+          leaderOpenIdSnapshot:
+            corehr?.direct_manager_id ??
+            user?.leader_user_id ??
+            participant.leaderOpenIdSnapshot,
+          departmentIdSnapshot:
+            corehr?.department_id ??
+            user?.department_ids?.[0] ??
+            participant.departmentIdSnapshot,
+          jobLevelSnapshot:
+            jobLevel === null ? undefined : this.inputJson(jobLevel),
+          jobLevelPrefixSnapshot:
+            match.status === 'MATCHED' ? match.jobLevelPrefix : null,
+          formSnapshotId:
+            match.status === 'MATCHED' ? match.formSnapshotId : null,
+        },
+      });
+    }
   }
 
   async getSetup(cycleId: number, client: DbClient = this.prisma) {
@@ -415,6 +570,10 @@ export class CycleSetupService {
       sourceConfigTemplateVersionId: snapshot.sourceConfigTemplateVersionId,
       source: snapshot.sourceConfigVersion,
       version: snapshot.version,
+      // 快照行只有创建（create/reapply 产生新行）与手动编辑（updateAdvancedConfig/updatePlan 原地更新）两类写入；
+      // updatedAt 晚于 createdAt 说明创建/最近重套之后被手动调整过，前端据此决定重套前是否弹覆盖确认。
+      manuallyModified:
+        snapshot.updatedAt.getTime() > snapshot.createdAt.getTime(),
       forms: snapshot.formSnapshots.map((form) => ({
         id: form.id,
         jobLevelPrefix: form.jobLevelPrefix,

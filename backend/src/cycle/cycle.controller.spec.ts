@@ -49,6 +49,7 @@ describe('CycleController 四步创建 API', () => {
     initializeLegacyDraft: jest.fn(),
     getConfigSnapshot: jest.fn(),
     updateAdvancedConfig: jest.fn(),
+    reapplyPublishedConfig: jest.fn(),
     getParticipantPrefixCheck: jest.fn(),
     getPlan: jest.fn(),
     updatePlan: jest.fn(),
@@ -102,6 +103,18 @@ describe('CycleController 四步创建 API', () => {
     await controller.updateConfigSnapshot(request, 9, dto);
 
     expect(setupService.updateAdvancedConfig).toHaveBeenCalledWith(
+      'ou_hr',
+      9,
+      dto,
+    );
+  });
+
+  it('重新套用配置模板接口只转发目标版本与当前操作者', async () => {
+    const dto = { configTemplateVersionId: 30 };
+
+    await controller.reapplyConfigSnapshot(request, 9, dto);
+
+    expect(setupService.reapplyPublishedConfig).toHaveBeenCalledWith(
       'ou_hr',
       9,
       dto,

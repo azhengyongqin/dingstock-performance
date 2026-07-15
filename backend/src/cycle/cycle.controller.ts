@@ -27,6 +27,7 @@ import {
   ApplyTemplateDto,
   CreateCycleDto,
   InitializeCycleSetupDto,
+  ReapplyCycleSetupDto,
   UpdateCycleAdvancedConfigDto,
   UpdateCycleDto,
   UpsertDimensionsDto,
@@ -94,6 +95,20 @@ export class CycleController {
     @Body() dto: InitializeCycleSetupDto,
   ) {
     return this.cycleSetupService.initializeLegacyDraft(
+      req.user.open_id,
+      id,
+      dto,
+    );
+  }
+
+  @Post(':id/config-snapshot/reapply')
+  @ApiOperation({ summary: '启动前重新套用已发布配置模板版本' })
+  reapplyConfigSnapshot(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReapplyCycleSetupDto,
+  ) {
+    return this.cycleSetupService.reapplyPublishedConfig(
       req.user.open_id,
       id,
       dto,

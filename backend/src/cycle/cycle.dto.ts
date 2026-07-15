@@ -154,6 +154,12 @@ export class InitializeCycleSetupDto {
   plannedStartAt!: string;
 }
 
+/** 启动前重新套用已发布配置模板版本；整套覆盖评估规则与维度，不做字段级合并。 */
+export class ReapplyCycleSetupDto {
+  @IsInt()
+  configTemplateVersionId!: number;
+}
+
 export class UpdateCycleDto {
   @IsOptional()
   @IsString()

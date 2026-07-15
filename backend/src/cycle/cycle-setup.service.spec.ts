@@ -507,4 +507,296 @@ describe('CycleSetupService', () => {
       ]),
     );
   });
+
+  describe('reapplyPublishedConfig 重新套用配置模板', () => {
+    const reapplyCycleRow = (overrides: Record<string, unknown> = {}) => ({
+      id: 9,
+      status: 'DRAFT',
+      plannedStartAt: new Date('2026-07-14T01:00:00.000Z'),
+      currentConfigVersionId: 19,
+      currentConfigVersion: {
+        id: 19,
+        version: 2,
+        sourceConfigTemplateVersionId: 25,
+        formSnapshots: [],
+      },
+      participants: [
+        {
+          id: 71,
+          employeeOpenId: 'ou_d',
+          leaderOpenIdSnapshot: 'ou_old_leader',
+          departmentIdSnapshot: 'od_old',
+          jobLevelSnapshot: { code: 'D5' },
+        },
+      ],
+      ...overrides,
+    });
+
+    const finalSnapshotRow = {
+      id: 9,
+      status: 'DRAFT',
+      currentConfigVersion: {
+        id: 20,
+        cycleId: 9,
+        sourceConfigTemplateVersionId: 30,
+        sourceConfigVersion: {
+          id: 30,
+          templateId: 3,
+          name: '标准配置',
+          version: 2,
+        },
+        version: 3,
+        selfStageMode: 'DIRECT_RATING',
+        peerStageMode: 'WEIGHTED_RATING',
+        managerStageMode: 'WEIGHTED_SCORE',
+        aiStageMode: 'DIRECT_RATING',
+        ratings: source.ratings,
+        constraintProfiles: source.constraintProfiles,
+        orgOwnerWeight: 30,
+        projectOwnerWeight: 30,
+        peerWeight: 25,
+        crossDeptWeight: 15,
+        schedulePreset: source.schedulePreset,
+        notificationRules: source.notificationRules,
+        createdAt: new Date('2026-07-14T02:00:00.000Z'),
+        updatedAt: new Date('2026-07-14T02:00:00.000Z'),
+        formSnapshots: [
+          {
+            id: 91,
+            jobLevelPrefix: 'D',
+            sourceFormTemplateVersionId: 100,
+            content: {},
+          },
+          {
+            id: 92,
+            jobLevelPrefix: 'M',
+            sourceFormTemplateVersionId: 101,
+            content: {},
+          },
+        ],
+      },
+      participants: [],
+    };
+
+    beforeEach(() => {
+      tx.perfCycleConfigVersion.create.mockResolvedValue({
+        id: 20,
+        version: 3,
+        sourceConfigTemplateVersionId: 30,
+        formSnapshots: [
+          { id: 91, jobLevelPrefix: 'D' },
+          { id: 92, jobLevelPrefix: 'M' },
+        ],
+      });
+      prisma.perfCycle.findFirst.mockResolvedValue(finalSnapshotRow);
+    });
+
+    it('草稿周期重新套用配置模板：生成 version+1 新快照、覆盖复制来源版本内容、切换当前快照、重绑参与人并写一条审计', async () => {
+      tx.perfCycle.findFirst.mockResolvedValue(reapplyCycleRow());
+
+      const result = await service.reapplyPublishedConfig('ou_hr', 9, {
+        configTemplateVersionId: 30,
+      });
+
+      const snapshotData =
+        tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
+      expect(snapshotData).toMatchObject({
+        cycleId: 9,
+        version: 3,
+        sourceConfigTemplateVersionId: 30,
+        selfStageMode: 'DIRECT_RATING',
+        peerStageMode: 'WEIGHTED_RATING',
+        managerStageMode: 'WEIGHTED_SCORE',
+        aiStageMode: 'DIRECT_RATING',
+        ratings: [{ symbol: 'S', mappingScore: '95' }],
+        constraintProfiles: {},
+        orgOwnerWeight: 30,
+        projectOwnerWeight: 30,
+        peerWeight: 25,
+        crossDeptWeight: 15,
+        schedulePreset: source.schedulePreset,
+        notificationRules: source.notificationRules,
+        createdByOpenId: 'ou_hr',
+      });
+      expect(snapshotData.formSnapshots.create).toHaveLength(2);
+      expect(snapshotData.formSnapshots.create[0]).toMatchObject({
+        jobLevelPrefix: 'D',
+        sourceFormTemplateVersionId: 100,
+      });
+
+      // currentConfigVersionId 必须切换到新快照，旧版本不删除、不再引用。
+      expect(tx.perfCycle.update).toHaveBeenCalledWith({
+        where: { id: 9 },
+        data: { currentConfigVersionId: 20 },
+      });
+
+      // 参与人按新快照的 D/M 表单重新匹配。
+      expect(tx.perfParticipant.update).toHaveBeenCalledWith({
+        where: { id: 71 },
+        data: expect.objectContaining({
+          jobLevelPrefixSnapshot: 'D',
+          formSnapshotId: 91,
+        }),
+      });
+
+      // 恰好一条审计，action 精确等于 legacy 的 cycle.template.apply，且体现整套覆盖范围。
+      expect(audit.record).toHaveBeenCalledTimes(1);
+      expect(audit.record).toHaveBeenCalledWith({
+        operatorOpenId: 'ou_hr',
+        action: 'cycle.template.apply',
+        targetType: 'perf_cycle',
+        targetId: '9',
+        before: { sourceConfigTemplateVersionId: 25, version: 2 },
+        after: {
+          sourceConfigTemplateVersionId: 30,
+          version: 3,
+          coverage: ['evaluation_rule', 'dimensions'],
+        },
+      });
+
+      expect(result.version).toBe(3);
+      expect(result.sourceConfigTemplateVersionId).toBe(30);
+    });
+
+    it('待启动（SCHEDULED）周期允许重新套用配置模板', async () => {
+      tx.perfCycle.findFirst.mockResolvedValue(
+        reapplyCycleRow({ status: 'SCHEDULED', participants: [] }),
+      );
+
+      await expect(
+        service.reapplyPublishedConfig('ou_hr', 9, {
+          configTemplateVersionId: 30,
+        }),
+      ).resolves.toBeDefined();
+      expect(tx.perfCycleConfigVersion.create).toHaveBeenCalled();
+    });
+
+    it.each(['ACTIVE', 'ARCHIVED'])(
+      '%s 状态周期拒绝重新套用配置模板，并给出业务可读中文错误',
+      async (status) => {
+        tx.perfCycle.findFirst.mockResolvedValue(
+          reapplyCycleRow({ status, participants: [] }),
+        );
+
+        await expect(
+          service.reapplyPublishedConfig('ou_hr', 9, {
+            configTemplateVersionId: 30,
+          }),
+        ).rejects.toThrow('只有草稿或待启动周期允许重新套用配置模板');
+        expect(tx.perfCycleConfigVersion.create).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['DRAFT', 'ARCHIVED'])(
+      '目标配置模板版本状态为 %s（未发布）时拒绝重新套用',
+      async (templateStatus) => {
+        tx.perfCycle.findFirst.mockResolvedValue(
+          reapplyCycleRow({ participants: [] }),
+        );
+        tx.perfConfigTemplateVersion.findUnique.mockResolvedValue({
+          ...structuredClone(source),
+          status: templateStatus,
+        });
+
+        await expect(
+          service.reapplyPublishedConfig('ou_hr', 9, {
+            configTemplateVersionId: 30,
+          }),
+        ).rejects.toThrow('配置模板版本未发布或已不可用');
+        expect(tx.perfCycleConfigVersion.create).not.toHaveBeenCalled();
+        expect(audit.record).not.toHaveBeenCalled();
+      },
+    );
+
+    it('周期尚无配置快照时拒绝重新套用，并提示先初始化', async () => {
+      tx.perfCycle.findFirst.mockResolvedValue(
+        reapplyCycleRow({
+          currentConfigVersionId: null,
+          currentConfigVersion: null,
+          participants: [],
+        }),
+      );
+
+      await expect(
+        service.reapplyPublishedConfig('ou_hr', 9, {
+          configTemplateVersionId: 30,
+        }),
+      ).rejects.toThrow('周期尚无配置快照，请先初始化配置快照');
+      expect(tx.perfConfigTemplateVersion.findUnique).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('周期缺少计划启动时间时拒绝重新套用，给出业务可读错误', async () => {
+      tx.perfCycle.findFirst.mockResolvedValue(
+        reapplyCycleRow({ plannedStartAt: null, participants: [] }),
+      );
+
+      await expect(
+        service.reapplyPublishedConfig('ou_hr', 9, {
+          configTemplateVersionId: 30,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(tx.perfCycleConfigVersion.create).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getConfigSnapshot 暴露 manuallyModified', () => {
+    const baseSnapshot = {
+      id: 19,
+      cycleId: 9,
+      sourceConfigTemplateVersionId: 30,
+      sourceConfigVersion: { id: 30, templateId: 3, name: '标准配置' },
+      version: 1,
+      selfStageMode: 'DIRECT_RATING',
+      peerStageMode: 'WEIGHTED_RATING',
+      managerStageMode: 'WEIGHTED_SCORE',
+      aiStageMode: 'DIRECT_RATING',
+      ratings: source.ratings,
+      constraintProfiles: source.constraintProfiles,
+      orgOwnerWeight: 30,
+      projectOwnerWeight: 30,
+      peerWeight: 25,
+      crossDeptWeight: 15,
+      schedulePreset: source.schedulePreset,
+      notificationRules: source.notificationRules,
+      formSnapshots: [],
+    };
+
+    it('createdAt 等于 updatedAt 时 manuallyModified 为 false（未手动改动过）', async () => {
+      const stamp = new Date('2026-07-14T02:00:00.000Z');
+      prisma.perfCycle.findFirst.mockResolvedValue({
+        id: 9,
+        status: 'DRAFT',
+        currentConfigVersion: {
+          ...baseSnapshot,
+          createdAt: stamp,
+          updatedAt: stamp,
+        },
+        participants: [],
+      });
+
+      const result = await service.getConfigSnapshot(9);
+
+      expect(result.manuallyModified).toBe(false);
+    });
+
+    it('updatedAt 晚于 createdAt 时 manuallyModified 为 true（已手动改动过）', async () => {
+      prisma.perfCycle.findFirst.mockResolvedValue({
+        id: 9,
+        status: 'DRAFT',
+        currentConfigVersion: {
+          ...baseSnapshot,
+          createdAt: new Date('2026-07-14T02:00:00.000Z'),
+          updatedAt: new Date('2026-07-14T03:00:00.000Z'),
+        },
+        participants: [],
+      });
+
+      const result = await service.getConfigSnapshot(9);
+
+      expect(result.manuallyModified).toBe(true);
+    });
+  });
 });
