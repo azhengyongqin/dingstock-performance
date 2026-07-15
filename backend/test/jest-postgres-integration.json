@@ -8,6 +8,7 @@
     "<rootDir>/test/active-cycle-config-postgres.integration-spec.ts",
     "<rootDir>/test/active-cycle-rollback-postgres.integration-spec.ts",
     "<rootDir>/test/cycle-archive-postgres.integration-spec.ts",
+    "<rootDir>/test/legacy-migration-postgres.integration-spec.ts",
     "<rootDir>/test/active-cycle-config-service.integration-spec.ts"
   ],
   "transform": {

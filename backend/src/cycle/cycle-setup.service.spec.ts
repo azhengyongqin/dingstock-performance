@@ -514,9 +514,21 @@ describe('CycleSetupService', () => {
     const currentSchedulePreset = {
       allowStageOverlap: true,
       stages: [
-        { stage: 'SELF', startOffsetMinutes: 10, reminderDeadlineOffsetMinutes: 70 },
-        { stage: 'PEER', startOffsetMinutes: 70, reminderDeadlineOffsetMinutes: 130 },
-        { stage: 'MANAGER', startOffsetMinutes: 130, reminderDeadlineOffsetMinutes: 190 },
+        {
+          stage: 'SELF',
+          startOffsetMinutes: 10,
+          reminderDeadlineOffsetMinutes: 70,
+        },
+        {
+          stage: 'PEER',
+          startOffsetMinutes: 70,
+          reminderDeadlineOffsetMinutes: 130,
+        },
+        {
+          stage: 'MANAGER',
+          startOffsetMinutes: 130,
+          reminderDeadlineOffsetMinutes: 190,
+        },
       ],
     };
     const currentNotificationRules = {

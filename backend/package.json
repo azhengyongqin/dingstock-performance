@@ -20,6 +20,7 @@
     "seed:template": "pnpm build && node dist/src/scripts/seed-default-template.js",
     "seed:form-templates": "pnpm build && node dist/src/scripts/seed-default-form-templates.js",
     "seed:baseline": "pnpm build && node dist/src/scripts/seed-baseline-data.js",
+    "migration:legacy": "pnpm build && node dist/src/scripts/migrate-legacy-performance.js",
     "test": "pnpm prisma:generate && jest",
     "test:postgres": "jest --config test/jest-postgres-integration.json --runInBand",
     "test:watch": "jest --watch",

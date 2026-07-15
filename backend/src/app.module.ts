@@ -21,6 +21,7 @@ import { ParticipantModule } from './participant/participant.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReviewModule } from './review/review.module';
 import { SharedModule } from './shared/shared.module';
+import { MigrationModule } from './migration/migration.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { SharedModule } from './shared/shared.module';
     DashboardModule,
     FormTemplateModule,
     ConfigTemplateModule,
+    MigrationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

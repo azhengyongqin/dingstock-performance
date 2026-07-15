@@ -131,7 +131,7 @@ describe('ActiveCycleRollbackService', () => {
       'ou_admin',
       17,
       {
-        targetStatus: 'DRAFT' as never,
+        targetStatus: 'DRAFT',
         reason: '发现周期配置严重错误',
         confirmed: true,
         impactRevision: preview.impactRevision,
@@ -175,7 +175,7 @@ describe('ActiveCycleRollbackService', () => {
         'ou_admin',
         17,
         {
-          targetStatus: 'SCHEDULED' as never,
+          targetStatus: 'SCHEDULED',
           reason: '等待重新启动',
           confirmed: true,
           impactRevision: preview.impactRevision,
@@ -189,7 +189,7 @@ describe('ActiveCycleRollbackService', () => {
         'ou_admin',
         17,
         {
-          targetStatus: 'DRAFT' as never,
+          targetStatus: 'DRAFT',
           reason: '配置错误',
           confirmed: false,
           impactRevision: preview.impactRevision,
@@ -203,7 +203,7 @@ describe('ActiveCycleRollbackService', () => {
         'ou_admin',
         17,
         {
-          targetStatus: 'DRAFT' as never,
+          targetStatus: 'DRAFT',
           reason: '配置错误',
           confirmed: true,
           impactRevision: '0'.repeat(64),
@@ -219,7 +219,7 @@ describe('ActiveCycleRollbackService', () => {
       'ou_admin',
       17,
       {
-        targetStatus: 'SCHEDULED' as never,
+        targetStatus: 'SCHEDULED',
         reason: '调整后按新计划启动',
         confirmed: true,
         impactRevision: preview.impactRevision,
@@ -258,7 +258,7 @@ describe('ActiveCycleRollbackService', () => {
       'ou_admin',
       17,
       {
-        targetStatus: 'DRAFT' as never,
+        targetStatus: 'DRAFT',
         reason: '结果链需要整体重做',
         confirmed: true,
         impactRevision: preview.impactRevision,
@@ -283,7 +283,7 @@ describe('ActiveCycleRollbackService', () => {
         'ou_admin',
         17,
         {
-          targetStatus: 'DRAFT' as never,
+          targetStatus: 'DRAFT',
           reason: '配置错误',
           confirmed: true,
           impactRevision: preview.impactRevision,
@@ -307,7 +307,7 @@ describe('ActiveCycleRollbackService', () => {
         'ou_admin',
         17,
         {
-          targetStatus: 'DRAFT' as never,
+          targetStatus: 'DRAFT',
           reason: '配置错误',
           confirmed: true,
           impactRevision: preview.impactRevision,

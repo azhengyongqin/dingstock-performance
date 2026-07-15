@@ -194,6 +194,7 @@ enum PerfEvaluationTaskType {
 
 /// 参与者状态机（研发文档 §8.2），周期整体状态按参与者聚合推进
 enum PerfParticipantStatus {
+  ACTIVE /// 新生命周期中的进行中默认态；评估进度由任务/提交事实派生
   PENDING_SELF_REVIEW /// 待自评
   SELF_SUBMITTED /// 自评已提交
   RETURNED /// 自评被退回（回退分支）
@@ -208,6 +209,26 @@ enum PerfParticipantStatus {
   NO_RESULT /// 当前周期无绩效结果：始终缺失必需自评，不生成校准或最终结果，归档前可撤销
   WITHDRAWN /// 中途退出：与无绩效结果区分，归档后作为历史事实永久只读
   ARCHIVED /// 已归档
+
+  @@schema("performance")
+}
+
+/// 旧模型迁移批次状态；失败批次可按同一 runKey 重跑，回滚只做显式补偿。
+enum PerfLegacyMigrationRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+  ROLLED_BACK
+
+  @@schema("performance")
+}
+
+/// 单个旧业务键的迁移结果；唯一来源键是跨批次幂等边界。
+enum PerfLegacyMigrationItemStatus {
+  MIGRATED
+  SKIPPED
+  FAILED
+  ROLLED_BACK
 
   @@schema("performance")
 }
@@ -820,11 +841,63 @@ model PerfCycle {
   exportTasks           ReportExportTask[]
   rollbacks             PerfCycleRollback[]
   archive               PerfCycleArchive?
+  legacyMigrationRuns   PerfLegacyMigrationRun[]
 
   @@index([status, plannedStartAt])
   @@index([deletedAt])
   @@index([templateId])
   @@map("perf_cycles")
+  @@schema("performance")
+}
+
+/// Ticket 20 旧模型迁移批次。报告全部固化在批次上，Ticket 21 只能在 readinessReport.ready=true 后切读。
+model PerfLegacyMigrationRun {
+  id               Int                          @id @default(autoincrement()) /// 内部自增主键
+  runKey           String                       @unique @map("run_key") /// 运维指定的幂等批次键；同键失败后原位重跑
+  cycleId          Int?                         @map("cycle_id") /// 可选的单周期演练范围；为空表示全量
+  dryRun           Boolean                      @default(true) @map("dry_run") /// true 只生成计划和报告，不写业务目标表
+  status           PerfLegacyMigrationRunStatus @default(RUNNING) /// RUNNING / COMPLETED / FAILED / ROLLED_BACK
+  sourceCounts     Json                         @default("{}") @map("source_counts") /// 旧表记录数快照
+  migratedCounts   Json                         @default("{}") @map("migrated_counts") /// 新表写入/复用/跳过/失败统计
+  validationReport Json?                        @map("validation_report") /// 记录数、业务键、提交、维度、版本和状态闭合校验
+  shadowReport     Json?                        @map("shadow_report") /// 人工上级旧等级与新计算等级差异明细
+  readinessReport  Json?                        @map("readiness_report") /// { ready, blockers, thresholds, metrics }
+  errorMessage     String?                      @map("error_message") /// 批次级失败摘要；逐项异常保存在 items.detail
+  startedAt        DateTime                     @default(now()) @map("started_at") /// 最近一次执行开始时间
+  completedAt      DateTime?                    @map("completed_at") /// 最近一次成功/失败结束时间
+  rolledBackAt     DateTime?                    @map("rolled_back_at") /// 显式补偿回滚完成时间
+  createdAt        DateTime                     @default(now()) @map("created_at") /// 首次创建时间
+  updatedAt        DateTime                     @updatedAt @map("updated_at") /// 重跑或报告更新时刷新
+
+  cycle PerfCycle?                @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  items PerfLegacyMigrationItem[]
+
+  @@index([status, createdAt])
+  @@index([cycleId, status])
+  @@map("perf_legacy_migration_runs")
+  @@schema("performance")
+}
+
+/// 旧来源业务键到新目标记录的迁移账本。唯一来源键避免失败重跑重复写入，并保留异常定位上下文。
+model PerfLegacyMigrationItem {
+  id                Int                           @id @default(autoincrement()) /// 内部自增主键
+  runId             Int                           @map("run_id") /// 最近处理本来源键的迁移批次
+  sourceType        String                        @map("source_type") /// LEGACY_TEMPLATE/CYCLE/SELF/PEER/MANAGER/RESULT 等受控值
+  sourceBusinessKey String                        @map("source_business_key") /// 旧模型稳定业务键，如 perf_reviews:123
+  targetType        String?                       @map("target_type") /// 新 Prisma model 名称
+  targetId          Int?                          @map("target_id") /// 新模型内部主键；失败/跳过时可空
+  checksum          String                        @db.Char(64) /// 旧来源规范化载荷 SHA-256；变化时报告冲突而不静默覆盖
+  status            PerfLegacyMigrationItemStatus /// MIGRATED / SKIPPED / FAILED / ROLLED_BACK
+  detail            Json                          @default("{}") /// 校验错误码、字段路径、重跑/回滚说明和目标业务键
+  createdAt         DateTime                      @default(now()) @map("created_at") /// 首次记账时间
+  updatedAt         DateTime                      @updatedAt @map("updated_at") /// 最近一次重跑结果时间
+
+  run PerfLegacyMigrationRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@unique([sourceType, sourceBusinessKey]) /// 跨批次幂等边界
+  @@index([runId, status])
+  @@index([targetType, targetId])
+  @@map("perf_legacy_migration_items")
   @@schema("performance")
 }
 
@@ -834,7 +907,7 @@ model PerfCycleArchive {
   id             Int      @id @default(autoincrement()) /// 内部自增主键
   cycleId        Int      @unique @map("cycle_id") /// 被归档周期；一周期至多一条归档事实
   operatorOpenId String   @map("operator_open_id") /// 执行归档的 Admin 或覆盖全员的 HR open_id
-  summary        Json     /// 归档时关闭统计快照：总人数、确认/无结果/退出人数、等级分布
+  summary        Json /// 归档时关闭统计快照：总人数、确认/无结果/退出人数、等级分布
   checkResult    Json     @map("check_result") /// 全量关闭检查快照：revision 与 blockers（成功时为空数组）
   archivedAt     DateTime @default(now()) @map("archived_at") /// 永久归档发生时间
 

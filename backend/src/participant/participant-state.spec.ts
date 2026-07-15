@@ -4,6 +4,9 @@ import { assertParticipantTransition } from './participant-state';
 
 describe('参与者状态机', () => {
   const legal: [PerfParticipantStatus, PerfParticipantStatus][] = [
+    [PerfParticipantStatus.ACTIVE, PerfParticipantStatus.CALIBRATED],
+    [PerfParticipantStatus.ACTIVE, PerfParticipantStatus.NO_RESULT],
+    [PerfParticipantStatus.ACTIVE, PerfParticipantStatus.WITHDRAWN],
     [
       PerfParticipantStatus.PENDING_SELF_REVIEW,
       PerfParticipantStatus.SELF_SUBMITTED,

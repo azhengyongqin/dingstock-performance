@@ -9,6 +9,12 @@ const PARTICIPANT_TRANSITIONS: Record<
   PerfParticipantStatus,
   PerfParticipantStatus[]
 > = {
+  // Ticket 20 新生命周期态；人工评估进度不再落在 participant.status。
+  ACTIVE: [
+    PerfParticipantStatus.CALIBRATED,
+    PerfParticipantStatus.NO_RESULT,
+    PerfParticipantStatus.WITHDRAWN,
+  ],
   PENDING_SELF_REVIEW: [
     PerfParticipantStatus.SELF_SUBMITTED,
     PerfParticipantStatus.NO_RESULT,

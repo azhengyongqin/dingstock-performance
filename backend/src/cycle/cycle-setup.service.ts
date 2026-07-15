@@ -156,12 +156,7 @@ export class CycleSetupService {
         },
       });
       const snapshot = await tx.perfCycleConfigVersion.create({
-        data: this.buildSnapshotCreateData(
-          source,
-          cycle.id,
-          1,
-          operatorOpenId,
-        ),
+        data: this.buildSnapshotCreateData(source, cycle.id, 1, operatorOpenId),
       });
       await tx.perfCycle.update({
         where: { id: cycle.id },
@@ -214,12 +209,7 @@ export class CycleSetupService {
       );
 
       const snapshot = await tx.perfCycleConfigVersion.create({
-        data: this.buildSnapshotCreateData(
-          source,
-          cycleId,
-          1,
-          operatorOpenId,
-        ),
+        data: this.buildSnapshotCreateData(source, cycleId, 1, operatorOpenId),
         include: { formSnapshots: true },
       });
       await tx.perfCycle.update({
