@@ -182,6 +182,11 @@ export class CalibrationDecisionService {
         cycle: { include: { evaluationRule: true } },
         managerReview: { select: { initialLevel: true, status: true } },
         calibrations: { orderBy: { id: 'desc' }, take: 1 },
+        appeals: {
+          where: { status: { not: 'RESOLVED' } },
+          select: { id: true, status: true },
+          take: 1,
+        },
         result: { select: { archivedAt: true } },
         aiReport: {
           select: {
@@ -390,6 +395,7 @@ export class CalibrationDecisionService {
     status: PerfParticipantStatus;
     cycle: { status: PerfCycleStatus };
     result: { archivedAt: Date | null } | null;
+    appeals: Array<{ id: number }>;
   }) {
     if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
       throw new ConflictException('只有进行中的周期可以校准');
@@ -400,8 +406,15 @@ export class CalibrationDecisionService {
     if (participant.status === PerfParticipantStatus.NO_RESULT) {
       throw new ConflictException('当前周期无绩效结果的参与者不能校准');
     }
+    // 申诉中的重新校准仍复用同一双修订边界，但必须确有未关闭申诉；
+    // 再次确认和归档则永久关闭校准写入口。
+    if (
+      participant.status === PerfParticipantStatus.APPEALING &&
+      participant.appeals.length === 0
+    ) {
+      throw new ConflictException('申诉状态缺少未关闭申诉，不能重新校准');
+    }
     const closedStatuses = new Set<PerfParticipantStatus>([
-      PerfParticipantStatus.APPEALING,
       PerfParticipantStatus.RE_CONFIRMING,
       PerfParticipantStatus.ARCHIVED,
     ]);

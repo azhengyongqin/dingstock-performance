@@ -35,11 +35,13 @@ const PARTICIPANT_TRANSITIONS: Record<
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
   ],
-  APPEALING: [PerfParticipantStatus.RE_CONFIRMING],
-  RE_CONFIRMING: [
-    PerfParticipantStatus.CONFIRMED,
-    PerfParticipantStatus.APPEALING,
+  // 维持原等级时回到原版本确认链；改判发布新版本后进入再次确认。
+  APPEALING: [
+    PerfParticipantStatus.RESULT_PUBLISHED,
+    PerfParticipantStatus.RE_CONFIRMING,
   ],
+  // 每人每周期限一次申诉，再次确认阶段不能重新进入申诉。
+  RE_CONFIRMING: [PerfParticipantStatus.CONFIRMED],
   NO_RESULT: [],
   CONFIRMED: [PerfParticipantStatus.ARCHIVED],
   ARCHIVED: [],

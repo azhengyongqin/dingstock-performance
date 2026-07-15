@@ -159,7 +159,7 @@ export class ResultService {
               finalLevel,
             ),
             sourceCalibrationId: calibration.id,
-            resultSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+            resultSnapshot: snapshot,
             publishedByOpenId: operatorOpenId,
             publishedAt,
           },
@@ -171,16 +171,14 @@ export class ResultService {
           create: {
             participantId: participant.id,
             finalLevel,
-            dimensionResults: snapshot.manager
-              .dimensions as unknown as Prisma.InputJsonValue,
+            dimensionResults: snapshot.manager.dimensions,
             promotionResult: snapshot.promotion
               ? JSON.stringify(snapshot.promotion.items)
               : null,
           },
           update: {
             finalLevel,
-            dimensionResults: snapshot.manager
-              .dimensions as unknown as Prisma.InputJsonValue,
+            dimensionResults: snapshot.manager.dimensions,
             promotionResult: snapshot.promotion
               ? JSON.stringify(snapshot.promotion.items)
               : null,
@@ -270,6 +268,147 @@ export class ResultService {
         cycle: participant.cycle,
       },
       result,
+    };
+  }
+
+  /**
+   * 在申诉聚合事务内比较被申诉版本与最新校准决定：同级只恢复原版本确认链，
+   * 可见等级变化才追加新版本、替代旧版本并发送再次确认通知。
+   */
+  async resolveAppeal(
+    input: {
+      appealId: number;
+      participantId: number;
+      appealedResultVersionId: number;
+      expectedCalibrationRevision: number;
+      operatorOpenId: string;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    const participant = await this.loadPublicationState(
+      tx,
+      input.participantId,
+    );
+    if (!participant) throw new NotFoundException('参与者不存在');
+    if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
+      throw new ConflictException('只有进行中的周期可以处理申诉');
+    }
+    if (participant.status !== PerfParticipantStatus.APPEALING) {
+      throw new ConflictException('参与者当前不在申诉处理中');
+    }
+    const calibration = participant.calibrations[0];
+    if (!calibration) {
+      throw new ConflictException('缺少显式校准决定，不能处理申诉');
+    }
+    if (calibration.id !== input.expectedCalibrationRevision) {
+      throw new ConflictException({
+        code: 'CALIBRATION_REVISION_STALE',
+        message: '校准决定已变化，请刷新申诉处理页后重试',
+      });
+    }
+    const currentVersion = await tx.perfResultVersion.findFirst({
+      where: { participantId: input.participantId, supersededAt: null },
+      orderBy: { version: 'desc' },
+    });
+    if (
+      !currentVersion ||
+      currentVersion.id !== input.appealedResultVersionId
+    ) {
+      throw new ConflictException({
+        code: 'APPEAL_RESULT_VERSION_STALE',
+        message: '申诉绑定的结果版本已变化，请刷新后重试',
+      });
+    }
+
+    const finalLevel = participant.redLineFindings.length
+      ? PerfRatingSymbol.C
+      : this.requireRatingSymbol(calibration.afterLevel);
+    if (currentVersion.finalLevel === finalLevel) {
+      // 原版本从未被确认，维持结论后继续沿用原确认入口，不新建任务或通知。
+      await tx.perfParticipant.update({
+        where: { id: input.participantId },
+        data: { status: PerfParticipantStatus.RESULT_PUBLISHED },
+      });
+      return {
+        changed: false,
+        resultVersionId: currentVersion.id,
+        resolutionCalibrationId: calibration.id,
+      };
+    }
+    if (calibration.id === currentVersion.sourceCalibrationId) {
+      throw new ConflictException({
+        code: 'APPEAL_ADJUSTMENT_REQUIRES_NEW_CALIBRATION',
+        message: '员工可见等级变化必须先基于申诉追加新的显式校准决定',
+      });
+    }
+
+    const publishedAt = new Date();
+    const superseded = await tx.perfResultVersion.updateMany({
+      where: { id: currentVersion.id, supersededAt: null },
+      data: { supersededAt: publishedAt },
+    });
+    if (superseded.count !== 1) {
+      throw new ConflictException('结果版本已变化，请刷新后重试');
+    }
+    const snapshot = this.buildResultSnapshot(participant);
+    const version = currentVersion.version + 1;
+    const resultVersion = await tx.perfResultVersion.create({
+      data: {
+        participantId: input.participantId,
+        version,
+        finalLevel,
+        employeeExplanation: this.employeeExplanation(
+          participant.cycle.currentConfigVersion?.ratings,
+          finalLevel,
+        ),
+        sourceCalibrationId: calibration.id,
+        resultSnapshot: snapshot,
+        publishedByOpenId: input.operatorOpenId,
+        publishedAt,
+      },
+    });
+    await tx.perfResult.upsert({
+      where: { participantId: input.participantId },
+      create: {
+        participantId: input.participantId,
+        finalLevel,
+        dimensionResults: snapshot.manager.dimensions,
+        promotionResult: snapshot.promotion
+          ? JSON.stringify(snapshot.promotion.items)
+          : null,
+      },
+      update: {
+        finalLevel,
+        dimensionResults: snapshot.manager.dimensions,
+        promotionResult: snapshot.promotion
+          ? JSON.stringify(snapshot.promotion.items)
+          : null,
+        confirmedByEmployee: false,
+        confirmedAt: null,
+      },
+    });
+    await tx.perfParticipant.update({
+      where: { id: input.participantId },
+      data: { status: PerfParticipantStatus.RE_CONFIRMING },
+    });
+    await this.notificationEventService.enqueueResultPublishedEvent(
+      {
+        cycleId: participant.cycleId,
+        cycleName: participant.cycle.name,
+        participantId: input.participantId,
+        resultVersionId: resultVersion.id,
+        version,
+        receiverOpenId: participant.employeeOpenId,
+        previousFinalLevel: currentVersion.finalLevel,
+        isReconfirmation: true,
+        appealId: input.appealId,
+      },
+      tx,
+    );
+    return {
+      changed: true,
+      resultVersionId: resultVersion.id,
+      resolutionCalibrationId: calibration.id,
     };
   }
 

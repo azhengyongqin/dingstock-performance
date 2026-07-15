@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
 import { AuthModule } from '../auth/auth.module';
 import { CalibrationModule } from '../calibration/calibration.module';
-import { ParticipantModule } from '../participant/participant.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { SharedModule } from '../shared/shared.module';
 import { AppealController } from './appeal.controller';
@@ -15,7 +14,6 @@ import { AppealService } from './appeal.service';
     AuthModule,
     RbacModule,
     AuditModule,
-    ParticipantModule,
     CalibrationModule,
   ],
   controllers: [AppealController],

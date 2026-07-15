@@ -26,14 +26,16 @@ import {
 } from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PerfAppealStatus, PerfRole } from '../generated/prisma/enums';
-import { Roles } from '../rbac/roles.decorator';
+import { PerfAppealStatus } from '../generated/prisma/enums';
 import { RolesGuard } from '../rbac/roles.guard';
 import { AppealService } from './appeal.service';
 
 class CreateAppealDto {
   @IsInt()
-  cycleId!: number;
+  participantId!: number;
+
+  @IsInt()
+  resultVersionId!: number;
 
   @IsString()
   @MaxLength(1000)
@@ -74,10 +76,8 @@ class ResolveAppealDto {
   @MaxLength(1000)
   conclusion!: string;
 
-  /** 需要调整结果时给出新等级；同时必须填 reason */
-  @IsOptional()
-  @IsString()
-  adjustedLevel?: string;
+  @IsInt()
+  expectedCalibrationRevision!: number;
 
   @IsOptional()
   @IsString()
@@ -97,29 +97,32 @@ export class AppealController {
   create(@Req() req: AuthenticatedRequest, @Body() dto: CreateAppealDto) {
     return this.appealService.create(
       req.user.open_id,
-      dto.cycleId,
+      dto.participantId,
+      dto.resultVersionId,
       dto.reason,
       dto.attachments,
     );
   }
 
   @Get('appeals')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
-  @ApiOperation({ summary: '申诉列表（HR）' })
+  @ApiOperation({ summary: '申诉列表（当前 Leader / 授权 HR / Admin）' })
   @ApiQuery({ name: 'cycle_id', required: false })
   @ApiQuery({ name: 'status', required: false, enum: PerfAppealStatus })
   list(
+    @Req() req: AuthenticatedRequest,
     @Query('cycle_id') cycleId?: string,
     @Query('status') status?: PerfAppealStatus,
   ) {
-    return this.appealService.list({
+    return this.appealService.list(req.user.open_id, {
       cycleId: cycleId ? Number(cycleId) : undefined,
       status,
     });
   }
 
   @Get('appeals/:id')
-  @ApiOperation({ summary: '申诉详情（本人或 HR；含面谈与校准历史）' })
+  @ApiOperation({
+    summary: '申诉详情（本人、当前 Leader、授权 HR/Admin）',
+  })
   detail(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
@@ -128,7 +131,6 @@ export class AppealController {
   }
 
   @Patch('appeals/:id')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
   @ApiOperation({ summary: '指派申诉处理人' })
   assign(
     @Req() req: AuthenticatedRequest,
@@ -139,7 +141,6 @@ export class AppealController {
   }
 
   @Post('appeals/:id/interviews')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
   @ApiOperation({ summary: '添加申诉面谈记录' })
   addInterview(
     @Req() req: AuthenticatedRequest,
@@ -150,9 +151,8 @@ export class AppealController {
   }
 
   @Post('appeals/:id/resolve')
-  @Roles(PerfRole.HR, PerfRole.ADMIN)
   @ApiOperation({
-    summary: '申诉处理结论（等级调整须先在校准工作台创建显式决定）',
+    summary: '关闭申诉（改判须先在校准工作台追加显式决定）',
   })
   resolve(
     @Req() req: AuthenticatedRequest,

@@ -1215,9 +1215,11 @@ model PerfCalibration {
   operatorOpenId String                  @map("operator_open_id") /// 操作人（当前 Leader/授权 HR/Admin）open_id
   createdAt      DateTime                @default(now()) @map("created_at") /// 记录时间
 
-  participant    PerfParticipant     @relation(fields: [participantId], references: [id], onDelete: Restrict)
-  resultVersions PerfResultVersion[] /// 以本决定为来源发布的结果版本
+  participant     PerfParticipant     @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  resultVersions  PerfResultVersion[] /// 以本决定为来源发布的结果版本
+  resolvedAppeals PerfAppeal[]        @relation("AppealResolutionCalibration") /// 以本决定作为处理依据关闭的申诉
 
+  @@unique([id, participantId]) /// 申诉处理复合外键保证决定与参与者一致
   @@index([participantId])
   @@map("perf_calibrations")
   @@schema("performance")
@@ -1286,7 +1288,9 @@ model PerfResultVersion {
 
   participant       PerfParticipant  @relation(fields: [participantId], references: [id], onDelete: Restrict)
   sourceCalibration PerfCalibration? @relation(fields: [sourceCalibrationId], references: [id], onDelete: Restrict)
+  appeals           PerfAppeal[]     @relation("AppealedResultVersion") /// 针对本版本发起的申诉（每参与者至多一次）
 
+  @@unique([id, participantId]) /// 申诉复合外键保证版本与参与者一致
   @@unique([participantId, version]) /// 参与者内版本号唯一
   @@index([participantId, supersededAt]) /// 读取当前有效版本
   @@index([sourceCalibrationId])
@@ -1296,22 +1300,28 @@ model PerfResultVersion {
 
 /// 申诉记录（产品 §8.17）；与员工确认互斥，处理闭环可能触发再次校准
 model PerfAppeal {
-  id             Int              @id @default(autoincrement()) /// 内部自增主键
-  participantId  Int              @map("participant_id") /// 所属参与者
-  reason         String           @map("reason") /// 申诉理由
-  attachments    Json?            @map("attachments") /// 申诉附件：[{ name, url/fileToken }]
-  status         PerfAppealStatus @default(PENDING) /// 处理状态
-  handlerOpenId  String?          @map("handler_open_id") /// 处理人（HR）open_id
-  conclusion     String?          @map("conclusion") /// 处理结论
-  resultAdjusted Boolean          @default(false) @map("result_adjusted") /// 处理后结果是否调整（调整走校准记录）
-  resolvedAt     DateTime?        @map("resolved_at") /// 处理完成时间
-  createdAt      DateTime         @default(now()) @map("created_at") /// 申诉发起时间
-  updatedAt      DateTime         @updatedAt @map("updated_at") /// 最近更新时间
+  id                      Int              @id @default(autoincrement()) /// 内部自增主键
+  participantId           Int              @map("participant_id") /// 所属参与者；服务聚合锁与数据库触发器兜底每人每周期仅一次申诉
+  resultVersionId         Int              @map("result_version_id") /// 员工发起申诉时看到的当前有效结果版本
+  resolutionCalibrationId Int?             @map("resolution_calibration_id") /// 处理时参考的最新校准决定；未重新校准时仍指向原来源决定
+  isLegacy                Boolean          @default(false) @map("is_legacy") /// 迁移前历史申诉为 true；允许保留旧系统的重复申诉事实，新建记录必须为 false
+  reason                  String           @map("reason") /// 申诉理由
+  attachments             Json?            @map("attachments") /// 申诉附件：[{ name, url/fileToken }]
+  status                  PerfAppealStatus @default(PENDING) /// 处理状态
+  handlerOpenId           String?          @map("handler_open_id") /// 实际处理人（当前 Leader、授权 HR 或 Admin）open_id
+  conclusion              String?          @map("conclusion") /// 处理结论
+  resultAdjusted          Boolean          @default(false) @map("result_adjusted") /// 是否因员工可见等级变化发布了新版本
+  resolvedAt              DateTime?        @map("resolved_at") /// 处理完成时间
+  createdAt               DateTime         @default(now()) @map("created_at") /// 申诉发起时间
+  updatedAt               DateTime         @updatedAt @map("updated_at") /// 最近更新时间
 
-  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
-  interviews  PerfInterview[]
+  participant           PerfParticipant   @relation(fields: [participantId], references: [id], onDelete: Restrict)
+  resultVersion         PerfResultVersion @relation("AppealedResultVersion", fields: [resultVersionId, participantId], references: [id, participantId], onDelete: Restrict)
+  resolutionCalibration PerfCalibration?  @relation("AppealResolutionCalibration", fields: [resolutionCalibrationId, participantId], references: [id, participantId], onDelete: Restrict)
+  interviews            PerfInterview[]
 
-  @@index([participantId])
+  @@index([resultVersionId])
+  @@index([resolutionCalibrationId])
   @@index([status]) /// 申诉处理队列
   @@index([handlerOpenId])
   @@map("perf_appeals")

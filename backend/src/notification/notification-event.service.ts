@@ -125,6 +125,9 @@ export class NotificationEventService {
       resultVersionId: number;
       version: number;
       receiverOpenId: string;
+      previousFinalLevel?: string;
+      isReconfirmation?: boolean;
+      appealId?: number;
     },
     transaction?: NotificationEventWriter,
   ) {
@@ -135,13 +138,20 @@ export class NotificationEventService {
         cycleId: input.cycleId,
         receiverOpenId: input.receiverOpenId,
         channel: PerfNotificationChannel.BOT_DM,
-        template: 'result_published',
+        template: input.isReconfirmation
+          ? 'result_changed_reconfirmation'
+          : 'result_published',
         payload: {
           cycleId: input.cycleId,
           cycleName: input.cycleName,
           participantId: input.participantId,
           resultVersionId: input.resultVersionId,
           version: input.version,
+          isReconfirmation: input.isReconfirmation ?? false,
+          ...(input.previousFinalLevel
+            ? { previousFinalLevel: input.previousFinalLevel }
+            : {}),
+          ...(input.appealId !== undefined ? { appealId: input.appealId } : {}),
         },
       },
       transaction,

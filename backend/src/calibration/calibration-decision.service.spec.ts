@@ -63,6 +63,7 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     stageResults: [{ id: 301, stageLevel: 'B' }],
     managerReview: null,
     calibrations: [],
+    appeals: [],
     result: null,
   };
   const tx = {
@@ -500,6 +501,43 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     ).resolves.toMatchObject({ decision: 'KEEP', afterLevel: 'B' });
     expect(tx.perfCalibration.create).toHaveBeenCalled();
     expect(tx.perfParticipant.update).not.toHaveBeenCalled();
+  });
+
+  it('申诉处理中仅在存在未关闭申诉时允许按双修订追加重新校准决定', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValue({
+      ...participant,
+      status: 'APPEALING',
+      evaluationLockedAt: new Date('2026-07-15T10:00:00.000Z'),
+      calibrations: [{ id: 400, afterLevel: 'B' }],
+      appeals: [{ id: 501, status: 'PENDING' }],
+    });
+    const context = await service.getContext('ou_leader', 7);
+    tx.perfCalibration.create.mockResolvedValueOnce({
+      id: 401,
+      participantId: 7,
+      decision: 'ADJUST',
+      beforeLevel: 'B',
+      afterLevel: 'A',
+      reason: '申诉证据支持改判',
+      operatorOpenId: 'ou_leader',
+    });
+
+    await expect(
+      service.decide('ou_leader', 7, {
+        decision: 'ADJUST',
+        afterLevel: 'A',
+        reason: '申诉证据支持改判',
+        expectedCalibrationRevision: 400,
+        expectedInputRevision: context.inputRevision,
+      }),
+    ).resolves.toMatchObject({ decision: 'ADJUST', afterLevel: 'A' });
+    expect(tx.perfCalibration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        participantId: 7,
+        decision: 'ADJUST',
+        afterLevel: 'A',
+      }),
+    });
   });
 
   it('SELF_SUBMITTED 仍按有效提交门槛派生完成度并允许决定', async () => {

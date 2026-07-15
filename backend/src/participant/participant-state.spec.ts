@@ -24,9 +24,9 @@ describe('参与者状态机', () => {
     [PerfParticipantStatus.RESULT_PUSHED, PerfParticipantStatus.APPEALING],
     [PerfParticipantStatus.RESULT_PUBLISHED, PerfParticipantStatus.CONFIRMED],
     [PerfParticipantStatus.RESULT_PUBLISHED, PerfParticipantStatus.APPEALING],
+    [PerfParticipantStatus.APPEALING, PerfParticipantStatus.RESULT_PUBLISHED],
     [PerfParticipantStatus.APPEALING, PerfParticipantStatus.RE_CONFIRMING],
     [PerfParticipantStatus.RE_CONFIRMING, PerfParticipantStatus.CONFIRMED],
-    [PerfParticipantStatus.RE_CONFIRMING, PerfParticipantStatus.APPEALING],
     [PerfParticipantStatus.CONFIRMED, PerfParticipantStatus.ARCHIVED],
   ];
 
@@ -51,6 +51,15 @@ describe('参与者状态机', () => {
     expect(() =>
       assertParticipantTransition(
         PerfParticipantStatus.CONFIRMED,
+        PerfParticipantStatus.APPEALING,
+      ),
+    ).toThrow(ConflictException);
+  });
+
+  it('再次确认阶段不允许二次申诉', () => {
+    expect(() =>
+      assertParticipantTransition(
+        PerfParticipantStatus.RE_CONFIRMING,
         PerfParticipantStatus.APPEALING,
       ),
     ).toThrow(ConflictException);

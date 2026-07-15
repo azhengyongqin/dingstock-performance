@@ -199,6 +199,33 @@ describe('NotificationEventService', () => {
     ]);
   });
 
+  it('申诉改判的新版本使用再次确认通知模板并携带前后等级', async () => {
+    const service = buildService();
+
+    await service.enqueueResultPublishedEvent({
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      resultVersionId: 42,
+      version: 2,
+      receiverOpenId: 'ou_employee',
+      previousFinalLevel: 'B',
+      isReconfirmation: true,
+    });
+
+    expect([...events.values()]).toEqual([
+      expect.objectContaining({
+        dedupeKey: 'result-published:42:ou_employee',
+        template: 'result_changed_reconfirmation',
+        payload: expect.objectContaining({
+          resultVersionId: 42,
+          previousFinalLevel: 'B',
+          isReconfirmation: true,
+        }),
+      }),
+    ]);
+  });
+
   it('同一事件重复消费只产生一条待发送通知', async () => {
     const service = buildService();
     const event = await service.enqueue({
