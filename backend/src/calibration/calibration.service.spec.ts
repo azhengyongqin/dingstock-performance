@@ -58,7 +58,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
   const requiredEvaluation = {
     assertCalibrationReady: jest.fn(),
-    getRequiredEvaluationGate: jest.fn(),
+    getRequiredEvaluationGates: jest.fn(),
   };
   let service: CalibrationService;
 
@@ -102,12 +102,19 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
       manager: 'EFFECTIVE',
       blockers: [],
     });
-    requiredEvaluation.getRequiredEvaluationGate.mockResolvedValue({
-      ready: true,
-      self: 'EFFECTIVE',
-      manager: 'EFFECTIVE',
-      blockers: [],
-    });
+    requiredEvaluation.getRequiredEvaluationGates.mockResolvedValue(
+      new Map([
+        [
+          7,
+          {
+            ready: true,
+            self: 'EFFECTIVE',
+            manager: 'EFFECTIVE',
+            blockers: [],
+          },
+        ],
+      ]),
+    );
     service = new CalibrationService(
       prisma as never,
       audit as never,
@@ -267,6 +274,9 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
       },
       requiredEvaluations: expect.objectContaining({ ready: true }),
     });
+    expect(requiredEvaluation.getRequiredEvaluationGates).toHaveBeenCalledWith([
+      7,
+    ]);
   });
 
   it('校准工作台按当前 Leader 与 HR 组织范围过滤敏感 AI 内容', async () => {

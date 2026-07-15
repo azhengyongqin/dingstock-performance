@@ -6,6 +6,7 @@ import {
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { Prisma } from '../generated/prisma/client';
 import type { EvaluationItemAnswerDto } from './evaluation.dto';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 // jest.mock 工厂会被提升到 import 之前执行，工厂体内不能引用外部变量（TDZ），
 // 因此与真实 @prisma/client 运行时同形的错误类（code + meta.target）需在工厂内部自包含定义；
@@ -47,6 +48,7 @@ jest.mock(
       SELF_SUBMITTED: 'SELF_SUBMITTED',
       RETURNED: 'RETURNED',
       REVIEWED: 'REVIEWED',
+      NO_RESULT: 'NO_RESULT',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfFormItemType: {
@@ -209,6 +211,7 @@ const completeSelfItems: EvaluationItemAnswerDto[] = [
 
 describe('EvaluationSubmissionService 员工自评', () => {
   const tx = {
+    $queryRaw: jest.fn(),
     perfEvaluationSubmission: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -236,6 +239,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
   const participants = { transition: jest.fn() };
   const taskAccess = { ensureWritable: jest.fn(), openIfDue: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
+  const participantEvaluationLock = new ParticipantEvaluationLockService();
   let service: EvaluationSubmissionService;
 
   beforeEach(() => {
@@ -244,6 +248,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
     prisma.$transaction.mockImplementation(
       async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
     );
+    tx.$queryRaw.mockResolvedValue([{ id: 7, status: 'PENDING_SELF_REVIEW' }]);
     tx.perfEvaluationSubmission.findFirst.mockResolvedValue(null);
     tx.perfEvaluationSubmission.create.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
@@ -267,6 +272,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
       participants as never,
       taskAccess as never,
       aiReport as never,
+      participantEvaluationLock,
     );
   });
 
@@ -642,6 +648,29 @@ describe('EvaluationSubmissionService 员工自评', () => {
           targetId: '7',
         }),
       );
+    });
+
+    it('提交在事务内先锁定参与者行，NO_RESULT 抢先生效时不得再写入有效 SELF', async () => {
+      tx.$queryRaw.mockResolvedValueOnce([{ id: 7, status: 'NO_RESULT' }]);
+
+      await expect(
+        service.submitSelf('ou_me', {
+          cycleId: 1,
+          items: completeSelfItems,
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'EVALUATION_PARTICIPANT_LOCKED',
+        }),
+      });
+
+      expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+      const [queryParts] = tx.$queryRaw.mock.calls[0];
+      expect(
+        Array.from(queryParts as TemplateStringsArray).join('?'),
+      ).toContain('FOR UPDATE');
+      expect(tx.perfEvaluationSubmission.findFirst).not.toHaveBeenCalled();
+      expect(tx.perfEvaluationSubmission.create).not.toHaveBeenCalled();
     });
 
     it('重新提交在同一事务内整体替换 SUBMITTED 明细并删除 DRAFT，不新增行也不回退参与者进度', async () => {

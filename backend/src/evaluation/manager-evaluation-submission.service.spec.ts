@@ -230,6 +230,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       {} as never,
       taskAccess as never,
       aiReport as never,
+      {} as never,
     );
     service = new ManagerEvaluationSubmissionService(
       prisma as never,

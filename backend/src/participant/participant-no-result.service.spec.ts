@@ -10,6 +10,7 @@ jest.mock(
   '../generated/prisma/enums',
   () => ({
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
+    PerfAssignmentStatus: { PENDING: 'PENDING' },
     PerfEvaluationTaskType: {
       SELF: 'SELF',
       PEER: 'PEER',
@@ -21,6 +22,7 @@ jest.mock(
       NO_RESULT: 'NO_RESULT',
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
+    PerfSelfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
     PerfStageResultMode: { DIRECT_RATING: 'DIRECT_RATING' },
     PerfStageResultStatus: { NO_DATA: 'NO_DATA' },
@@ -50,6 +52,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     },
     perfEvaluationSubmission: { findMany: jest.fn() },
     perfEvaluationTask: { updateMany: jest.fn() },
+    perfReviewerAssignment: { count: jest.fn() },
     perfStageResult: { upsert: jest.fn(), deleteMany: jest.fn() },
     perfResult: { count: jest.fn() },
     perfCalibration: { count: jest.fn() },
@@ -80,6 +83,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
       { id: 11, stage: 'MANAGER', status: 'SUBMITTED' },
     ]);
     tx.perfEvaluationTask.updateMany.mockResolvedValue({ count: 3 });
+    tx.perfReviewerAssignment.count.mockResolvedValue(1);
     tx.perfResult.count.mockResolvedValue(0);
     tx.perfCalibration.count.mockResolvedValue(0);
     rbac.hasAnyRole.mockResolvedValue(true);
@@ -93,10 +97,10 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
 
   it('SELF 与 MANAGER 都有当前有效提交即可校准，PEER/AI 缺失和更新草稿均不阻塞', async () => {
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([
-      { stage: 'SELF', status: 'SUBMITTED' },
-      { stage: 'SELF', status: 'DRAFT' },
-      { stage: 'MANAGER', status: 'SUBMITTED' },
-      { stage: 'MANAGER', status: 'DRAFT' },
+      { participantId: 7, stage: 'SELF', status: 'SUBMITTED' },
+      { participantId: 7, stage: 'SELF', status: 'DRAFT' },
+      { participantId: 7, stage: 'MANAGER', status: 'SUBMITTED' },
+      { participantId: 7, stage: 'MANAGER', status: 'DRAFT' },
     ]);
 
     await expect(service.assertCalibrationReady(7)).resolves.toMatchObject({
@@ -106,9 +110,26 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     });
   });
 
+  it('批量派生多名参与者门槛时只查询一次有效答卷', async () => {
+    prisma.perfEvaluationSubmission.findMany.mockResolvedValue([
+      { participantId: 7, stage: 'SELF' },
+      { participantId: 7, stage: 'MANAGER' },
+      { participantId: 8, stage: 'SELF' },
+    ]);
+
+    const gates = await service.getRequiredEvaluationGates([7, 8]);
+
+    expect(prisma.perfEvaluationSubmission.findMany).toHaveBeenCalledTimes(1);
+    expect(gates.get(7)).toMatchObject({ ready: true });
+    expect(gates.get(8)).toMatchObject({
+      ready: false,
+      manager: 'MISSING',
+    });
+  });
+
   it('缺失 MANAGER 时返回持续阻塞和催办或更换考核 Leader 指引', async () => {
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([
-      { stage: 'SELF', status: 'SUBMITTED' },
+      { participantId: 7, stage: 'SELF', status: 'SUBMITTED' },
     ]);
 
     await expect(service.assertCalibrationReady(7)).rejects.toMatchObject({
@@ -174,6 +195,22 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     expect(tx.perfParticipant.update).not.toHaveBeenCalled();
   });
 
+  it('旧 SELF 提交先获行锁并生效后，NO_RESULT 收口也必须拒绝', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValue({
+      ...participant,
+      selfReview: { status: 'SUBMITTED' },
+    });
+    tx.perfEvaluationSubmission.findMany.mockResolvedValue([
+      { id: 11, stage: 'MANAGER', status: 'SUBMITTED' },
+    ]);
+
+    await expect(
+      service.markNoResult('ou_hr', 1, 7, '员工长期未提交自评'),
+    ).rejects.toThrow(ConflictException);
+
+    expect(tx.perfParticipant.update).not.toHaveBeenCalled();
+  });
+
   it('范围 HR 不能处理授权组织外参与人', async () => {
     rbac.getOrgScope.mockResolvedValue(['od_sales']);
 
@@ -216,5 +253,30 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
       data: { completedAt: null },
     });
     expect(tx.perfEvaluationSubmission).not.toHaveProperty('deleteMany');
+  });
+
+  it('撤销时即使已有部分 PEER 有效提交，仍按活跃待评指派重开 PEER 任务', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValue({
+      ...participant,
+      status: 'NO_RESULT',
+    });
+    tx.perfEvaluationSubmission.findMany.mockResolvedValue([
+      { stage: 'PEER', status: 'SUBMITTED' },
+      { stage: 'MANAGER', status: 'SUBMITTED' },
+    ]);
+    tx.perfReviewerAssignment.count.mockResolvedValue(1);
+
+    await service.revokeNoResult('ou_admin', 1, 7, '恢复后继续评估');
+
+    expect(tx.perfReviewerAssignment.count).toHaveBeenCalledWith({
+      where: { participantId: 7, status: 'PENDING' },
+    });
+    expect(tx.perfEvaluationTask.updateMany).toHaveBeenCalledWith({
+      where: {
+        participantId: 7,
+        type: { in: ['SELF', 'PEER', 'AI'] },
+      },
+      data: { completedAt: null },
+    });
   });
 });

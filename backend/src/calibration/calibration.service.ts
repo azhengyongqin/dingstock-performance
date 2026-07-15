@@ -96,43 +96,43 @@ export class CalibrationService {
       orderBy: { id: 'asc' },
     });
 
-    const users = await this.prisma.larkUser.findMany({
-      where: { open_id: { in: participants.map((p) => p.employeeOpenId) } },
-      select: { open_id: true, name: true, avatar: true, job_title: true },
-    });
+    const [users, requiredEvaluationGates] = await Promise.all([
+      this.prisma.larkUser.findMany({
+        where: { open_id: { in: participants.map((p) => p.employeeOpenId) } },
+        select: { open_id: true, name: true, avatar: true, job_title: true },
+      }),
+      this.participantNoResultService.getRequiredEvaluationGates(
+        participants.map((participant) => participant.id),
+      ),
+    ]);
     const userMap = new Map(users.map((u) => [u.open_id, u]));
 
-    const items = await Promise.all(
-      participants.map(async (participant) => {
-        const initialLevel =
-          participant.stageResults?.[0]?.stageLevel ??
-          participant.managerReview?.initialLevel ??
-          null;
-        const currentLevel =
-          participant.calibrations[0]?.afterLevel ?? initialLevel;
-        const requiredEvaluations =
-          await this.participantNoResultService.getRequiredEvaluationGate(
-            participant.id,
-          );
-        return {
-          id: participant.id,
-          employeeOpenId: participant.employeeOpenId,
-          employee: userMap.get(participant.employeeOpenId) ?? null,
-          status: participant.status,
-          isPromotionEnabled: participant.isPromotionEnabled,
-          initialLevel,
-          currentLevel,
-          promotionConclusion:
-            participant.managerReview?.promotionConclusion ?? null,
-          aiReportStatus: participant.aiReport?.status ?? null,
-          riskFlags: participant.aiReport?.riskFlags ?? null,
-          // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
-          aiReport: participant.aiReport ?? null,
-          adjusted: participant.calibrations.length > 0,
-          requiredEvaluations,
-        };
-      }),
-    );
+    const items = participants.map((participant) => {
+      const initialLevel =
+        participant.stageResults?.[0]?.stageLevel ??
+        participant.managerReview?.initialLevel ??
+        null;
+      const currentLevel =
+        participant.calibrations[0]?.afterLevel ?? initialLevel;
+      const requiredEvaluations = requiredEvaluationGates.get(participant.id)!;
+      return {
+        id: participant.id,
+        employeeOpenId: participant.employeeOpenId,
+        employee: userMap.get(participant.employeeOpenId) ?? null,
+        status: participant.status,
+        isPromotionEnabled: participant.isPromotionEnabled,
+        initialLevel,
+        currentLevel,
+        promotionConclusion:
+          participant.managerReview?.promotionConclusion ?? null,
+        aiReportStatus: participant.aiReport?.status ?? null,
+        riskFlags: participant.aiReport?.riskFlags ?? null,
+        // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
+        aiReport: participant.aiReport ?? null,
+        adjusted: participant.calibrations.length > 0,
+        requiredEvaluations,
+      };
+    });
 
     // 评级分布：按当前评级聚合，前端按评估规则评级序列展示。
     const distribution: Record<string, number> = {};

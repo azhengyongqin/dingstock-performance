@@ -1,5 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { SelfReviewService } from './self-review.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 jest.mock('../generated/prisma/client', () => ({ PrismaClient: class {} }), {
   virtual: true,
@@ -13,6 +14,7 @@ jest.mock(
       SELF_SUBMITTED: 'SELF_SUBMITTED',
       RETURNED: 'RETURNED',
       REVIEWED: 'REVIEWED',
+      NO_RESULT: 'NO_RESULT',
     },
     PerfRole: { EMPLOYEE: 'EMPLOYEE', HR: 'HR', ADMIN: 'ADMIN' },
     PerfSelfReviewStatus: {
@@ -40,6 +42,12 @@ describe('SelfReviewService 写入语义', () => {
     ensureWritable: jest.fn(),
     openIfDue: jest.fn(),
   };
+  const tx = {
+    $queryRaw: jest.fn(),
+    perfSelfReview: prisma.perfSelfReview,
+    perfEvaluationTask: prisma.perfEvaluationTask,
+  };
+  const participantEvaluationLock = new ParticipantEvaluationLockService();
   let service: SelfReviewService;
 
   const submittedParticipant = {
@@ -62,13 +70,17 @@ describe('SelfReviewService 写入语义', () => {
       status: 'SUBMITTED',
     });
     prisma.perfEvaluationTask.update.mockResolvedValue({ id: 21 });
-    prisma.$transaction.mockResolvedValue([]);
+    prisma.$transaction.mockImplementation(
+      async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+    );
+    tx.$queryRaw.mockResolvedValue([{ id: 7, status: 'SELF_SUBMITTED' }]);
     service = new SelfReviewService(
       prisma as never,
       audit as never,
       participants as never,
       rbac as never,
       taskAccess as never,
+      participantEvaluationLock,
     );
   });
 
@@ -115,5 +127,35 @@ describe('SelfReviewService 写入语义', () => {
     expect(prisma.perfSelfReview.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 31 } }),
     );
+  });
+
+  it('旧草稿路径在写事务内复查 NO_RESULT，收口抢先时不得写入', async () => {
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 7, status: 'NO_RESULT' }]);
+
+    await expect(
+      service.saveDraft('ou_employee', {
+        cycleId: 1,
+        summary: { results: '不应保存' },
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+      }),
+    });
+
+    expect(prisma.perfSelfReview.upsert).not.toHaveBeenCalled();
+  });
+
+  it('旧提交路径在写事务内复查 NO_RESULT，收口抢先时不得提交', async () => {
+    tx.$queryRaw.mockResolvedValueOnce([{ id: 7, status: 'NO_RESULT' }]);
+
+    await expect(service.submit('ou_employee', 1)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+      }),
+    });
+
+    expect(prisma.perfSelfReview.update).not.toHaveBeenCalled();
+    expect(prisma.perfEvaluationTask.update).not.toHaveBeenCalled();
   });
 });

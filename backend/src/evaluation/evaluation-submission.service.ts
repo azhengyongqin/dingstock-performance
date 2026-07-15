@@ -16,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
 import { AiReportService } from '../ai-report/ai-report.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 import type {
   EvaluationItemAnswerDto,
   SaveSelfEvaluationDto,
@@ -49,6 +50,7 @@ export class EvaluationSubmissionService {
     private readonly participantService: ParticipantService,
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly aiReportService: AiReportService,
+    private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
   /** 找到我在指定周期（或最近一个进行中周期）的参与记录，附表单快照与周期评级配置 */
@@ -170,6 +172,11 @@ export class EvaluationSubmissionService {
       this.toItemRow(entry, participant.formSnapshotId!, null),
     );
     return this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockSelfWrite(
+        tx,
+        participant.id,
+        employeeOpenId,
+      );
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {
           participantId: participant.id,
@@ -233,6 +240,11 @@ export class EvaluationSubmissionService {
     );
     const submittedAt = new Date();
     await this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockSelfWrite(
+        tx,
+        participant.id,
+        employeeOpenId,
+      );
       const existing = await tx.perfEvaluationSubmission.findFirst({
         where: {
           participantId: participant.id,

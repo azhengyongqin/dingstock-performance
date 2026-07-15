@@ -17,6 +17,7 @@ import { ParticipantService } from '../participant/participant.service';
 import { RbacService } from '../rbac/rbac.service';
 import type { SaveSelfReviewDto } from './review.dto';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
+import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 
 /** 员工自评（产品 §5.3）：员工只能操作"自己在指定周期"的记录 */
 @Injectable()
@@ -27,6 +28,7 @@ export class SelfReviewService {
     private readonly participantService: ParticipantService,
     private readonly rbacService: RbacService,
     private readonly taskAccessService: EvaluationTaskAccessService,
+    private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
   ) {}
 
   /** 找到我在指定周期（或最近一个进行中周期）的参与记录 */
@@ -132,10 +134,17 @@ export class SelfReviewService {
       documentToken: dto.documentToken,
       status: PerfSelfReviewStatus.DRAFT,
     };
-    return this.prisma.perfSelfReview.upsert({
-      where: { participantId: participant.id },
-      create: { ...data, participantId: participant.id },
-      update: data,
+    return this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockSelfWrite(
+        tx,
+        participant.id,
+        employeeOpenId,
+      );
+      return tx.perfSelfReview.upsert({
+        where: { participantId: participant.id },
+        create: { ...data, participantId: participant.id },
+        update: data,
+      });
     });
   }
 
@@ -151,15 +160,20 @@ export class SelfReviewService {
     if (!selfReview) throw new ConflictException('尚未填写自评内容');
 
     const completedAt = new Date();
-    await this.prisma.$transaction([
-      this.prisma.perfSelfReview.update({
+    await this.prisma.$transaction(async (tx) => {
+      await this.participantEvaluationLockService.lockSelfWrite(
+        tx,
+        participant.id,
+        employeeOpenId,
+      );
+      await tx.perfSelfReview.update({
         where: { id: selfReview.id },
         data: {
           status: PerfSelfReviewStatus.SUBMITTED,
           submittedAt: completedAt,
         },
-      }),
-      this.prisma.perfEvaluationTask.update({
+      });
+      await tx.perfEvaluationTask.update({
         where: {
           participantId_type: {
             participantId: participant.id,
@@ -167,8 +181,8 @@ export class SelfReviewService {
           },
         },
         data: { completedAt },
-      }),
-    ]);
+      });
+    });
     if (
       participant.status === PerfParticipantStatus.PENDING_SELF_REVIEW ||
       participant.status === PerfParticipantStatus.RETURNED

@@ -174,6 +174,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       {} as never,
       taskAccess as never,
       aiReport as never,
+      {} as never,
     );
     service = new PeerEvaluationSubmissionService(
       prisma as never,

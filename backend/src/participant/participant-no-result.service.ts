@@ -6,11 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  PerfAssignmentStatus,
   PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
+  PerfSelfReviewStatus,
   PerfStageResultMode,
   PerfStageResultStatus,
 } from '../generated/prisma/enums';
@@ -51,17 +53,51 @@ export class ParticipantNoResultService {
     participantId: number,
     db: RequiredEvaluationDb = this.prisma,
   ): Promise<RequiredEvaluationGate> {
+    const gates = await this.getRequiredEvaluationGates([participantId], db);
+    return gates.get(participantId)!;
+  }
+
+  /** 校准列表批量派生必交门槛，避免按参与者逐行查询。 */
+  async getRequiredEvaluationGates(
+    participantIds: number[],
+    db: RequiredEvaluationDb = this.prisma,
+  ): Promise<Map<number, RequiredEvaluationGate>> {
+    const uniqueIds = [...new Set(participantIds)];
+    if (uniqueIds.length === 0) return new Map();
     const submissions = await db.perfEvaluationSubmission.findMany({
       where: {
-        participantId,
+        participantId: { in: uniqueIds },
         stage: {
           in: [PerfEvaluationTaskType.SELF, PerfEvaluationTaskType.MANAGER],
         },
         status: PerfReviewStatus.SUBMITTED,
       },
-      select: { stage: true },
+      select: { participantId: true, stage: true },
     });
-    const effectiveStages = new Set(submissions.map((item) => item.stage));
+    const stagesByParticipant = new Map<number, Set<PerfEvaluationTaskType>>();
+    for (const submission of submissions) {
+      const stages = stagesByParticipant.get(submission.participantId);
+      if (stages) stages.add(submission.stage);
+      else {
+        stagesByParticipant.set(
+          submission.participantId,
+          new Set([submission.stage]),
+        );
+      }
+    }
+    return new Map(
+      uniqueIds.map((id) => [
+        id,
+        this.buildRequiredEvaluationGate(
+          stagesByParticipant.get(id) ?? new Set(),
+        ),
+      ]),
+    );
+  }
+
+  private buildRequiredEvaluationGate(
+    effectiveStages: Set<PerfEvaluationTaskType>,
+  ): RequiredEvaluationGate {
     const self = effectiveStages.has(PerfEvaluationTaskType.SELF)
       ? 'EFFECTIVE'
       : 'MISSING';
@@ -115,6 +151,8 @@ export class ParticipantNoResultService {
           where: { id: participantId },
           include: {
             cycle: { include: { currentConfigVersion: true } },
+            // 旧写接口在完成收缩前仍公开，收口必须同时识别其有效提交。
+            selfReview: { select: { status: true } },
           },
         });
         if (!participant || participant.cycle.deletedAt) {
@@ -153,11 +191,13 @@ export class ParticipantNoResultService {
           tx.perfResult.count({ where: { participantId } }),
           tx.perfCalibration.count({ where: { participantId } }),
         ]);
-        const effectiveSelf = submissions.find(
-          (item) =>
-            item.stage === PerfEvaluationTaskType.SELF &&
-            item.status === PerfReviewStatus.SUBMITTED,
-        );
+        const effectiveSelf =
+          participant.selfReview?.status === PerfSelfReviewStatus.SUBMITTED ||
+          submissions.some(
+            (item) =>
+              item.stage === PerfEvaluationTaskType.SELF &&
+              item.status === PerfReviewStatus.SUBMITTED,
+          );
         if (effectiveSelf) {
           throw new ConflictException(
             '员工已有有效自评，不能因上级评估缺失设置当前周期无绩效结果；请催办或更换考核 Leader',
@@ -273,17 +313,32 @@ export class ParticipantNoResultService {
         throw new ConflictException('周期缺少当前配置快照，无法恢复参评');
       }
 
-      const effective = await tx.perfEvaluationSubmission.findMany({
-        where: { participantId, status: PerfReviewStatus.SUBMITTED },
-        select: { stage: true },
-      });
+      const [effective, pendingPeerAssignments] = await Promise.all([
+        tx.perfEvaluationSubmission.findMany({
+          where: { participantId, status: PerfReviewStatus.SUBMITTED },
+          select: { stage: true },
+        }),
+        tx.perfReviewerAssignment.count({
+          where: {
+            participantId,
+            status: PerfAssignmentStatus.PENDING,
+          },
+        }),
+      ]);
       const effectiveStages = new Set(effective.map((item) => item.stage));
-      const reopenTypes = [
-        PerfEvaluationTaskType.SELF,
-        PerfEvaluationTaskType.PEER,
-        PerfEvaluationTaskType.MANAGER,
-        PerfEvaluationTaskType.AI,
-      ].filter((type) => !effectiveStages.has(type));
+      const reopenTypes: PerfEvaluationTaskType[] = [];
+      if (!effectiveStages.has(PerfEvaluationTaskType.SELF)) {
+        reopenTypes.push(PerfEvaluationTaskType.SELF);
+      }
+      // PEER 任务由活跃指派的完成度派生，不能被某一份答卷代表。
+      if (pendingPeerAssignments > 0) {
+        reopenTypes.push(PerfEvaluationTaskType.PEER);
+      }
+      if (!effectiveStages.has(PerfEvaluationTaskType.MANAGER)) {
+        reopenTypes.push(PerfEvaluationTaskType.MANAGER);
+      }
+      // AI 不属于人工答卷；撤销收口后交由异步任务按当前输入重新派生。
+      reopenTypes.push(PerfEvaluationTaskType.AI);
 
       // NO_DATA 是本次收口的当前结果事实；撤销后删除它，草稿和有效提交均原样保留。
       await tx.perfStageResult.deleteMany({
