@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "performance"."perf_evaluation_tasks_reminder_deadline_at_completed_at_opened_" RENAME TO "perf_evaluation_tasks_reminder_deadline_at_completed_at_ope_idx";
