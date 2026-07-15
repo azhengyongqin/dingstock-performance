@@ -6,7 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import { PerfCycleStatus, PerfFormItemType } from '../generated/prisma/enums';
+import {
+  PerfCycleStatus,
+  PerfFormItemType,
+  PerfReviewStatus,
+} from '../generated/prisma/enums';
 import type { ConfigTemplateVersionContract } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
@@ -202,7 +206,12 @@ export class ActiveCycleConfigChangeService {
         data: { formSnapshotId: nextFormSnapshotId },
       });
       await tx.perfEvaluationSubmission.updateMany({
-        where: { participantId: participant.id },
+        where: {
+          participantId: participant.id,
+          status: {
+            in: [PerfReviewStatus.DRAFT, PerfReviewStatus.SUBMITTED],
+          },
+        },
         data: { formSnapshotId: nextFormSnapshotId },
       });
       participantIds.push(participant.id);

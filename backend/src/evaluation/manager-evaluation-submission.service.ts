@@ -315,6 +315,7 @@ export class ManagerEvaluationSubmissionService {
           data: {
             // 职责转移后的首次正式重交在同一生效行上接管归属，不保留旧答卷版本。
             reviewerOpenId: leaderOpenId,
+            formSnapshotId,
             submittedAt,
             submittedByOpenId: leaderOpenId,
           },

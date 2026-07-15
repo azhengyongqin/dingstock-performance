@@ -51,6 +51,11 @@ export const cycleImpactInclude = {
     include: {
       formSnapshot: { select: { id: true, content: true } },
       evaluationSubmissions: {
+        where: {
+          status: {
+            in: [PerfReviewStatus.DRAFT, PerfReviewStatus.SUBMITTED],
+          },
+        },
         orderBy: { id: 'asc' as const },
         include: {
           items: { orderBy: { id: 'asc' as const } },

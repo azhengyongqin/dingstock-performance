@@ -19,7 +19,8 @@ import { PrismaService } from '../shared/database/prisma.service';
 import { assertCycleTransition } from './cycle-state';
 
 export type ActiveCycleRollbackInput = {
-  targetStatus: PerfCycleStatus;
+  targetStatus:
+    (typeof PerfCycleStatus)['DRAFT'] | (typeof PerfCycleStatus)['SCHEDULED'];
   reason: string;
   confirmed: boolean;
   impactRevision: string;

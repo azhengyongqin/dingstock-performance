@@ -168,7 +168,9 @@ export class NotificationEventService {
       participantId: number;
       resultVersionId: number;
       receiverOpenId: string;
-      targetStatus: PerfCycleStatus.DRAFT | PerfCycleStatus.SCHEDULED;
+      targetStatus:
+        | (typeof PerfCycleStatus)['DRAFT']
+        | (typeof PerfCycleStatus)['SCHEDULED'];
     },
     transaction?: NotificationEventWriter,
   ) {

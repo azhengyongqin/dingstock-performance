@@ -273,6 +273,7 @@ export class PeerEvaluationSubmissionService {
           // 同一评审员重新获指派时，唯一生效提交迁移到当前指派。
           data: {
             reviewerAssignmentId: assignment.id,
+            formSnapshotId: participant.formSnapshotId!,
             submittedAt,
             submittedByOpenId: reviewerOpenId,
           },

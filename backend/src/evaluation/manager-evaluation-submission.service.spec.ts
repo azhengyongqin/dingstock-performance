@@ -388,6 +388,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       where: { id: 201 },
       data: {
         reviewerOpenId: 'ou_leader',
+        formSnapshotId: 88,
         submittedAt: expect.any(Date),
         submittedByOpenId: 'ou_leader',
       },
@@ -470,6 +471,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       where: { id: 201 },
       data: {
         reviewerOpenId: 'ou_new_leader',
+        formSnapshotId: 88,
         submittedAt: expect.any(Date),
         submittedByOpenId: 'ou_new_leader',
       },

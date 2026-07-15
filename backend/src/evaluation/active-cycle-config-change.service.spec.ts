@@ -17,7 +17,7 @@ jest.mock('../generated/prisma/enums', () => ({
     MANAGER: 'MANAGER',
     AI: 'AI',
   },
-  PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
+  PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
   PerfAssignmentStatus: { SUBMITTED: 'SUBMITTED' },
   PerfFormItemType: { RATING: 'RATING', SCORE: 'SCORE' },
   PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },

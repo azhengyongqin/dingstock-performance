@@ -260,7 +260,11 @@ export class EvaluationSubmissionService {
       if (existing) {
         submission = await tx.perfEvaluationSubmission.update({
           where: { id: existing.id },
-          data: { submittedAt, submittedByOpenId: employeeOpenId },
+          data: {
+            formSnapshotId: participant.formSnapshotId!,
+            submittedAt,
+            submittedByOpenId: employeeOpenId,
+          },
         });
       } else {
         try {

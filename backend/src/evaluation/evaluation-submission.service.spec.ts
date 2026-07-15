@@ -526,6 +526,29 @@ describe('EvaluationSubmissionService 员工自评', () => {
   });
 
   describe('提交完整性校验', () => {
+    it('结构变更后的新快照新增必填项时，兼容预填仍必须补齐后才能重新提交', async () => {
+      const changedSnapshot = structuredClone(snapshotContent);
+      changedSnapshot.subforms[0].dimensions[1].items.push({
+        key: 'item:SELF:EMPLOYEE:1:new-required',
+        type: 'LONG_TEXT',
+        title: '结构变更后新增的必填说明',
+        required: true,
+      });
+      prisma.perfParticipant.findFirst.mockResolvedValue({
+        ...baseParticipant,
+        formSnapshotId: 89,
+        formSnapshot: { id: 89, content: changedSnapshot },
+      });
+
+      await expect(
+        service.submitSelf('ou_me', {
+          cycleId: 1,
+          items: completeSelfItems,
+        }),
+      ).rejects.toThrow('结构变更后新增的必填说明');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
     it('缺 SELF 必填项时拒绝提交（自评定级由 RATING 必填项承载）', async () => {
       await expect(
         service.submitSelf('ou_me', {

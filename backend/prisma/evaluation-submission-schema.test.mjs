@@ -10,6 +10,13 @@ const migration = readFileSync(
   ),
   'utf8',
 );
+const structuralChangeMigration = readFileSync(
+  new URL(
+    './migrations/20260716110000_preserve_structurally_invalidated_submissions/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('统一评估提交模型承载 SELF/PEER/MANAGER 且共用草稿/生效两态', () => {
   assert.match(schema, /model PerfEvaluationSubmission\s*{/);
@@ -21,6 +28,22 @@ test('统一评估提交模型承载 SELF/PEER/MANAGER 且共用草稿/生效两
     schema,
     /model PerfEvaluationSubmission[\s\S]*status\s+PerfReviewStatus\s+@default\(DRAFT\)/,
   );
+});
+
+test('结构变更失效态保留旧提交与原答案，同时不占用当前草稿/生效唯一槽位', () => {
+  assert.match(
+    schema,
+    /enum PerfReviewStatus\s*{[\s\S]*INVALIDATED[\s\S]*}/,
+  );
+  assert.match(
+    structuralChangeMigration,
+    /ALTER TYPE "performance"\."PerfReviewStatus" ADD VALUE 'INVALIDATED'/,
+  );
+  assert.match(
+    migration,
+    /WHERE "status" = 'SUBMITTED'/,
+  );
+  assert.match(migration, /WHERE "status" = 'DRAFT'/);
 });
 
 test('评估项结果关系化子表按 formSnapshotId + key 定位，且同一提交内 itemKey 唯一', () => {

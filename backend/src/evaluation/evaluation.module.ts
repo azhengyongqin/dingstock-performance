@@ -15,6 +15,8 @@ import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.se
 import { PeerStageResultService } from './peer-stage-result.service';
 import { ActiveCycleConfigChangeController } from './active-cycle-config-change.controller';
 import { ActiveCycleConfigChangeService } from './active-cycle-config-change.service';
+import { CycleFormChangeController } from './cycle-form-change.controller';
+import { CycleFormChangeService } from './cycle-form-change.service';
 
 /**
  * 统一评估提交域（ADR-0009）：SELF/PEER/MANAGER 人工答卷统一落
@@ -31,7 +33,11 @@ import { ActiveCycleConfigChangeService } from './active-cycle-config-change.ser
     CycleModule,
     AiReportModule,
   ],
-  controllers: [EvaluationController, ActiveCycleConfigChangeController],
+  controllers: [
+    EvaluationController,
+    ActiveCycleConfigChangeController,
+    CycleFormChangeController,
+  ],
   providers: [
     EvaluationSubmissionService,
     PeerEvaluationSubmissionService,
@@ -40,6 +46,7 @@ import { ActiveCycleConfigChangeService } from './active-cycle-config-change.ser
     ManagerStageResultService,
     LeaderTransferService,
     ActiveCycleConfigChangeService,
+    CycleFormChangeService,
   ],
   exports: [
     EvaluationSubmissionService,

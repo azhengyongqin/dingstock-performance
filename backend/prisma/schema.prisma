@@ -285,6 +285,7 @@ enum PerfSelfReviewStatus {
 enum PerfReviewStatus {
   DRAFT /// 草稿
   SUBMITTED /// 已提交
+  INVALIDATED /// 表单结构变化后失效的历史答卷；保留旧快照与答案，但不参与当前填写或计算
 
   @@schema("performance")
 }
@@ -1062,6 +1063,7 @@ model PerfManagerReview {
 /// 统一人工评估提交（ADR-0009）：SELF/PEER/MANAGER 三类人工答卷的统一父记录，AI 继续走独立异步任务不落此表。
 /// 同一 (participant, stage, reviewer) 至多一份 SUBMITTED（当前生效）与至多一份 DRAFT（编辑草稿），
 /// 由数据库部分唯一索引 perf_evaluation_submissions_active_submitted_key / _active_draft_key 保证，不建答案历史表；
+/// INVALIDATED 仅用于结构变更时保留旧快照答卷与无法兼容的答案，不占用当前生效/草稿唯一槽位；
 /// MANAGER 阶段还由迁移中的跨填写人部分唯一索引保证每名参与者至多一份生效提交与一份草稿；
 /// 重新提交时由 service 原子替换当前 SUBMITTED 行内容，不新增行。
 model PerfEvaluationSubmission {
@@ -1072,7 +1074,7 @@ model PerfEvaluationSubmission {
   reviewerOpenId       String                 @map("reviewer_open_id") /// 填写人 open_id：SELF=员工本人，PEER=评审员，MANAGER=须匹配考核 Leader 快照，均由数据库触发器校验。注意：触发器只在 INSERT/UPDATE 时按当时快照校验；更换 Leader 快照不会追溯校验既有 MANAGER 提交行，快照变更后的既有提交处置由服务层负责
   reviewerAssignmentId Int?                   @map("reviewer_assignment_id") /// 360°提交关联的有效评审员指派；仅 PEER 非空，复合外键保证指派归属同一参与者与评审员
   formSnapshotId       Int                    @map("form_snapshot_id") /// 提交所依据的周期表单快照；评估项结果据此 + key 定位，不建评估项独立行表
-  status               PerfReviewStatus       @default(DRAFT) /// DRAFT=编辑草稿，SUBMITTED=当前生效提交
+  status               PerfReviewStatus       @default(DRAFT) /// DRAFT=编辑草稿，SUBMITTED=当前生效，INVALIDATED=结构变更失效历史
   submittedAt          DateTime?              @map("submitted_at") /// 最近一次原子生效提交时间；重新提交时整体刷新
   submittedByOpenId    String?                @map("submitted_by_open_id") /// 最近一次提交的操作人 open_id（审计用，通常等于 reviewer_open_id）
   createdAt            DateTime               @default(now()) @map("created_at") /// 创建时间
