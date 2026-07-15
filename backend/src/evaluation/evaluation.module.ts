@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { AiReportModule } from '../ai-report/ai-report.module';
 import { AuthModule } from '../auth/auth.module';
 import { CycleModule } from '../cycle/cycle.module';
 import { ParticipantModule } from '../participant/participant.module';
@@ -26,6 +27,7 @@ import { PeerStageResultService } from './peer-stage-result.service';
     AuditModule,
     ParticipantModule,
     CycleModule,
+    AiReportModule,
   ],
   controllers: [EvaluationController],
   providers: [

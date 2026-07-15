@@ -15,6 +15,7 @@ import type { SaveManagerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
 import { PeerStageResultService } from './peer-stage-result.service';
+import { AiReportService } from '../ai-report/ai-report.service';
 
 /**
  * 上级评估提交服务：以参与者的当前 Leader 快照作为唯一写入权限，复用统一
@@ -29,6 +30,7 @@ export class ManagerEvaluationSubmissionService {
     private readonly submissionPolicy: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
     private readonly managerStageResultService: ManagerStageResultService,
+    private readonly aiReportService: AiReportService,
   ) {}
 
   /** 必须先完成对象级 Leader 鉴权，才允许触发任务开放等有副作用的读取。 */
@@ -344,6 +346,8 @@ export class ManagerEvaluationSubmissionService {
       if (stageResult.status !== 'READY') {
         throw new ConflictException('上级评估提交后未能生成权威阶段等级');
       }
+      // MANAGER 权威结果生效后，使用同一事务内的当前有效人工输入排队 AI 参考。
+      await this.aiReportService.refreshForParticipant(participant.id, tx);
       await tx.perfEvaluationTask.update({
         where: {
           participantId_type: {

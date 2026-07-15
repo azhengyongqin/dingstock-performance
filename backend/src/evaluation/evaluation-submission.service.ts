@@ -15,6 +15,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
+import { AiReportService } from '../ai-report/ai-report.service';
 import type {
   EvaluationItemAnswerDto,
   SaveSelfEvaluationDto,
@@ -47,6 +48,7 @@ export class EvaluationSubmissionService {
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
     private readonly taskAccessService: EvaluationTaskAccessService,
+    private readonly aiReportService: AiReportService,
   ) {}
 
   /** 找到我在指定周期（或最近一个进行中周期）的参与记录，附表单快照与周期评级配置 */
@@ -291,6 +293,8 @@ export class EvaluationSubmissionService {
           status: PerfReviewStatus.DRAFT,
         },
       });
+      // 只在正式提交事务内刷新 AI 输入；若 MANAGER 尚未生效则不会提前创建任务。
+      await this.aiReportService.refreshForParticipant(participant.id, tx);
       return submission;
     });
 

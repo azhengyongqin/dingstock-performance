@@ -46,6 +46,7 @@ describe('ReviewService 写入语义', () => {
     ensureWritable: jest.fn(),
     openIfDue: jest.fn(),
   };
+  const aiReport = { refreshForParticipant: jest.fn() };
   let service: ReviewService;
 
   beforeEach(() => {
@@ -69,6 +70,7 @@ describe('ReviewService 写入语义', () => {
       audit as never,
       participants as never,
       taskAccess as never,
+      aiReport as never,
     );
   });
 

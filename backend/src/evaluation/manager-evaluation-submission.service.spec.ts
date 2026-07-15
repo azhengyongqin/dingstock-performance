@@ -169,6 +169,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
   const audit = { record: jest.fn() };
   const peerStageResult = { recalculate: jest.fn() };
   const managerStageResult = { recalculate: jest.fn() };
+  const aiReport = { refreshForParticipant: jest.fn() };
   let service: ManagerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -227,6 +228,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       audit as never,
       {} as never,
       taskAccess as never,
+      aiReport as never,
     );
     service = new ManagerEvaluationSubmissionService(
       prisma as never,
@@ -235,6 +237,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       submissionPolicy,
       peerStageResult as never,
       managerStageResult as never,
+      aiReport as never,
     );
   });
 
@@ -291,6 +294,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     const result = await service.submitManager('ou_leader', input);
 
     expect(managerStageResult.recalculate).toHaveBeenCalledWith(7, tx);
+    expect(aiReport.refreshForParticipant).toHaveBeenCalledWith(7, tx);
     expect(tx.perfEvaluationSubmission.deleteMany).toHaveBeenCalledWith({
       where: {
         participantId: 7,

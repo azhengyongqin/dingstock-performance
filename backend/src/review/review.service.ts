@@ -19,6 +19,7 @@ import { hasRatingSymbol } from '../cycle/evaluation-rule';
 import { ParticipantService } from '../participant/participant.service';
 import type { SaveManagerReviewDto, SaveReviewDto } from './review.dto';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
+import { AiReportService } from '../ai-report/ai-report.service';
 
 /** 我的评审任务条目：360° 与上级评估共用任务模型（研发文档 §8.3），按 taskType 区分 */
 export type ReviewTaskItem = {
@@ -51,6 +52,7 @@ export class ReviewService {
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
     private readonly taskAccessService: EvaluationTaskAccessService,
+    private readonly aiReportService: AiReportService,
   ) {}
 
   // ---------------------------------------------------------------------
@@ -559,12 +561,8 @@ export class ReviewService {
         participantId,
         PerfParticipantStatus.REVIEWED,
       );
-      // 评审数据齐备：创建 AI 分析任务（幂等）
-      await this.prisma.perfAiReport.upsert({
-        where: { participantId },
-        create: { participantId },
-        update: {},
-      });
+      // 兼容旧人工入口时也只能通过统一 AI 输入构建器排队，禁止创建无输入修订的空任务。
+      await this.aiReportService.refreshForParticipant(participantId);
     }
   }
 }

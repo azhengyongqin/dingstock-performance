@@ -139,6 +139,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
   const taskAccess = { openIfDue: jest.fn(), ensureWritable: jest.fn() };
   const audit = { record: jest.fn() };
   const peerStageResult = { recalculate: jest.fn() };
+  const aiReport = { refreshForParticipant: jest.fn() };
   let service: PeerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -171,6 +172,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       audit as never,
       {} as never,
       taskAccess as never,
+      aiReport as never,
     );
     service = new PeerEvaluationSubmissionService(
       prisma as never,
@@ -178,6 +180,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       taskAccess as never,
       submissionPolicy,
       peerStageResult as never,
+      aiReport as never,
     );
   });
 
@@ -302,6 +305,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       data: { status: 'SUBMITTED' },
     });
     expect(peerStageResult.recalculate).toHaveBeenCalledWith(7, tx);
+    expect(aiReport.refreshForParticipant).toHaveBeenCalledWith(7, tx);
   });
 
   it('替换事务已抢先撤销旧指派时，旧评审员的在途提交不能恢复权限或写入答卷', async () => {

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AiReportModule } from './ai-report/ai-report.module';
 import { AppealModule } from './appeal/appeal.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
@@ -39,6 +40,7 @@ import { SharedModule } from './shared/shared.module';
     ParticipantModule,
     ReviewModule,
     EvaluationModule,
+    AiReportModule,
     CalibrationModule,
     AppealModule,
     NotificationModule,

@@ -13,7 +13,11 @@ jest.mock(
   '../generated/prisma/enums',
   () => ({
     PerfNotificationChannel: { BOT_DM: 'BOT_DM' },
-    PerfParticipantStatus: {},
+    PerfParticipantStatus: {
+      REVIEWED: 'REVIEWED',
+      AI_DONE: 'AI_DONE',
+      CALIBRATED: 'CALIBRATED',
+    },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
@@ -34,7 +38,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     result: { archivedAt: null },
   };
   const prisma = {
-    perfParticipant: { findUnique: jest.fn() },
+    perfParticipant: { findUnique: jest.fn(), findMany: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
     larkUser: { findMany: jest.fn() },
     $transaction: jest.fn(),
@@ -46,7 +50,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     $queryRaw: jest.fn(),
   };
   const audit = { record: jest.fn() };
-  const participantService = {};
+  const participantService = { transition: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
   let service: CalibrationService;
 
@@ -155,6 +159,24 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     rbac.getOrgScope.mockResolvedValue(null);
     await expect(service.getHistory('ou_admin', 7)).resolves.toMatchObject({
       total: 1,
+    });
+  });
+
+  it('AI 失败或尚未生成不阻塞已完成人工评估的参与者进入校准', async () => {
+    prisma.perfParticipant.findMany.mockResolvedValue([
+      { id: 7, cycleId: 1, status: 'REVIEWED' },
+    ]);
+
+    const result = await service.confirm('ou_hr', 1, [7]);
+
+    expect(result).toEqual({ confirmed: 1, skipped: [] });
+    expect(participantService.transition).toHaveBeenCalledWith(
+      'ou_hr',
+      7,
+      'CALIBRATED',
+    );
+    expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [7] }, cycleId: 1 },
     });
   });
 });

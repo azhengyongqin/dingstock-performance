@@ -289,10 +289,10 @@ enum PerfReviewStatus {
 
 /// AI 报告生成任务状态（研发文档 §8.6：DB 任务表 + cron 轮询）
 enum PerfAiReportStatus {
-  PENDING /// 待生成（评审数据齐备后自动创建）
-  GENERATING /// 生成中
+  PENDING /// 待生成或输入已变化后等待重新生成
+  GENERATING /// 生成中；processingRevision 固定本次领取的输入修订
   SUCCESS /// 生成成功
-  FAILED /// 生成失败（支持手动重跑）
+  FAILED /// 生成失败或超时；到达 availableAt 后可自动重试，也支持授权角色手动重跑
 
   @@schema("performance")
 }
@@ -1147,28 +1147,35 @@ model PerfPeerRelationAggregate {
   @@schema("performance")
 }
 
-/// AI 分析报告（产品 §8.14）+ 异步生成任务状态（研发文档 §8.6）。
-/// 每参与者一份，重跑覆盖本记录；仅 Leader/HR 可见，员工可见性按配置。
+/// AI 独立异步参考报告；不进入参与者状态机，也不参与人工阶段跨阶段加权。
+/// 每参与者一份，输入修订变化后原记录重新排队；仅当前 Leader 与授权 HR/Admin 可见。
 model PerfAiReport {
-  id               Int                 @id @default(autoincrement()) /// 内部自增主键
-  participantId    Int                 @unique @map("participant_id") /// 所属参与者
-  status           PerfAiReportStatus  @default(PENDING) /// 生成任务状态；cron 轮询 PENDING/FAILED 可重跑
-  summary          String?             @map("summary") /// 综合摘要
-  highlights       Json?               @map("highlights") /// 亮点：[{ title, evidence }]
-  improvements     Json?               @map("improvements") /// 待改进点：[{ title, evidence }]
-  promotionSummary String?             @map("promotion_summary") /// 晋升证据摘要；仅启用晋升评估时存在
-  riskFlags        Json?               @map("risk_flags") /// 风险/一致性提示：[{ type, description }]
-  inputsDigest     Json?               @map("inputs_digest") /// 输入来源摘要（自评/360°/上级评估的 id 与哈希），保证可追溯
-  errorMessage     String?             @map("error_message") /// 失败原因（status=FAILED）
-  generatedAt      DateTime?           @map("generated_at") /// 生成完成时间
-  reviewedByOpenId String?             @map("reviewed_by_open_id") /// 处理人（Leader/HR）open_id
-  reviewedAction   PerfAiReviewAction? @map("reviewed_action") /// 处理动作；人工结论优先于 AI 输出
-  createdAt        DateTime            @default(now()) @map("created_at") /// 任务创建时间
-  updatedAt        DateTime            @updatedAt @map("updated_at") /// 最近更新时间
+  id                 Int                 @id @default(autoincrement()) /// 内部自增主键
+  participantId      Int                 @unique @map("participant_id") /// 所属参与者
+  status             PerfAiReportStatus  @default(PENDING) /// 独立任务状态；失败、超时或未生成均不阻塞人工流程
+  referenceLevel     PerfRatingSymbol?   @map("reference_level") /// AI 直接参考等级；只作参考，不写入人工阶段加权结果
+  summary            String?             @map("summary") /// 综合摘要
+  highlights         Json?               @map("highlights") /// 亮点：[{ title, evidence }]
+  improvements       Json?               @map("improvements") /// 待改进点：[{ title, evidence }]
+  promotionSummary   String?             @map("promotion_summary") /// 晋升证据摘要；仅启用晋升评估时存在
+  riskFlags          Json?               @map("risk_flags") /// 风险/一致性提示：[{ type, description }]
+  inputsDigest       Json?               @map("inputs_digest") /// 输入来源元数据（当前有效提交/阶段结果 id 与更新时间）
+  inputSnapshot      Json?               @map("input_snapshot") /// 实际生成输入快照；只包含当前有效人工提交和当前配置阶段结果
+  inputRevision      String?             @map("input_revision") /// inputSnapshot 的 SHA-256；相同修订幂等
+  processingRevision String?             @map("processing_revision") /// 当前运行任务领取的输入修订；完成时必须与 inputRevision 一致
+  attemptCount       Int                 @default(0) @map("attempt_count") /// 当前输入修订已领取次数；输入变化或人工重试时归零
+  availableAt        DateTime            @default(now()) @map("available_at") /// PENDING/FAILED 下一次允许领取时间
+  startedAt          DateTime?           @map("started_at") /// 最近一次开始生成时间；用于识别并恢复超时任务
+  errorMessage       String?             @map("error_message") /// 失败原因（status=FAILED）
+  generatedAt        DateTime?           @map("generated_at") /// 生成完成时间
+  reviewedByOpenId   String?             @map("reviewed_by_open_id") /// 处理人（Leader/HR）open_id
+  reviewedAction     PerfAiReviewAction? @map("reviewed_action") /// 处理动作；人工结论优先于 AI 输出
+  createdAt          DateTime            @default(now()) @map("created_at") /// 任务创建时间
+  updatedAt          DateTime            @updatedAt @map("updated_at") /// 最近更新时间
 
   participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
 
-  @@index([status])
+  @@index([status, availableAt]) /// 异步 worker 按状态和可领取时间扫描
   @@map("perf_ai_reports")
   @@schema("performance")
 }

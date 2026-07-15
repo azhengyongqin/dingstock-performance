@@ -235,6 +235,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
   const audit = { record: jest.fn() };
   const participants = { transition: jest.fn() };
   const taskAccess = { ensureWritable: jest.fn(), openIfDue: jest.fn() };
+  const aiReport = { refreshForParticipant: jest.fn() };
   let service: EvaluationSubmissionService;
 
   beforeEach(() => {
@@ -265,6 +266,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
       audit as never,
       participants as never,
       taskAccess as never,
+      aiReport as never,
     );
   });
 
@@ -631,6 +633,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
         7,
         'SELF_SUBMITTED',
       );
+      expect(aiReport.refreshForParticipant).toHaveBeenCalledWith(7, tx);
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({
           operatorOpenId: 'ou_me',
