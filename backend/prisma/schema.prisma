@@ -279,7 +279,7 @@ enum PerfSelfReviewStatus {
   @@schema("performance")
 }
 
-/// 评估记录状态（360° 与上级评估共用）
+/// 评估记录状态（360° 与上级评估共用；统一评估提交 PerfEvaluationSubmission 同样复用此两态表达草稿/生效）
 enum PerfReviewStatus {
   DRAFT /// 草稿
   SUBMITTED /// 已提交
@@ -445,6 +445,16 @@ enum PerfFormItemType {
   MULTI_SELECT /// 多选
   ATTACHMENT /// 文件附件
   LINK /// 链接
+
+  @@schema("performance")
+}
+
+/// 固定 S/A/B/C 四档评级符号（ADR-0019）；评估项原始评级与阶段等级均引用此枚举，不接受任意字符串。
+enum PerfRatingSymbol {
+  S
+  A
+  B
+  C
 
   @@schema("performance")
 }
@@ -685,9 +695,10 @@ model PerfCycleFormSnapshot {
   createdAt                   DateTime           @default(now()) @map("created_at") /// 创建时间
   updatedAt                   DateTime           @updatedAt @map("updated_at") /// DRAFT / SCHEDULED 阶段的最近调整时间
 
-  configVersion     PerfCycleConfigVersion  @relation(fields: [cycleConfigVersionId, cycleId], references: [id, cycleId], onDelete: Cascade)
-  sourceFormVersion PerfFormTemplateVersion @relation("PerfCycleFormSnapshotSource", fields: [sourceFormTemplateVersionId], references: [id], onDelete: Restrict)
-  participants      PerfParticipant[]
+  configVersion         PerfCycleConfigVersion     @relation(fields: [cycleConfigVersionId, cycleId], references: [id, cycleId], onDelete: Cascade)
+  sourceFormVersion     PerfFormTemplateVersion    @relation("PerfCycleFormSnapshotSource", fields: [sourceFormTemplateVersionId], references: [id], onDelete: Restrict)
+  participants          PerfParticipant[]
+  evaluationSubmissions PerfEvaluationSubmission[]
 
   @@unique([cycleConfigVersionId, jobLevelPrefix])
   @@index([cycleId])
@@ -764,16 +775,17 @@ model PerfCycle {
   updatedAt              DateTime        @updatedAt @map("updated_at") /// 最近更新时间
   deletedAt              DateTime?       @map("deleted_at") /// 软删除时间；仅 DRAFT 可删，查询默认过滤 null
 
-  template             PerfTemplate?            @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  currentConfigVersion PerfCycleConfigVersion?  @relation("PerfCycleCurrentConfigVersion", fields: [currentConfigVersionId], references: [id], onDelete: SetNull)
-  configVersions       PerfCycleConfigVersion[] @relation("PerfCycleConfigVersions")
-  evaluationRule       PerfEvaluationRule?
-  dimensions           PerfDimension[]
-  participants         PerfParticipant[]
-  evaluationTasks      PerfEvaluationTask[]
-  notificationEvents   PerfNotificationEvent[]
-  reviewerAssignments  PerfReviewerAssignment[]
-  exportTasks          ReportExportTask[]
+  template              PerfTemplate?              @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  currentConfigVersion  PerfCycleConfigVersion?    @relation("PerfCycleCurrentConfigVersion", fields: [currentConfigVersionId], references: [id], onDelete: SetNull)
+  configVersions        PerfCycleConfigVersion[]   @relation("PerfCycleConfigVersions")
+  evaluationRule        PerfEvaluationRule?
+  dimensions            PerfDimension[]
+  participants          PerfParticipant[]
+  evaluationTasks       PerfEvaluationTask[]
+  evaluationSubmissions PerfEvaluationSubmission[]
+  notificationEvents    PerfNotificationEvent[]
+  reviewerAssignments   PerfReviewerAssignment[]
+  exportTasks           ReportExportTask[]
 
   @@index([status, plannedStartAt])
   @@index([deletedAt])
@@ -848,16 +860,17 @@ model PerfParticipant {
   cycle        PerfCycle              @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   formSnapshot PerfCycleFormSnapshot? @relation(fields: [formSnapshotId], references: [id], onDelete: Restrict)
 
-  reviewerAssignments PerfReviewerAssignment[]
-  selfReview          PerfSelfReview?
-  reviews             PerfReview[]
-  managerReview       PerfManagerReview?
-  aiReport            PerfAiReport?
-  calibrations        PerfCalibration[]
-  result              PerfResult?
-  appeals             PerfAppeal[]
-  interviews          PerfInterview[]
-  evaluationTasks     PerfEvaluationTask[]
+  reviewerAssignments   PerfReviewerAssignment[]
+  selfReview            PerfSelfReview?
+  reviews               PerfReview[]
+  managerReview         PerfManagerReview?
+  aiReport              PerfAiReport?
+  calibrations          PerfCalibration[]
+  result                PerfResult?
+  appeals               PerfAppeal[]
+  interviews            PerfInterview[]
+  evaluationTasks       PerfEvaluationTask[]
+  evaluationSubmissions PerfEvaluationSubmission[]
 
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
   @@unique([id, cycleId]) /// 供统一任务复合外键保证任务与参与人属于同一周期
@@ -912,9 +925,11 @@ model PerfReviewerAssignment {
   createdAt       DateTime             @default(now()) @map("created_at") /// 创建时间
   updatedAt       DateTime             @updatedAt @map("updated_at") /// 最近更新时间
 
-  cycle       PerfCycle       @relation(fields: [cycleId], references: [id], onDelete: Cascade)
-  participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  cycle       PerfCycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  participant PerfParticipant            @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  submissions PerfEvaluationSubmission[]
 
+  @@unique([id, participantId, reviewerOpenId]) /// 供 360°评估提交复合外键锁定指派归属，防止提交伪造他人的评审员指派
   @@index([reviewerOpenId, status]) /// 「我的评审任务」列表
   @@index([participantId])
   @@index([cycleId])
@@ -982,6 +997,66 @@ model PerfManagerReview {
 
   @@index([leaderOpenId])
   @@map("perf_manager_reviews")
+  @@schema("performance")
+}
+
+/// 统一人工评估提交（ADR-0009）：SELF/PEER/MANAGER 三类人工答卷的统一父记录，AI 继续走独立异步任务不落此表。
+/// 同一 (participant, stage, reviewer) 至多一份 SUBMITTED（当前生效）与至多一份 DRAFT（编辑草稿），
+/// 由数据库部分唯一索引 perf_evaluation_submissions_active_submitted_key / _active_draft_key 保证，不建答案历史表；
+/// 重新提交时由 service 原子替换当前 SUBMITTED 行内容，不新增行。
+model PerfEvaluationSubmission {
+  id                   Int                    @id @default(autoincrement()) /// 内部自增主键
+  cycleId              Int                    @map("cycle_id") /// 所属周期，冗余保存便于按周期统计查询
+  participantId        Int                    @map("participant_id") /// 所属参与者
+  stage                PerfEvaluationTaskType @map("stage") /// SELF/PEER/MANAGER；AI 不走人工提交，数据库 CHECK 禁止取值 'AI'
+  reviewerOpenId       String                 @map("reviewer_open_id") /// 填写人 open_id：SELF=员工本人，PEER=评审员，MANAGER=须匹配考核 Leader 快照，均由数据库触发器校验
+  reviewerAssignmentId Int?                   @map("reviewer_assignment_id") /// 360°提交关联的有效评审员指派；仅 PEER 非空，复合外键保证指派归属同一参与者与评审员
+  formSnapshotId       Int                    @map("form_snapshot_id") /// 提交所依据的周期表单快照；评估项结果据此 + key 定位，不建评估项独立行表
+  status               PerfReviewStatus       @default(DRAFT) /// DRAFT=编辑草稿，SUBMITTED=当前生效提交
+  submittedAt          DateTime?              @map("submitted_at") /// 最近一次原子生效提交时间；重新提交时整体刷新
+  submittedByOpenId    String?                @map("submitted_by_open_id") /// 最近一次提交的操作人 open_id（审计用，通常等于 reviewer_open_id）
+  createdAt            DateTime               @default(now()) @map("created_at") /// 创建时间
+  updatedAt            DateTime               @updatedAt @map("updated_at") /// 最近编辑时间（草稿自动保存或提交刷新）
+
+  cycle              PerfCycle                  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  participant        PerfParticipant            @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Cascade)
+  formSnapshot       PerfCycleFormSnapshot      @relation(fields: [formSnapshotId], references: [id], onDelete: Restrict)
+  reviewerAssignment PerfReviewerAssignment?    @relation(fields: [reviewerAssignmentId, participantId, reviewerOpenId], references: [id, participantId, reviewerOpenId], onDelete: Restrict)
+  items              PerfEvaluationItemResult[]
+
+  @@unique([id, formSnapshotId]) /// 供评估项结果复合外键锁定表单快照，防止跨快照写入
+  @@index([cycleId, stage])
+  @@index([participantId, stage, status])
+  @@index([reviewerOpenId, stage, status])
+  @@index([reviewerAssignmentId])
+  @@index([formSnapshotId])
+  @@map("perf_evaluation_submissions")
+  @@schema("performance")
+}
+
+/// 关系化评估项结果（ADR-0008）：评估项无独立行表，通过 formSnapshotId + key 字符串定位表单快照内容。
+/// 计分项（RATING/SCORE）同时保留原始输入与计算分；非计分项内容进 value JSONB。
+model PerfEvaluationItemResult {
+  id               Int               @id @default(autoincrement()) /// 内部自增主键
+  submissionId     Int               @map("submission_id") /// 所属评估提交（草稿或生效行）
+  formSnapshotId   Int               @map("form_snapshot_id") /// 冗余表单快照 ID，用于复合外键校验与所属提交的表单快照一致
+  subformKey       String            @map("subform_key") /// 表单快照 content.subforms[].key，如 "subform:PEER"
+  dimensionKey     String            @map("dimension_key") /// 表单快照 content...dimensions[].key
+  itemKey          String            @map("item_key") /// 表单快照 content...items[].key；同一提交内唯一
+  itemType         PerfFormItemType  @map("item_type") /// 提交时的评估项类型快照，决定下列哪组字段承载内容
+  rawLevel         PerfRatingSymbol? @map("raw_level") /// RATING 类型原始评级（S/A/B/C）
+  rawScore         Decimal?          @map("raw_score") @db.Decimal(5, 2) /// SCORE 类型原始分数
+  calculationScore Decimal?          @map("calculation_score") @db.Decimal(5, 2) /// 按当期评估规则换算的计算分；提交时写入，可为空待计算
+  value            Json? /// 非计分项内容：文本/Markdown/单多选/附件/链接等结构化载荷
+  createdAt        DateTime          @default(now()) @map("created_at") /// 创建时间
+  updatedAt        DateTime          @updatedAt @map("updated_at") /// 最近更新时间
+
+  submission PerfEvaluationSubmission @relation(fields: [submissionId, formSnapshotId], references: [id, formSnapshotId], onDelete: Cascade)
+
+  @@unique([submissionId, itemKey]) /// 同一提交内评估项 key 唯一
+  @@index([formSnapshotId, itemKey]) /// 跨提交按评估项聚合（360°关系加权、维度汇总）
+  @@index([formSnapshotId, subformKey, dimensionKey])
+  @@map("perf_evaluation_item_results")
   @@schema("performance")
 }
 
