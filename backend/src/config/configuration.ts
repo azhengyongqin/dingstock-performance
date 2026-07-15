@@ -27,6 +27,13 @@ export type RawConfig = {
       enabled?: boolean;
     };
   };
+  aiReport?: {
+    enabled?: boolean;
+    endpoint?: string;
+    apiKey?: string;
+    model?: string;
+    timeoutMs?: number;
+  };
 };
 
 export type LarkOauthConfig = {
@@ -68,6 +75,14 @@ export type AppConfig = {
     devLogin: {
       enabled: boolean;
     };
+  };
+  /** AI 报告网关；关闭时任务保留等待态但绝不阻塞人工流程 */
+  aiReport: {
+    enabled: boolean;
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    timeoutMs: number;
   };
 };
 
@@ -149,6 +164,11 @@ export const loadAppConfig = (): AppConfig => {
     yamlConfig.auth?.devLogin?.enabled ??
     process.env.NODE_ENV !== 'production';
 
+  const aiReportEnabled =
+    parseBoolEnv(process.env.AI_REPORT_ENABLED) ??
+    yamlConfig.aiReport?.enabled ??
+    false;
+
   return {
     app: {
       port: Number(process.env.PORT ?? yamlConfig.app?.port ?? 3000),
@@ -202,6 +222,19 @@ export const loadAppConfig = (): AppConfig => {
       devLogin: {
         enabled: devLoginEnabled,
       },
+    },
+    aiReport: {
+      enabled: aiReportEnabled,
+      endpoint:
+        process.env.AI_REPORT_ENDPOINT ?? yamlConfig.aiReport?.endpoint ?? '',
+      apiKey:
+        process.env.AI_REPORT_API_KEY ?? yamlConfig.aiReport?.apiKey ?? '',
+      model: process.env.AI_REPORT_MODEL ?? yamlConfig.aiReport?.model ?? '',
+      timeoutMs: Number(
+        process.env.AI_REPORT_TIMEOUT_MS ??
+          yamlConfig.aiReport?.timeoutMs ??
+          30_000,
+      ),
     },
   };
 };

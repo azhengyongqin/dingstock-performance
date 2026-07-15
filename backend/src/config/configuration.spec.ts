@@ -25,6 +25,11 @@ describe('configuration loader', () => {
     delete process.env.DATABASE_URL;
     delete process.env.POSTGRES_URI;
     delete process.env.LARK_NOTIFICATION_ENABLED;
+    delete process.env.AI_REPORT_ENABLED;
+    delete process.env.AI_REPORT_ENDPOINT;
+    delete process.env.AI_REPORT_API_KEY;
+    delete process.env.AI_REPORT_MODEL;
+    delete process.env.AI_REPORT_TIMEOUT_MS;
   });
 
   afterEach(() => {
@@ -117,6 +122,32 @@ describe('configuration loader', () => {
         'lark:\n  notification:\n    enabled: true\n',
       );
       expect(loadAppConfig().lark.notification.enabled).toBe(false);
+    });
+  });
+
+  describe('AI report gateway', () => {
+    it('defaults to disabled so missing AI service never blocks the workflow', () => {
+      expect(loadAppConfig().aiReport).toMatchObject({
+        enabled: false,
+        endpoint: '',
+        timeoutMs: 30_000,
+      });
+    });
+
+    it('environment variables enable and configure the production worker', () => {
+      process.env.AI_REPORT_ENABLED = 'true';
+      process.env.AI_REPORT_ENDPOINT = 'https://ai.internal.example/report';
+      process.env.AI_REPORT_API_KEY = 'secret';
+      process.env.AI_REPORT_MODEL = 'performance-review';
+      process.env.AI_REPORT_TIMEOUT_MS = '45000';
+
+      expect(loadAppConfig().aiReport).toEqual({
+        enabled: true,
+        endpoint: 'https://ai.internal.example/report',
+        apiKey: 'secret',
+        model: 'performance-review',
+        timeoutMs: 45_000,
+      });
     });
   });
 

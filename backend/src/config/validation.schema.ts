@@ -26,4 +26,10 @@ export const validationSchema = Joi.object({
   AUTH_JWT_EXPIRES_IN: Joi.string(),
   // 开发环境快速登录开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时非生产默认开启。
   AUTH_DEV_LOGIN_ENABLED: Joi.string(),
+  // AI 报告通过可配置的内部 HTTP 网关生成；密钥只允许环境变量注入。
+  AI_REPORT_ENABLED: Joi.string(),
+  AI_REPORT_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }),
+  AI_REPORT_API_KEY: Joi.string(),
+  AI_REPORT_MODEL: Joi.string(),
+  AI_REPORT_TIMEOUT_MS: Joi.number().integer().min(1000).max(300000),
 });

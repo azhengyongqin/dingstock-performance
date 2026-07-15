@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -6,41 +5,20 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '../generated/prisma/client';
+import { Prisma, type PerfAiReport } from '../generated/prisma/client';
 import {
   PerfAiReportStatus,
   PerfEvaluationTaskType,
-  PerfReviewStatus,
+  PerfRatingSymbol,
   PerfRole,
 } from '../generated/prisma/enums';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
+import { AiReportInputBuilder } from './ai-report-input.builder';
+import type { AiReportDb, AiReportOutput } from './ai-report.types';
 
-const HUMAN_STAGES = [
-  PerfEvaluationTaskType.SELF,
-  PerfEvaluationTaskType.PEER,
-  PerfEvaluationTaskType.MANAGER,
-] as const;
-const REFERENCE_LEVELS = new Set(['S', 'A', 'B', 'C']);
+const REFERENCE_LEVELS = new Set(Object.values(PerfRatingSymbol));
 const MAX_AUTOMATIC_ATTEMPTS = 3;
-
-type AiReportDb = Pick<
-  Prisma.TransactionClient,
-  | 'perfParticipant'
-  | 'perfEvaluationSubmission'
-  | 'perfStageResult'
-  | 'perfAiReport'
-  | 'perfEvaluationTask'
->;
-
-export type AiReportOutput = {
-  referenceLevel: 'S' | 'A' | 'B' | 'C';
-  summary: string;
-  highlights?: Prisma.InputJsonValue | null;
-  improvements?: Prisma.InputJsonValue | null;
-  promotionSummary?: string | null;
-  riskFlags?: Prisma.InputJsonValue | null;
-};
 
 /**
  * AI 报告任务边界：保存稳定输入快照和修订，worker 只按修订领取/回写。
@@ -51,6 +29,7 @@ export class AiReportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rbacService: RbacService,
+    private readonly inputBuilder: AiReportInputBuilder,
   ) {}
 
   /**
@@ -59,9 +38,21 @@ export class AiReportService {
    */
   async refreshForParticipant(
     participantId: number,
-    db: AiReportDb = this.prisma,
-  ) {
-    const input = await this.buildEffectiveInput(participantId, db);
+    db?: AiReportDb,
+  ): Promise<PerfAiReport | null> {
+    if (!db) {
+      return this.prisma.$transaction((tx) =>
+        this.refreshForParticipant(participantId, tx),
+      );
+    }
+    // 三类人工评估可并发重交；统一锁参与者后再读取完整快照，避免旧事务覆盖新修订。
+    await db.$queryRaw<Array<{ id: number }>>`
+      SELECT "id"
+      FROM "performance"."perf_participants"
+      WHERE "id" = ${participantId}
+      FOR UPDATE
+    `;
+    const input = await this.inputBuilder.build(participantId, db);
     const existing = await db.perfAiReport.findUnique({
       where: { participantId },
     });
@@ -271,8 +262,8 @@ export class AiReportService {
         'AI 报告缺少有效输入，请先按当前人工评估重新生成',
       );
     }
-    if (report.status === PerfAiReportStatus.GENERATING) {
-      throw new ConflictException('AI 报告正在生成，请勿重复提交');
+    if (report.status !== PerfAiReportStatus.FAILED) {
+      throw new ConflictException('只有失败的 AI 报告任务可以人工重试');
     }
     const updated = await this.prisma.perfAiReport.update({
       where: { id: report.id },
@@ -301,115 +292,6 @@ export class AiReportService {
       where: { participantId },
     });
     return report ? this.toManagementView(report) : null;
-  }
-
-  private async buildEffectiveInput(participantId: number, db: AiReportDb) {
-    const participant = await db.perfParticipant.findUnique({
-      where: { id: participantId },
-      select: {
-        id: true,
-        cycleId: true,
-        employeeOpenId: true,
-        isPromotionEnabled: true,
-        cycle: {
-          select: { deletedAt: true, currentConfigVersionId: true },
-        },
-      },
-    });
-    if (!participant || participant.cycle.deletedAt) {
-      throw new NotFoundException('参与者不存在');
-    }
-    const submissions = await db.perfEvaluationSubmission.findMany({
-      where: {
-        participantId,
-        stage: { in: [...HUMAN_STAGES] },
-        status: PerfReviewStatus.SUBMITTED,
-      },
-      include: { items: { orderBy: { id: 'asc' } } },
-      orderBy: [{ stage: 'asc' }, { id: 'asc' }],
-    });
-    if (
-      !submissions.some(
-        (submission) => submission.stage === PerfEvaluationTaskType.MANAGER,
-      )
-    ) {
-      return null;
-    }
-    const stageResults = participant.cycle.currentConfigVersionId
-      ? await db.perfStageResult.findMany({
-          where: {
-            participantId,
-            cycleConfigVersionId: participant.cycle.currentConfigVersionId,
-            stage: { in: [...HUMAN_STAGES] },
-          },
-          include: { dimensions: { orderBy: { id: 'asc' } } },
-          orderBy: [{ stage: 'asc' }, { id: 'asc' }],
-        })
-      : [];
-    const snapshot = {
-      participant: {
-        id: participant.id,
-        cycleId: participant.cycleId,
-        employeeOpenId: participant.employeeOpenId,
-        isPromotionEnabled: participant.isPromotionEnabled,
-      },
-      submissions: submissions.map((submission) => ({
-        id: submission.id,
-        stage: submission.stage,
-        reviewerOpenId: submission.reviewerOpenId,
-        formSnapshotId: submission.formSnapshotId,
-        submittedAt: submission.submittedAt?.toISOString() ?? null,
-        updatedAt: submission.updatedAt.toISOString(),
-        items: submission.items.map((item) => ({
-          id: item.id,
-          itemKey: item.itemKey,
-          itemType: item.itemType,
-          rawLevel: item.rawLevel,
-          rawScore: item.rawScore?.toString() ?? null,
-          calculationScore: item.calculationScore?.toString() ?? null,
-          value: item.value,
-        })),
-      })),
-      stageResults: stageResults.map((result) => ({
-        id: result.id,
-        stage: result.stage,
-        status: result.status,
-        compositeScore: result.compositeScore?.toString() ?? null,
-        initialLevel: result.initialLevel,
-        stageLevel: result.stageLevel,
-        updatedAt: result.updatedAt.toISOString(),
-        dimensions: result.dimensions.map((dimension) => ({
-          dimensionKey: dimension.dimensionKey,
-          name: dimension.name,
-          score: dimension.score.toString(),
-          level: dimension.level,
-        })),
-      })),
-    };
-    const revision = createHash('sha256')
-      .update(JSON.stringify(snapshot))
-      .digest('hex');
-    const digest = {
-      revision,
-      submissions: snapshot.submissions.map(
-        ({ id, stage, submittedAt, updatedAt }) => ({
-          id,
-          stage,
-          submittedAt,
-          updatedAt,
-        }),
-      ),
-      stageResults: snapshot.stageResults.map(({ id, stage, updatedAt }) => ({
-        id,
-        stage,
-        updatedAt,
-      })),
-    };
-    return {
-      revision,
-      snapshot: snapshot as unknown as Prisma.InputJsonValue,
-      digest: digest as unknown as Prisma.InputJsonValue,
-    };
   }
 
   private async assertCanView(operatorOpenId: string, participantId: number) {

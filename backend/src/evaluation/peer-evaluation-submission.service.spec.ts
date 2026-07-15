@@ -24,6 +24,7 @@ jest.mock(
       RETURNED: 'RETURNED',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
+    PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfAssignmentStatus: {
       PENDING: 'PENDING',
       SUBMITTED: 'SUBMITTED',

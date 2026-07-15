@@ -1,5 +1,6 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { AiReportService } from './ai-report.service';
+import { AiReportInputBuilder } from './ai-report-input.builder';
 
 jest.mock(
   '../generated/prisma/client',
@@ -26,6 +27,7 @@ jest.mock(
       AI: 'AI',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
+    PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
   { virtual: true },
@@ -65,6 +67,7 @@ describe('AiReportService 独立异步参考', () => {
       updateMany: jest.fn(),
     },
     perfEvaluationTask: { updateMany: jest.fn() },
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(),
   };
   const rbac = {
@@ -79,6 +82,7 @@ describe('AiReportService 独立异步参考', () => {
       (callback: (tx: typeof prisma) => unknown) =>
         Promise.resolve(callback(prisma)),
     );
+    prisma.$queryRaw.mockResolvedValue([{ id: 7 }]);
     prisma.perfParticipant.findUnique.mockResolvedValue({
       id: 7,
       cycleId: 1,
@@ -118,7 +122,11 @@ describe('AiReportService 独立异步参考', () => {
       ({ data }: { data: Record<string, unknown> }) =>
         Promise.resolve({ id: 9, ...data }),
     );
-    service = new AiReportService(prisma as never, rbac as never);
+    service = new AiReportService(
+      prisma as never,
+      rbac as never,
+      new AiReportInputBuilder(),
+    );
   });
 
   it('只用当前有效人工提交和当前配置阶段结果排队，并保存稳定输入修订', async () => {
@@ -129,6 +137,7 @@ describe('AiReportService 独立异步参考', () => {
         where: expect.objectContaining({ status: 'SUBMITTED' }),
       }),
     );
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.perfStageResult.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
@@ -262,5 +271,45 @@ describe('AiReportService 独立异步参考', () => {
     await expect(
       service.getForManager('ou_employee', 7),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('只有 FAILED 任务可人工重试，且重试会清空旧输出', async () => {
+    prisma.perfAiReport.findUnique.mockResolvedValue({
+      id: 9,
+      participantId: 7,
+      status: 'FAILED',
+      inputRevision: 'revision-1',
+      inputSnapshot: { submissions: [] },
+    });
+    prisma.perfAiReport.update.mockResolvedValue({
+      id: 9,
+      participantId: 7,
+      status: 'PENDING',
+      inputRevision: 'revision-1',
+    });
+
+    await expect(service.retry('ou_leader', 7)).resolves.toEqual(
+      expect.objectContaining({ status: 'PENDING' }),
+    );
+    expect(prisma.perfAiReport.update).toHaveBeenCalledWith({
+      where: { id: 9 },
+      data: expect.objectContaining({
+        status: 'PENDING',
+        referenceLevel: null,
+        summary: null,
+        generatedAt: null,
+      }),
+    });
+
+    prisma.perfAiReport.findUnique.mockResolvedValue({
+      id: 9,
+      participantId: 7,
+      status: 'SUCCESS',
+      inputRevision: 'revision-1',
+      inputSnapshot: { submissions: [] },
+    });
+    await expect(service.retry('ou_leader', 7)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });

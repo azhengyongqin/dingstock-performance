@@ -11,7 +11,6 @@ describe('参与者状态机', () => {
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.RETURNED],
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.REVIEWED],
     [PerfParticipantStatus.RETURNED, PerfParticipantStatus.SELF_SUBMITTED],
-    [PerfParticipantStatus.REVIEWED, PerfParticipantStatus.AI_DONE],
     [PerfParticipantStatus.REVIEWED, PerfParticipantStatus.CALIBRATED],
     [PerfParticipantStatus.AI_DONE, PerfParticipantStatus.CALIBRATED],
     [PerfParticipantStatus.CALIBRATED, PerfParticipantStatus.RESULT_PUSHED],
@@ -45,6 +44,15 @@ describe('参与者状态机', () => {
       assertParticipantTransition(
         PerfParticipantStatus.CONFIRMED,
         PerfParticipantStatus.APPEALING,
+      ),
+    ).toThrow(ConflictException);
+  });
+
+  it('AI 完成不再推动参与者状态，REVIEWED 不能进入遗留 AI_DONE', () => {
+    expect(() =>
+      assertParticipantTransition(
+        PerfParticipantStatus.REVIEWED,
+        PerfParticipantStatus.AI_DONE,
       ),
     ).toThrow(ConflictException);
   });

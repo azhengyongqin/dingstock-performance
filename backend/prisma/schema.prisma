@@ -198,7 +198,7 @@ enum PerfParticipantStatus {
   SELF_SUBMITTED /// 自评已提交
   RETURNED /// 自评被退回（回退分支）
   REVIEWED /// 360°+上级评估完成
-  AI_DONE /// AI 分析完成
+  AI_DONE /// 迁移前遗留状态；新 AI 异步参考不得写入，历史数据仍允许继续校准
   CALIBRATED /// 已校准
   RESULT_PUSHED /// 结果已推送员工
   CONFIRMED /// 员工已确认

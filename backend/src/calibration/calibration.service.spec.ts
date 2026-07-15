@@ -38,6 +38,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     result: { archivedAt: null },
   };
   const prisma = {
+    perfCycle: { findFirst: jest.fn() },
     perfParticipant: { findUnique: jest.fn(), findMany: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
     larkUser: { findMany: jest.fn() },
@@ -177,6 +178,48 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     );
     expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith({
       where: { id: { in: [7] }, cycleId: 1 },
+    });
+  });
+
+  it('授权校准工作台在同一参与者行返回完整 AI 参考', async () => {
+    prisma.perfCycle.findFirst.mockResolvedValue({
+      id: 1,
+      evaluationRule: { levels: [] },
+    });
+    prisma.perfParticipant.findMany.mockResolvedValue([
+      {
+        id: 7,
+        employeeOpenId: 'ou_employee',
+        status: 'REVIEWED',
+        isPromotionEnabled: false,
+        managerReview: {
+          initialLevel: 'B',
+          promotionConclusion: null,
+          status: 'SUBMITTED',
+        },
+        calibrations: [],
+        aiReport: {
+          status: 'SUCCESS',
+          referenceLevel: 'A',
+          summary: 'AI 参考摘要',
+          highlights: [],
+          improvements: [],
+          promotionSummary: null,
+          riskFlags: [],
+          generatedAt: new Date('2026-07-15T08:00:00.000Z'),
+        },
+        result: null,
+      },
+    ]);
+
+    const result = await service.listForCycle(1);
+
+    expect(result.items[0]).toMatchObject({
+      aiReportStatus: 'SUCCESS',
+      aiReport: {
+        referenceLevel: 'A',
+        summary: 'AI 参考摘要',
+      },
     });
   });
 });

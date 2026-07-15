@@ -57,7 +57,18 @@ export class CalibrationService {
           },
         },
         calibrations: { orderBy: { id: 'desc' }, take: 1 },
-        aiReport: { select: { status: true, riskFlags: true } },
+        aiReport: {
+          select: {
+            status: true,
+            referenceLevel: true,
+            summary: true,
+            highlights: true,
+            improvements: true,
+            promotionSummary: true,
+            riskFlags: true,
+            generatedAt: true,
+          },
+        },
         result: { select: { finalLevel: true } },
       },
       orderBy: { id: 'asc' },
@@ -85,6 +96,8 @@ export class CalibrationService {
           participant.managerReview?.promotionConclusion ?? null,
         aiReportStatus: participant.aiReport?.status ?? null,
         riskFlags: participant.aiReport?.riskFlags ?? null,
+        // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
+        aiReport: participant.aiReport ?? null,
         adjusted: participant.calibrations.length > 0,
       };
     });
@@ -276,7 +289,7 @@ export class CalibrationService {
     `;
   }
 
-  /** 批量确认校准：选中参与者 REVIEWED/AI_DONE → CALIBRATED */
+  /** 批量确认校准：REVIEWED 直接进入；AI_DONE 仅兼容迁移前历史数据。 */
   async confirm(
     operatorOpenId: string,
     cycleId: number,

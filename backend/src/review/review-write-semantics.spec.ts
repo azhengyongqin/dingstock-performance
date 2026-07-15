@@ -18,6 +18,7 @@ jest.mock(
       REVIEWED: 'REVIEWED',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
+    PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfRole: { LEADER: 'LEADER', REVIEWER: 'REVIEWER' },
     PerfSelfReviewStatus: { SUBMITTED: 'SUBMITTED' },
   }),

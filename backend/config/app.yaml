@@ -9,6 +9,11 @@ database:
 redis:
   uri: redis://localhost:6379/0
 
+# AI 报告默认关闭；启用时用环境变量注入 endpoint/apiKey/model，避免提交供应商密钥。
+aiReport:
+  enabled: false
+  timeoutMs: 30000
+
 lark:
   # 自建应用凭证；生产环境建议通过 LARK_APP_ID/LARK_APP_SECRET 环境变量覆盖。
   appId: 'cli_aabbb04358385cca'
