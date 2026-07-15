@@ -23,6 +23,16 @@ export type CalibrationRow = {
   promotionConclusion: string | null
   adjusted: boolean
   riskFlags?: string[] | null
+  requiredEvaluations: {
+    ready: boolean
+    self: 'EFFECTIVE' | 'MISSING'
+    manager: 'EFFECTIVE' | 'MISSING'
+    blockers: Array<{
+      stage: 'SELF' | 'MANAGER'
+      message: string
+      action: 'MARK_NO_RESULT_OR_REMIND' | 'REMIND_OR_TRANSFER_LEADER'
+    }>
+  }
 }
 
 // 参与者状态 Badge 色彩语义：已校准及之后绿、申诉中黄、其余灰
@@ -30,16 +40,37 @@ const STATUS_BADGE: Partial<Record<PerfParticipantStatus, string>> = {
   CALIBRATED: 'bg-green-500/10 text-green-600 dark:text-green-400',
   RESULT_PUSHED: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   CONFIRMED: 'bg-green-500/10 text-green-600 dark:text-green-400',
-  APPEALING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+  APPEALING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
+  NO_RESULT: 'bg-muted text-muted-foreground'
+}
+
+/** 校准门槛提示只描述必交人工输入；PEER 与 AI 不进入阻塞文案。 */
+export const calibrationBlockerText = (row: CalibrationRow) => {
+  if (row.status === 'NO_RESULT') return '已收口，不生成绩效结果'
+  if (row.requiredEvaluations.ready) return '必交评估已完成'
+  if (row.requiredEvaluations.self === 'MISSING') return '员工自评缺失'
+
+  return '上级评估缺失：请催办或更换考核 Leader'
+}
+
+export const participantNoResultActionLabel = (row: CalibrationRow) => {
+  if (row.status === 'NO_RESULT') return '撤销无绩效结果'
+  if (row.requiredEvaluations.self === 'MISSING') return '设为无绩效结果'
+
+  return null
 }
 
 /** 列定义工厂的上下文：行内「调整」按钮回调由页面侧提供（打开调整弹窗） */
 export type CalibrationColumnsContext = {
   onAdjust: (row: CalibrationRow) => void
+  onNoResult: (row: CalibrationRow) => void
 }
 
 /** 员工校准列定义：行选择 + 当前评级筛选（filters + 行选择变体） */
-export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsContext): ColumnDef<CalibrationRow>[] => [
+export const buildCalibrationTableColumns = ({
+  onAdjust,
+  onNoResult
+}: CalibrationColumnsContext): ColumnDef<CalibrationRow>[] => [
   {
     id: 'select',
     header: ({ table }) => (
@@ -53,6 +84,7 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
     cell: ({ row }) => (
       <Checkbox
         checked={row.getIsSelected()}
+        disabled={!row.getCanSelect()}
         onCheckedChange={value => row.toggleSelected(!!value)}
         aria-label='选择该行'
       />
@@ -60,6 +92,20 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
     size: 40,
     enableSorting: false,
     enableHiding: false
+  },
+  {
+    id: 'requiredEvaluations',
+    header: '校准条件',
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span
+        className={
+          row.original.requiredEvaluations.ready ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
+        }
+      >
+        {calibrationBlockerText(row.original)}
+      </span>
+    )
   },
   {
     id: 'name',
@@ -138,10 +184,26 @@ export const buildCalibrationTableColumns = ({ onAdjust }: CalibrationColumnsCon
     header: '操作',
     enableSorting: false,
     meta: { headClassName: 'text-right', cellClassName: 'text-right' },
-    cell: ({ row }) => (
-      <Button variant='ghost' size='sm' onClick={() => onAdjust(row.original)}>
-        调整
-      </Button>
-    )
+    cell: ({ row }) => {
+      const noResultAction = participantNoResultActionLabel(row.original)
+
+      return (
+        <div className='flex justify-end gap-1'>
+          {noResultAction && (
+            <Button variant='ghost' size='sm' onClick={() => onNoResult(row.original)}>
+              {noResultAction}
+            </Button>
+          )}
+          <Button
+            variant='ghost'
+            size='sm'
+            disabled={!row.original.requiredEvaluations.ready || row.original.status === 'NO_RESULT'}
+            onClick={() => onAdjust(row.original)}
+          >
+            调整
+          </Button>
+        </div>
+      )
+    }
   }
 ]

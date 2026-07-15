@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { CalibrationService } from './calibration.service';
 
 jest.mock('../shared/database/prisma.service', () => ({
@@ -9,6 +9,9 @@ jest.mock('../participant/participant.service', () => ({
   ParticipantService: class {},
 }));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
+jest.mock('../participant/participant-no-result.service', () => ({
+  ParticipantNoResultService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -53,6 +56,10 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
   const audit = { record: jest.fn() };
   const participantService = { transition: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
+  const requiredEvaluation = {
+    assertCalibrationReady: jest.fn(),
+    getRequiredEvaluationGate: jest.fn(),
+  };
   let service: CalibrationService;
 
   beforeEach(() => {
@@ -89,11 +96,24 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     tx.larkUser.findMany.mockResolvedValue([]);
     rbac.hasAnyRole.mockResolvedValue(false);
     rbac.getOrgScope.mockResolvedValue([]);
+    requiredEvaluation.assertCalibrationReady.mockResolvedValue({
+      ready: true,
+      self: 'EFFECTIVE',
+      manager: 'EFFECTIVE',
+      blockers: [],
+    });
+    requiredEvaluation.getRequiredEvaluationGate.mockResolvedValue({
+      ready: true,
+      self: 'EFFECTIVE',
+      manager: 'EFFECTIVE',
+      blockers: [],
+    });
     service = new CalibrationService(
       prisma as never,
       audit as never,
       participantService as never,
       rbac as never,
+      requiredEvaluation as never,
     );
   });
 
@@ -179,6 +199,31 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith({
       where: { id: { in: [7] }, cycleId: 1 },
     });
+    expect(requiredEvaluation.assertCalibrationReady).toHaveBeenCalledWith(7);
+  });
+
+  it('缺失 MANAGER 时拒绝首次校准并返回催办或更换 Leader 指引', async () => {
+    prisma.perfParticipant.findMany.mockResolvedValue([
+      { id: 7, cycleId: 1, status: 'SELF_SUBMITTED' },
+    ]);
+    requiredEvaluation.assertCalibrationReady.mockRejectedValue(
+      new ConflictException({
+        code: 'REQUIRED_EVALUATION_MISSING',
+        blockers: [
+          {
+            stage: 'MANAGER',
+            action: 'REMIND_OR_TRANSFER_LEADER',
+          },
+        ],
+      }),
+    );
+
+    await expect(service.confirm('ou_hr', 1, [7])).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'REQUIRED_EVALUATION_MISSING',
+      }),
+    });
+    expect(participantService.transition).not.toHaveBeenCalled();
   });
 
   it('授权校准工作台在同一参与者行返回完整 AI 参考', async () => {
@@ -220,6 +265,7 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
         referenceLevel: 'A',
         summary: 'AI 参考摘要',
       },
+      requiredEvaluations: expect.objectContaining({ ready: true }),
     });
   });
 

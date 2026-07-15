@@ -38,14 +38,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 
 // Util Imports
@@ -78,7 +71,14 @@ const gradeChartConfig = {
 } satisfies ChartConfig
 
 // 「已校准及之后」的参与者状态：用于统计卡
-const CALIBRATED_STATUSES = new Set(['CALIBRATED', 'RESULT_PUSHED', 'CONFIRMED', 'APPEALING', 'RE_CONFIRMING', 'ARCHIVED'])
+const CALIBRATED_STATUSES = new Set([
+  'CALIBRATED',
+  'RESULT_PUSHED',
+  'CONFIRMED',
+  'APPEALING',
+  'RE_CONFIRMING',
+  'ARCHIVED'
+])
 
 /**
  * 校准工作台（HR 视角）：周期选择 + 员工校准 Data Table（filters + 行选择变体）+ 评级分布柱状图。
@@ -108,6 +108,11 @@ const Calibrations = () => {
   const [afterLevel, setAfterLevel] = useState('')
   const [adjustReason, setAdjustReason] = useState('')
   const [adjusting, setAdjusting] = useState(false)
+
+  // 当前周期无绩效结果：只有缺失 SELF 时可标记，归档前可带原因撤销。
+  const [noResultTarget, setNoResultTarget] = useState<CalibrationRow | null>(null)
+  const [noResultReason, setNoResultReason] = useState('')
+  const [noResultSubmitting, setNoResultSubmitting] = useState(false)
 
   // 批量确认 / 推送结果进行中状态
   const [confirming, setConfirming] = useState(false)
@@ -208,8 +213,16 @@ const Calibrations = () => {
     setAdjustReason('')
   }, [])
 
+  const handleOpenNoResult = useCallback((row: CalibrationRow) => {
+    setNoResultTarget(row)
+    setNoResultReason('')
+  }, [])
+
   // 列定义：行内「调整」按钮回调走工厂注入
-  const columns = useMemo(() => buildCalibrationTableColumns({ onAdjust: handleOpenAdjust }), [handleOpenAdjust])
+  const columns = useMemo(
+    () => buildCalibrationTableColumns({ onAdjust: handleOpenAdjust, onNoResult: handleOpenNoResult }),
+    [handleOpenAdjust, handleOpenNoResult]
+  )
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -221,7 +234,9 @@ const Calibrations = () => {
     onSortingChange: setSorting,
     onPaginationChange: setPagination,
     getRowId: row => String(row.id),
-    enableRowSelection: true,
+
+    // 只有必交 SELF/MANAGER 均已有当前有效提交的行才允许进入批量校准。
+    enableRowSelection: row => row.original.requiredEvaluations.ready && row.original.status !== 'NO_RESULT',
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -262,6 +277,36 @@ const Calibrations = () => {
       toast.error(err instanceof ApiError ? err.message : '评级调整失败')
     } finally {
       setAdjusting(false)
+    }
+  }
+
+  const handleNoResult = async () => {
+    if (!selectedCycleId || !noResultTarget) return
+
+    if (!noResultReason.trim()) {
+      toast.error('请填写操作原因')
+
+      return
+    }
+
+    const revoking = noResultTarget.status === 'NO_RESULT'
+
+    setNoResultSubmitting(true)
+
+    try {
+      const suffix = revoking ? '/no-result/revoke' : '/no-result'
+
+      await apiFetch(`/cycles/${selectedCycleId}/participants/${noResultTarget.id}${suffix}`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: noResultReason.trim() })
+      })
+      toast.success(revoking ? '已撤销当前周期无绩效结果' : '已标记为当前周期无绩效结果')
+      setNoResultTarget(null)
+      await fetchCalibrations(selectedCycleId)
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : revoking ? '撤销失败' : '标记失败')
+    } finally {
+      setNoResultSubmitting(false)
     }
   }
 
@@ -399,11 +444,7 @@ const Calibrations = () => {
               <CardContent>
                 {/* 工具栏：当前评级筛选 + 推送结果 */}
                 <DataTableToolbar table={table}>
-                  <DataTableColumnFilter
-                    column={table.getColumn('currentLevel')}
-                    label='评级'
-                    options={levelOptions}
-                  />
+                  <DataTableColumnFilter column={table.getColumn('currentLevel')} label='评级' options={levelOptions} />
                   <Button variant='outline' size='sm' onClick={handlePush} disabled={pushing}>
                     {pushing ? <Loader2Icon className='animate-spin' /> : <SendIcon />}
                     推送结果
@@ -447,7 +488,6 @@ const Calibrations = () => {
                     <Bar dataKey='count' fill='var(--color-count)' radius={6} />
                   </BarChart>
                 </ChartContainer>
-
               </CardContent>
             </Card>
           </div>
@@ -510,6 +550,40 @@ const Calibrations = () => {
             <Button onClick={handleAdjust} disabled={adjusting}>
               {adjusting && <Loader2Icon className='animate-spin' />}
               确认调整
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!noResultTarget} onOpenChange={open => !open && setNoResultTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {noResultTarget?.status === 'NO_RESULT' ? '撤销当前周期无绩效结果' : '设为当前周期无绩效结果'}
+            </DialogTitle>
+            <DialogDescription>
+              {noResultTarget?.status === 'NO_RESULT'
+                ? '撤销后恢复未完成评估任务，并保留原有草稿和有效提交。'
+                : '仅适用于员工始终没有正式提交自评；该操作不会生成绩效结果，也不等同于退出周期。'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className='flex flex-col gap-2'>
+            <Label>操作原因（必填）</Label>
+            <Textarea
+              value={noResultReason}
+              onChange={event => setNoResultReason(event.target.value)}
+              placeholder='请说明标记或撤销的具体原因'
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setNoResultTarget(null)}>
+              取消
+            </Button>
+            <Button onClick={handleNoResult} disabled={noResultSubmitting}>
+              {noResultSubmitting && <Loader2Icon className='animate-spin' />}
+              确认
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -43,6 +43,8 @@ jest.mock(
     },
     PerfParticipantStatus: {
       PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
+      NO_RESULT: 'NO_RESULT',
+      ARCHIVED: 'ARCHIVED',
     },
   }),
   { virtual: true },
@@ -74,6 +76,8 @@ describe('CycleService', () => {
       updateMany: jest.fn(),
       update: jest.fn(),
     },
+    perfParticipant: { updateMany: jest.fn() },
+    perfResult: { updateMany: jest.fn() },
   };
 
   const prismaMock = {
@@ -323,5 +327,22 @@ describe('CycleService', () => {
       service.updateNotificationRules('ou_hr', 100, { stages: [] }),
     ).rejects.toThrow(ConflictException);
     expect(txMock.perfCycle.update).not.toHaveBeenCalled();
+  });
+
+  it('周期归档不改写 NO_RESULT 参与者终态且不会要求其生成绩效结果', async () => {
+    prismaMock.perfCycle.findFirst
+      .mockResolvedValueOnce({ id: 100, status: 'ACTIVE' })
+      .mockResolvedValueOnce({ id: 100, status: 'ARCHIVED' });
+
+    await service.closeCycle('ou_admin', 100);
+
+    expect(txMock.perfParticipant.updateMany).toHaveBeenCalledWith({
+      where: { cycleId: 100, status: { not: 'NO_RESULT' } },
+      data: { status: 'ARCHIVED' },
+    });
+    expect(txMock.perfResult.updateMany).toHaveBeenCalledWith({
+      where: { participant: { cycleId: 100 }, archivedAt: null },
+      data: { archivedAt: expect.any(Date) },
+    });
   });
 });

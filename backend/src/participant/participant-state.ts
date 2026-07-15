@@ -9,10 +9,15 @@ const PARTICIPANT_TRANSITIONS: Record<
   PerfParticipantStatus,
   PerfParticipantStatus[]
 > = {
-  PENDING_SELF_REVIEW: [PerfParticipantStatus.SELF_SUBMITTED],
+  PENDING_SELF_REVIEW: [
+    PerfParticipantStatus.SELF_SUBMITTED,
+    PerfParticipantStatus.NO_RESULT,
+  ],
   SELF_SUBMITTED: [
     PerfParticipantStatus.RETURNED,
     PerfParticipantStatus.REVIEWED,
+    // 评估完成度已改由统一答卷派生；旧 SELF_SUBMITTED 状态可直接进入首次校准。
+    PerfParticipantStatus.CALIBRATED,
   ],
   RETURNED: [PerfParticipantStatus.SELF_SUBMITTED],
   // AI 不再是参与者阶段；AI_DONE 仅保留给迁移前历史记录继续走向校准。
@@ -28,6 +33,7 @@ const PARTICIPANT_TRANSITIONS: Record<
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
   ],
+  NO_RESULT: [],
   CONFIRMED: [PerfParticipantStatus.ARCHIVED],
   ARCHIVED: [],
 };

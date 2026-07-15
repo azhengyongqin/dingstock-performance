@@ -17,13 +17,21 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { ArrayNotEmpty, IsArray, IsBoolean, IsString } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PerfRole } from '../generated/prisma/enums';
 import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import { ParticipantService } from './participant.service';
+import { ParticipantNoResultService } from './participant-no-result.service';
 
 class AddByOpenIdsDto {
   @IsArray()
@@ -44,13 +52,23 @@ class UpdateParticipantDto {
   isPromotionEnabled!: boolean;
 }
 
+class ParticipantReasonDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
+}
+
 @ApiTags('participant')
 @Controller('cycles/:cycleId/participants')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)
 @ApiBearerAuth()
 export class ParticipantController {
-  constructor(private readonly participantService: ParticipantService) {}
+  constructor(
+    private readonly participantService: ParticipantService,
+    private readonly participantNoResultService: ParticipantNoResultService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -120,6 +138,40 @@ export class ParticipantController {
       cycleId,
       participantId,
       confirm === 'true',
+    );
+  }
+
+  @Post(':participantId/no-result')
+  @ApiOperation({
+    summary: '因始终缺失员工自评，标记为当前周期无绩效结果',
+  })
+  markNoResult(
+    @Req() req: AuthenticatedRequest,
+    @Param('cycleId', ParseIntPipe) cycleId: number,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Body() dto: ParticipantReasonDto,
+  ) {
+    return this.participantNoResultService.markNoResult(
+      req.user.open_id,
+      cycleId,
+      participantId,
+      dto.reason,
+    );
+  }
+
+  @Post(':participantId/no-result/revoke')
+  @ApiOperation({ summary: '归档前撤销当前周期无绩效结果并恢复参评' })
+  revokeNoResult(
+    @Req() req: AuthenticatedRequest,
+    @Param('cycleId', ParseIntPipe) cycleId: number,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Body() dto: ParticipantReasonDto,
+  ) {
+    return this.participantNoResultService.revokeNoResult(
+      req.user.open_id,
+      cycleId,
+      participantId,
+      dto.reason,
     );
   }
 }

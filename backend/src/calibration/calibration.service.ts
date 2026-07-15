@@ -8,7 +8,6 @@ import {
 import {
   PerfNotificationChannel,
   PerfParticipantStatus,
-  PerfReviewStatus,
   PerfRole,
 } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -17,6 +16,7 @@ import { ParticipantService } from '../participant/participant.service';
 import { hasRatingSymbol } from '../cycle/evaluation-rule';
 import type { Prisma } from '../generated/prisma/client';
 import { RbacService } from '../rbac/rbac.service';
+import { ParticipantNoResultService } from '../participant/participant-no-result.service';
 
 type CalibrationReadDb = Pick<
   Prisma.TransactionClient,
@@ -36,6 +36,7 @@ export class CalibrationService {
     private readonly auditService: AuditService,
     private readonly participantService: ParticipantService,
     private readonly rbacService: RbacService,
+    private readonly participantNoResultService: ParticipantNoResultService,
   ) {}
 
   /** 校准工作台列表：只聚合当前 Leader 或授权 HR/Admin 可见的参与者。 */
@@ -68,6 +69,15 @@ export class CalibrationService {
             status: true,
           },
         },
+        stageResults: {
+          where: {
+            stage: 'MANAGER',
+            status: 'READY',
+          },
+          select: { stageLevel: true },
+          orderBy: { calculatedAt: 'desc' },
+          take: 1,
+        },
         calibrations: { orderBy: { id: 'desc' }, take: 1 },
         aiReport: {
           select: {
@@ -92,27 +102,37 @@ export class CalibrationService {
     });
     const userMap = new Map(users.map((u) => [u.open_id, u]));
 
-    const items = participants.map((participant) => {
-      const initialLevel = participant.managerReview?.initialLevel ?? null;
-      const currentLevel =
-        participant.calibrations[0]?.afterLevel ?? initialLevel;
-      return {
-        id: participant.id,
-        employeeOpenId: participant.employeeOpenId,
-        employee: userMap.get(participant.employeeOpenId) ?? null,
-        status: participant.status,
-        isPromotionEnabled: participant.isPromotionEnabled,
-        initialLevel,
-        currentLevel,
-        promotionConclusion:
-          participant.managerReview?.promotionConclusion ?? null,
-        aiReportStatus: participant.aiReport?.status ?? null,
-        riskFlags: participant.aiReport?.riskFlags ?? null,
-        // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
-        aiReport: participant.aiReport ?? null,
-        adjusted: participant.calibrations.length > 0,
-      };
-    });
+    const items = await Promise.all(
+      participants.map(async (participant) => {
+        const initialLevel =
+          participant.stageResults?.[0]?.stageLevel ??
+          participant.managerReview?.initialLevel ??
+          null;
+        const currentLevel =
+          participant.calibrations[0]?.afterLevel ?? initialLevel;
+        const requiredEvaluations =
+          await this.participantNoResultService.getRequiredEvaluationGate(
+            participant.id,
+          );
+        return {
+          id: participant.id,
+          employeeOpenId: participant.employeeOpenId,
+          employee: userMap.get(participant.employeeOpenId) ?? null,
+          status: participant.status,
+          isPromotionEnabled: participant.isPromotionEnabled,
+          initialLevel,
+          currentLevel,
+          promotionConclusion:
+            participant.managerReview?.promotionConclusion ?? null,
+          aiReportStatus: participant.aiReport?.status ?? null,
+          riskFlags: participant.aiReport?.riskFlags ?? null,
+          // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
+          aiReport: participant.aiReport ?? null,
+          adjusted: participant.calibrations.length > 0,
+          requiredEvaluations,
+        };
+      }),
+    );
 
     // 评级分布：按当前评级聚合，前端按评估规则评级序列展示。
     const distribution: Record<string, number> = {};
@@ -147,6 +167,12 @@ export class CalibrationService {
           include: {
             cycle: { include: { evaluationRule: true } },
             managerReview: { select: { initialLevel: true, status: true } },
+            stageResults: {
+              where: { stage: 'MANAGER', status: 'READY' },
+              select: { stageLevel: true },
+              orderBy: { calculatedAt: 'desc' },
+              take: 1,
+            },
             calibrations: { orderBy: { id: 'desc' }, take: 1 },
             result: { select: { archivedAt: true } },
           },
@@ -160,9 +186,10 @@ export class CalibrationService {
             '结果已归档，任何调整必须经申诉/面谈流程',
           );
         }
-        if (participant.managerReview?.status !== PerfReviewStatus.SUBMITTED) {
-          throw new ConflictException('上级评估未提交，不能校准');
-        }
+        await this.participantNoResultService.assertCalibrationReady(
+          participantId,
+          tx,
+        );
         if (
           Array.isArray(participant.cycle.evaluationRule?.levels) &&
           !hasRatingSymbol(participant.cycle.evaluationRule.levels, afterLevel)
@@ -173,8 +200,12 @@ export class CalibrationService {
         }
         const currentLevel =
           participant.calibrations[0]?.afterLevel ??
-          participant.managerReview.initialLevel ??
+          participant.stageResults?.[0]?.stageLevel ??
+          participant.managerReview?.initialLevel ??
           null;
+        if (!currentLevel) {
+          throw new ConflictException('上级评估尚未形成可校准的权威阶段等级');
+        }
         const created = await tx.perfCalibration.create({
           data: {
             participantId,
@@ -301,7 +332,7 @@ export class CalibrationService {
     `;
   }
 
-  /** 批量确认校准：REVIEWED 直接进入；AI_DONE 仅兼容迁移前历史数据。 */
+  /** 批量确认校准：完成度从当前有效 SELF/MANAGER 提交派生，不依赖旧阶段状态。 */
   async confirm(
     operatorOpenId: string,
     cycleId: number,
@@ -315,19 +346,19 @@ export class CalibrationService {
     let confirmed = 0;
     const skipped: number[] = [];
     for (const participant of participants) {
-      if (
-        participant.status === PerfParticipantStatus.REVIEWED ||
-        participant.status === PerfParticipantStatus.AI_DONE
-      ) {
-        await this.participantService.transition(
-          operatorOpenId,
-          participant.id,
-          PerfParticipantStatus.CALIBRATED,
-        );
-        confirmed += 1;
-      } else {
+      if (participant.status === PerfParticipantStatus.CALIBRATED) {
         skipped.push(participant.id);
+        continue;
       }
+      await this.participantNoResultService.assertCalibrationReady(
+        participant.id,
+      );
+      await this.participantService.transition(
+        operatorOpenId,
+        participant.id,
+        PerfParticipantStatus.CALIBRATED,
+      );
+      confirmed += 1;
     }
     return { confirmed, skipped };
   }

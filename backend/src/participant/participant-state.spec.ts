@@ -8,8 +8,13 @@ describe('参与者状态机', () => {
       PerfParticipantStatus.PENDING_SELF_REVIEW,
       PerfParticipantStatus.SELF_SUBMITTED,
     ],
+    [
+      PerfParticipantStatus.PENDING_SELF_REVIEW,
+      PerfParticipantStatus.NO_RESULT,
+    ],
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.RETURNED],
     [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.REVIEWED],
+    [PerfParticipantStatus.SELF_SUBMITTED, PerfParticipantStatus.CALIBRATED],
     [PerfParticipantStatus.RETURNED, PerfParticipantStatus.SELF_SUBMITTED],
     [PerfParticipantStatus.REVIEWED, PerfParticipantStatus.CALIBRATED],
     [PerfParticipantStatus.AI_DONE, PerfParticipantStatus.CALIBRATED],

@@ -204,6 +204,7 @@ enum PerfParticipantStatus {
   CONFIRMED /// 员工已确认
   APPEALING /// 申诉中
   RE_CONFIRMING /// 申诉处理后再次确认中
+  NO_RESULT /// 当前周期无绩效结果：始终缺失必需自评，不生成校准或最终结果，归档前可撤销
   ARCHIVED /// 已归档
 
   @@schema("performance")

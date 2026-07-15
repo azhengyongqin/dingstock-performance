@@ -19,6 +19,7 @@ export type PerfParticipantStatus =
   | 'CONFIRMED'
   | 'APPEALING'
   | 'RE_CONFIRMING'
+  | 'NO_RESULT'
   | 'ARCHIVED'
 
 export type PerfCycleType = 'SEMI_ANNUAL' | 'QUARTERLY' | 'ANNUAL'
@@ -93,6 +94,7 @@ export const PARTICIPANT_STATUS_LABEL: Record<PerfParticipantStatus, string> = {
   CONFIRMED: '已确认',
   APPEALING: '申诉中',
   RE_CONFIRMING: '待再次确认',
+  NO_RESULT: '当前周期无绩效结果',
   ARCHIVED: '已归档'
 }
 

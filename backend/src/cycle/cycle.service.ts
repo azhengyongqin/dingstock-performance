@@ -649,7 +649,11 @@ export class CycleService {
         data: { status: PerfCycleStatus.ARCHIVED },
       });
       await tx.perfParticipant.updateMany({
-        where: { cycleId },
+        // NO_RESULT 是参与者自己的结果终态；周期归档只令其永久不可撤销，不改写语义。
+        where: {
+          cycleId,
+          status: { not: PerfParticipantStatus.NO_RESULT },
+        },
         data: { status: PerfParticipantStatus.ARCHIVED },
       });
       await tx.perfResult.updateMany({
