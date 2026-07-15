@@ -85,7 +85,12 @@ function isValidItemConfig(type: FormItemType, config?: FormItemConfig | null) {
     return hasValidTextConfig(value);
   }
   if (type === 'SINGLE_SELECT') {
-    return hasOnlyKeys(value, ['options']) && hasValidOptions(value);
+    return (
+      hasOnlyKeys(value, ['options', 'employeeVisible']) &&
+      hasValidOptions(value) &&
+      (value.employeeVisible === undefined ||
+        typeof value.employeeVisible === 'boolean')
+    );
   }
   if (type === 'MULTI_SELECT') {
     if (

@@ -32,8 +32,6 @@ type ArchiveParticipant = {
   departmentIdSnapshot: string | null;
   status: string;
   evaluationSubmissions: Array<{ stage: string; status: string }>;
-  selfReview: { status: string } | null;
-  managerReview: { status: string } | null;
   calibrations: Array<{ id: number }>;
   resultVersions: Array<{
     id: number;
@@ -125,14 +123,6 @@ export class CycleArchiveService {
         if (changed.count !== 1) {
           throw new ConflictException('周期状态已变化，请刷新后重试');
         }
-        await tx.perfResult.updateMany({
-          where: {
-            participant: { cycleId },
-            invalidatedAt: null,
-            archivedAt: null,
-          },
-          data: { archivedAt: now },
-        });
         const archive = await tx.perfCycleArchive.create({
           data: {
             cycleId,
@@ -185,9 +175,6 @@ export class CycleArchiveService {
           where: { status: 'SUBMITTED' },
           select: { stage: true, status: true },
         },
-        // Ticket 20 切换读取前兼容旧答卷表，避免历史有效提交被误判为缺失。
-        selfReview: { select: { status: true } },
-        managerReview: { select: { status: true } },
         calibrations: {
           where: { invalidatedAt: null },
           orderBy: { id: 'desc' },
@@ -273,12 +260,8 @@ export class CycleArchiveService {
             .filter((submission) => submission.status === 'SUBMITTED')
             .map((submission) => submission.stage),
         );
-        const hasSelf =
-          submittedStages.has('SELF') ||
-          participant.selfReview?.status === 'SUBMITTED';
-        const hasManager =
-          submittedStages.has('MANAGER') ||
-          participant.managerReview?.status === 'SUBMITTED';
+        const hasSelf = submittedStages.has('SELF');
+        const hasManager = submittedStages.has('MANAGER');
         if (!hasSelf) {
           addBlocker('REQUIRED_SELF_MISSING', '缺少必交的员工自评');
         }

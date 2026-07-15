@@ -10,8 +10,6 @@ import { CycleActivationService } from './cycle-activation.service';
 import { EvaluationTaskAccessService } from './evaluation-task-access.service';
 import { CycleProgressService } from './cycle-progress.service';
 import { NotificationModule } from '../notification/notification.module';
-import { TemplateController } from './template.controller';
-import { TemplateService } from './template.service';
 import { ActiveCycleRollbackService } from './active-cycle-rollback.service';
 import { CycleArchiveService } from './cycle-archive.service';
 
@@ -24,14 +22,13 @@ import { CycleArchiveService } from './cycle-archive.service';
     AuditModule,
     NotificationModule,
   ],
-  controllers: [CycleController, TemplateController],
+  controllers: [CycleController],
   providers: [
     CycleService,
     CycleSetupService,
     CycleActivationService,
     EvaluationTaskAccessService,
     CycleProgressService,
-    TemplateService,
     ActiveCycleRollbackService,
     CycleArchiveService,
   ],

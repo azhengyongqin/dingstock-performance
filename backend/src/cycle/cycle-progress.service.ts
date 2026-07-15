@@ -66,15 +66,12 @@ export class CycleProgressService {
     );
     const lockedStatuses = new Set([
       'CALIBRATED',
-      'RESULT_PUSHED',
       'RESULT_PUBLISHED',
       'CONFIRMED',
       'APPEALING',
       'RE_CONFIRMING',
-      'RECONFIRMING',
       'NO_RESULT',
       'WITHDRAWN',
-      'ARCHIVED',
     ]);
     const totals = {
       participants: participants.length,

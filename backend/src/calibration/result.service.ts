@@ -77,12 +77,10 @@ export class ResultService {
   ) {}
 
   private static readonly VISIBLE_STATUSES: PerfParticipantStatus[] = [
-    PerfParticipantStatus.RESULT_PUSHED,
     PerfParticipantStatus.RESULT_PUBLISHED,
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
     PerfParticipantStatus.RE_CONFIRMING,
-    PerfParticipantStatus.ARCHIVED,
   ];
 
   /**
@@ -101,7 +99,6 @@ export class ResultService {
           in: [
             PerfParticipantStatus.CALIBRATED,
             PerfParticipantStatus.RESULT_PUBLISHED,
-            PerfParticipantStatus.RESULT_PUSHED,
             PerfParticipantStatus.CONFIRMED,
           ],
         },
@@ -180,30 +177,6 @@ export class ResultService {
           },
         });
 
-        // perf_results 暂作为旧报表的当前投影；员工结果与确认只以不可变版本为准。
-        await tx.perfResult.upsert({
-          where: { participantId: participant.id },
-          create: {
-            participantId: participant.id,
-            finalLevel,
-            dimensionResults: snapshot.manager.dimensions,
-            promotionResult: snapshot.promotion
-              ? JSON.stringify(snapshot.promotion.items)
-              : null,
-          },
-          update: {
-            finalLevel,
-            dimensionResults: snapshot.manager.dimensions,
-            promotionResult: snapshot.promotion
-              ? JSON.stringify(snapshot.promotion.items)
-              : null,
-            confirmedByEmployee: false,
-            confirmedAt: null,
-            // 旧投影曾因周期整体退回失效；新版本发布后重新成为当前投影。
-            invalidatedAt: null,
-            invalidatedByRollbackId: null,
-          },
-        });
         await tx.perfParticipant.update({
           where: { id: participant.id },
           data: { status: PerfParticipantStatus.RESULT_PUBLISHED },
@@ -390,26 +363,6 @@ export class ResultService {
         publishedAt,
       },
     });
-    await tx.perfResult.upsert({
-      where: { participantId: input.participantId },
-      create: {
-        participantId: input.participantId,
-        finalLevel,
-        dimensionResults: snapshot.manager.dimensions,
-        promotionResult: snapshot.promotion
-          ? JSON.stringify(snapshot.promotion.items)
-          : null,
-      },
-      update: {
-        finalLevel,
-        dimensionResults: snapshot.manager.dimensions,
-        promotionResult: snapshot.promotion
-          ? JSON.stringify(snapshot.promotion.items)
-          : null,
-        confirmedByEmployee: false,
-        confirmedAt: null,
-      },
-    });
     await tx.perfParticipant.update({
       where: { id: input.participantId },
       data: { status: PerfParticipantStatus.RE_CONFIRMING },
@@ -463,7 +416,6 @@ export class ResultService {
       }
       if (
         participant.status !== PerfParticipantStatus.RESULT_PUBLISHED &&
-        participant.status !== PerfParticipantStatus.RESULT_PUSHED &&
         participant.status !== PerfParticipantStatus.RE_CONFIRMING
       ) {
         throw new ConflictException('当前状态不允许确认结果');
@@ -491,11 +443,6 @@ export class ResultService {
       await tx.perfParticipant.update({
         where: { id: participantId },
         data: { status: PerfParticipantStatus.CONFIRMED },
-      });
-      // 旧投影只同步确认状态，不参与版本有效性判断。
-      await tx.perfResult.updateMany({
-        where: { participantId },
-        data: { confirmedByEmployee: true, confirmedAt },
       });
     });
     await this.auditService.record({
@@ -545,10 +492,6 @@ export class ResultService {
         cycle: {
           include: {
             currentConfigVersion: { select: { ratings: true } },
-            dimensions: {
-              where: { type: 'PROMOTION', deletedAt: null },
-              select: { employeeVisible: true },
-            },
           },
         },
         calibrations: {
@@ -614,13 +557,6 @@ export class ResultService {
     ) as SnapshotSubmission | undefined;
     const content = participant.formSnapshot
       ?.content as unknown as FormSnapshotContent | null;
-    const promotionVisible =
-      participant.isPromotionEnabled &&
-      participant.cycle.dimensions.some((item) => item.employeeVisible);
-    const promotionItems = [
-      ...(selfSubmission?.items ?? []),
-      ...(managerSubmission?.items ?? []),
-    ].filter((item) => item.subformKey.includes('PROMOTION'));
     return {
       cycle: { id: participant.cycle.id, name: participant.cycle.name },
       manager: {
@@ -656,10 +592,47 @@ export class ResultService {
           content,
         ),
       },
-      promotion: promotionVisible
-        ? { visible: true, items: this.visibleAnswers(promotionItems, content) }
-        : null,
+      promotion: this.buildVisiblePromotion(
+        participant.isPromotionEnabled,
+        [selfSubmission, managerSubmission],
+        content,
+      ),
     };
+  }
+
+  /**
+   * 员工填写的晋升材料默认可回看；Leader 结论仅在表单项明确配置
+   * `employeeVisible: true` 时进入发布快照，避免把内部判断意外下发。
+   */
+  private buildVisiblePromotion(
+    enabled: boolean,
+    submissions: Array<SnapshotSubmission | undefined>,
+    content: FormSnapshotContent | null,
+  ): ResultSnapshot['promotion'] {
+    if (!enabled) return null;
+    const items = submissions
+      .flatMap((submission) => submission?.items ?? [])
+      .filter((answer) => answer.subformKey.includes('PROMOTION'))
+      .filter((answer) => this.isPromotionAnswerVisible(answer, content));
+    if (items.length === 0) return null;
+    return { visible: true, items: this.visibleAnswers(items, content) };
+  }
+
+  private isPromotionAnswerVisible(
+    answer: SnapshotAnswer,
+    content: FormSnapshotContent | null,
+  ) {
+    const dimension = content?.subforms
+      .flatMap((subform) => subform.dimensions)
+      .find((item) => item.key === answer.dimensionKey);
+    if (dimension?.audience === 'EMPLOYEE') return true;
+    const item = dimension?.items.find(
+      (candidate) => candidate.key === answer.itemKey,
+    );
+    const config = this.jsonObject(
+      item?.config as Prisma.JsonValue | undefined,
+    );
+    return config.employeeVisible === true;
   }
 
   private visibleAnswers(

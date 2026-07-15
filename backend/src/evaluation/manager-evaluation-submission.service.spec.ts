@@ -19,8 +19,7 @@ jest.mock(
       MANAGER: 'MANAGER',
     },
     PerfParticipantStatus: {
-      SELF_SUBMITTED: 'SELF_SUBMITTED',
-      REVIEWED: 'REVIEWED',
+      ACTIVE: 'ACTIVE',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
@@ -122,7 +121,7 @@ const participant = {
   cycleId: 1,
   employeeOpenId: 'ou_employee',
   leaderOpenIdSnapshot: 'ou_leader',
-  status: 'SELF_SUBMITTED',
+  status: 'ACTIVE',
   isPromotionEnabled: true,
   formSnapshotId: 88,
   formSnapshot: { id: 88, content: snapshotContent },
@@ -163,7 +162,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     perfParticipant: { findUnique: jest.fn() },
     perfEvaluationSubmission: { findMany: jest.fn() },
     larkUser: { findUnique: jest.fn() },
-    perfResult: { findMany: jest.fn() },
+    perfResultVersion: { findMany: jest.fn() },
     $transaction: jest.fn(),
   };
   const taskAccess = { openIfDue: jest.fn(), ensureWritable: jest.fn() };
@@ -193,7 +192,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       open_id: 'ou_employee',
       name: '员工甲',
     });
-    prisma.perfResult.findMany.mockResolvedValue([]);
+    prisma.perfResultVersion.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(
       (fn: (client: typeof tx) => unknown) => fn(tx),
     );
@@ -206,7 +205,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     );
     tx.perfReviewerAssignment.count.mockResolvedValue(0);
     tx.perfParticipant.findUnique.mockResolvedValue({
-      status: 'SELF_SUBMITTED',
+      status: 'ACTIVE',
     });
     tx.perfParticipant.updateMany.mockResolvedValue({ count: 1 });
     taskAccess.openIfDue.mockResolvedValue({ id: 21, openedAt: new Date() });
@@ -236,7 +235,6 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     const submissionPolicy = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
-      {} as never,
       taskAccess as never,
       aiReport as never,
       {} as never,

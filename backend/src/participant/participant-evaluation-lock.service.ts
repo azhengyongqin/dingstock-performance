@@ -11,14 +11,14 @@ import {
 
 /**
  * 参与者评估写入行锁。
- * SELF 的新旧写入路径与 NO_RESULT 收口必须使用同一行锁，
+ * SELF 统一提交与 NO_RESULT 收口必须使用同一行锁，
  * 以保证“有效写入”与“无绩效结果”不会并发交错。
  */
 @Injectable()
 export class ParticipantEvaluationLockService {
   /**
    * 所有人工评估写入与校准共用参与者行锁。ensureWritable 的前置检查只改善提示，
-   * 真正防止“校准刚成功、旧页面仍写入”的边界在这个事务内检查。
+   * 真正防止“校准刚成功、并发提交仍写入”的边界在这个事务内检查。
    */
   async lockHumanWrite(
     tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
@@ -76,13 +76,12 @@ export class ParticipantEvaluationLockService {
   private isClosedStatus(status: PerfParticipantStatus) {
     return new Set<string>([
       PerfParticipantStatus.CALIBRATED,
-      PerfParticipantStatus.RESULT_PUSHED,
+      PerfParticipantStatus.RESULT_PUBLISHED,
       PerfParticipantStatus.CONFIRMED,
       PerfParticipantStatus.APPEALING,
       PerfParticipantStatus.RE_CONFIRMING,
       PerfParticipantStatus.NO_RESULT,
       PerfParticipantStatus.WITHDRAWN,
-      PerfParticipantStatus.ARCHIVED,
     ]).has(status);
   }
 }

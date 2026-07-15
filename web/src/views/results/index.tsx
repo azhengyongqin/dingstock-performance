@@ -105,7 +105,7 @@ const APPEAL_STATUS_BADGE: Record<PerfAppealStatus, string> = {
 /**
  * 结果确认（员工视角，真实后端 /results/current）：
  * 绩效等级展示卡 + 各维度结果 + 确认/申诉操作 + 申诉记录。
- * participant.status 为 RESULT_PUBLISHED / 遗留 RESULT_PUSHED / RE_CONFIRMING 时可确认或发起申诉。
+ * participant.status 为 RESULT_PUBLISHED / RE_CONFIRMING 时可确认或发起申诉。
  */
 const Results = () => {
   // 结果数据
@@ -125,10 +125,9 @@ const Results = () => {
   const result = data?.result ?? null
   const appeals = data?.appeals ?? []
 
-  // 可操作：结果已推送待确认 / 申诉处理后待再次确认
+  // 可操作：结果已发布待确认 / 申诉处理后待再次确认
   const actionable =
     participant?.status === 'RESULT_PUBLISHED' ||
-    participant?.status === 'RESULT_PUSHED' ||
     participant?.status === 'RE_CONFIRMING'
 
   // 拉取当前周期结果

@@ -49,8 +49,6 @@ describe('RedLineFindingService 红线确认与撤销', () => {
       findFirst: jest.fn(),
       create: jest.fn(),
     },
-    perfCalibration: { findFirst: jest.fn() },
-    perfResult: { updateMany: jest.fn() },
   };
   const prisma = {
     $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
@@ -71,8 +69,6 @@ describe('RedLineFindingService 红线确认与撤销', () => {
       ...confirmed,
       revokedBy: [],
     });
-    tx.perfRedLineFinding.findFirst.mockResolvedValue(null);
-    tx.perfCalibration.findFirst.mockResolvedValue({ afterLevel: 'A' });
     rbac.hasAnyRole.mockResolvedValue(true);
     rbac.getOrgScope.mockResolvedValue(['od_product']);
     managerStageResult.recalculate.mockResolvedValue({
@@ -108,10 +104,7 @@ describe('RedLineFindingService 红线确认与撤销', () => {
       }),
     });
     expect(managerStageResult.recalculate).toHaveBeenCalledWith(7, tx);
-    expect(tx.perfResult.updateMany).toHaveBeenCalledWith({
-      where: { participantId: 7, archivedAt: null },
-      data: { finalLevel: 'C' },
-    });
+    expect(tx).not.toHaveProperty('perfResult');
   });
 
   it('证据必须是非空数组或非空对象，不能把原始值交给数据库后才失败', async () => {
@@ -176,10 +169,7 @@ describe('RedLineFindingService 红线确认与撤销', () => {
         operatorOpenId: 'ou_admin',
       }),
     });
-    expect(tx.perfResult.updateMany).toHaveBeenCalledWith({
-      where: { participantId: 7, archivedAt: null },
-      data: { finalLevel: 'A' },
-    });
+    expect(tx).not.toHaveProperty('perfResult');
 
     tx.perfRedLineFinding.findUnique.mockResolvedValueOnce({
       ...confirmed,

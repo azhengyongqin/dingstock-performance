@@ -18,12 +18,11 @@ jest.mock(
       AI: 'AI',
     },
     PerfParticipantStatus: {
-      PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
+      ACTIVE: 'ACTIVE',
       NO_RESULT: 'NO_RESULT',
       WITHDRAWN: 'WITHDRAWN',
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
-    PerfSelfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
     PerfStageResultMode: { DIRECT_RATING: 'DIRECT_RATING' },
     PerfStageResultStatus: { NO_DATA: 'NO_DATA' },
@@ -37,7 +36,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     cycleId: 1,
     employeeOpenId: 'ou_employee',
     departmentIdSnapshot: 'od_product',
-    status: 'PENDING_SELF_REVIEW',
+    status: 'ACTIVE',
     cycle: {
       status: 'ACTIVE',
       deletedAt: null,
@@ -55,7 +54,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     perfEvaluationTask: { updateMany: jest.fn() },
     perfReviewerAssignment: { count: jest.fn() },
     perfStageResult: { upsert: jest.fn(), deleteMany: jest.fn() },
-    perfResult: { count: jest.fn() },
+    perfResultVersion: { count: jest.fn() },
     perfCalibration: { count: jest.fn() },
   };
   const prisma = {
@@ -85,7 +84,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     ]);
     tx.perfEvaluationTask.updateMany.mockResolvedValue({ count: 3 });
     tx.perfReviewerAssignment.count.mockResolvedValue(1);
-    tx.perfResult.count.mockResolvedValue(0);
+    tx.perfResultVersion.count.mockResolvedValue(0);
     tx.perfCalibration.count.mockResolvedValue(0);
     rbac.hasAnyRole.mockResolvedValue(true);
     rbac.getOrgScope.mockResolvedValue(['od_product']);
@@ -178,7 +177,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     expect(tx.perfEvaluationSubmission).not.toHaveProperty('deleteMany');
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({
-        before: { status: 'PENDING_SELF_REVIEW' },
+        before: { status: 'ACTIVE' },
         after: { status: 'NO_RESULT' },
         reason: '员工长期未提交自评',
       }),
@@ -196,12 +195,9 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
     expect(tx.perfParticipant.update).not.toHaveBeenCalled();
   });
 
-  it('旧 SELF 提交先获行锁并生效后，NO_RESULT 收口也必须拒绝', async () => {
-    tx.perfParticipant.findUnique.mockResolvedValue({
-      ...participant,
-      selfReview: { status: 'SUBMITTED' },
-    });
+  it('统一 SELF 提交先获行锁并生效后，NO_RESULT 收口也必须拒绝', async () => {
     tx.perfEvaluationSubmission.findMany.mockResolvedValue([
+      { id: 10, stage: 'SELF', status: 'SUBMITTED' },
       { id: 11, stage: 'MANAGER', status: 'SUBMITTED' },
     ]);
 
@@ -237,7 +233,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
       '员工已恢复评估',
     );
 
-    expect(result).toMatchObject({ status: 'PENDING_SELF_REVIEW' });
+    expect(result).toMatchObject({ status: 'ACTIVE' });
     expect(tx.perfStageResult.deleteMany).toHaveBeenCalledWith({
       where: {
         participantId: 7,

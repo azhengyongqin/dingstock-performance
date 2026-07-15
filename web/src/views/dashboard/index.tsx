@@ -26,7 +26,7 @@ import { CYCLE_STATUS_BADGE, CYCLE_STATUS_LABEL } from '@/lib/perf-api'
 /** HR 看板统计 */
 type DashboardStats = {
   total: number
-  selfReviewRate: number
+  selfSubmissionRate: number
   reviewRate: number
   calibrationRate: number
   confirmRate: number
@@ -113,7 +113,7 @@ const PerformanceDashboard = () => {
 
     return [
       { label: '参评总人数', value: String(stats.total), sub: cycle?.name ?? '' },
-      { label: '自评提交率', value: formatRate(stats.selfReviewRate), sub: '员工自评环节' },
+      { label: '自评提交率', value: formatRate(stats.selfSubmissionRate), sub: '员工自评环节' },
       { label: '评审完成率', value: formatRate(stats.reviewRate), sub: '360° + 上级评估' },
       {
         label: '确认率',
@@ -138,7 +138,7 @@ const PerformanceDashboard = () => {
     if (!stats) return []
 
     return [
-      { stage: '自评提交', rate: toPercent(stats.selfReviewRate) },
+      { stage: '自评提交', rate: toPercent(stats.selfSubmissionRate) },
       { stage: '评审完成', rate: toPercent(stats.reviewRate) },
       { stage: '校准完成', rate: toPercent(stats.calibrationRate) },
       { stage: '结果确认', rate: toPercent(stats.confirmRate) }

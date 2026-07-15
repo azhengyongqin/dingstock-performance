@@ -19,8 +19,10 @@ import { AuthService } from './auth.service';
 import { DevLoginDto } from './dto/dev-login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import type { AuthenticatedRequest } from './jwt-auth.guard';
+import { SkipPerformanceCutoverGate } from '../cutover/performance-cutover.decorator';
 
 @ApiTags('auth')
+@SkipPerformanceCutoverGate()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

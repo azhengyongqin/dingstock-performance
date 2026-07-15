@@ -11,7 +11,7 @@ import {
 const row = (overrides: Partial<CalibrationRow>): CalibrationRow => ({
   id: 7,
   employee: null,
-  status: 'PENDING_SELF_REVIEW',
+  status: 'ACTIVE',
   initialLevel: null,
   currentLevel: null,
   promotionConclusion: null,

@@ -37,7 +37,6 @@ describe('CycleArchiveService 周期归档', () => {
     perfCycle: { findFirst: jest.fn(), updateMany: jest.fn() },
     perfCycleArchive: { create: jest.fn() },
     perfParticipant: { findMany: jest.fn() },
-    perfResult: { updateMany: jest.fn() },
     auditLog: { create: jest.fn() },
   };
   const prisma = {
@@ -61,8 +60,6 @@ describe('CycleArchiveService 周期归档', () => {
       { stage: 'SELF', status: 'SUBMITTED' },
       { stage: 'MANAGER', status: 'SUBMITTED' },
     ],
-    selfReview: null,
-    managerReview: null,
     calibrations: [{ id: 31 }],
     resultVersions: [
       {

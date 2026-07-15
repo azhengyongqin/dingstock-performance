@@ -9,26 +9,18 @@ export type PerfCycleStatus = 'DRAFT' | 'SCHEDULED' | 'ACTIVE' | 'ARCHIVED'
 export type PerfEvaluationTaskType = 'SELF' | 'PEER' | 'MANAGER' | 'AI'
 
 export type PerfParticipantStatus =
-  | 'PENDING_SELF_REVIEW'
-  | 'SELF_SUBMITTED'
-  | 'RETURNED'
-  | 'REVIEWED'
-  | 'AI_DONE'
+  | 'ACTIVE'
   | 'CALIBRATED'
-  | 'RESULT_PUSHED'
   | 'RESULT_PUBLISHED'
   | 'CONFIRMED'
   | 'APPEALING'
   | 'RE_CONFIRMING'
   | 'NO_RESULT'
-  | 'ARCHIVED'
+  | 'WITHDRAWN'
 
 export type PerfCycleType = 'SEMI_ANNUAL' | 'QUARTERLY' | 'ANNUAL'
-export type PerfDimensionType = 'REGULAR' | 'PROMOTION' | 'TEXT' | 'METRIC'
-export type PerfScoringMethod = 'LEVEL' | 'SCORE' | 'CONCLUSION' | 'TEXT'
 export type PerfRole = 'EMPLOYEE' | 'REVIEWER' | 'LEADER' | 'HR' | 'ADMIN'
 export type PerfReviewStatus = 'DRAFT' | 'SUBMITTED'
-export type PerfSelfReviewStatus = 'DRAFT' | 'SUBMITTED' | 'RETURNED'
 export type PerfAppealStatus = 'PENDING' | 'IN_INTERVIEW' | 'RESOLVED'
 export type PerfFormTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type PerfJobLevelPrefix = 'D' | 'M'
@@ -85,19 +77,14 @@ export const CYCLE_STATUS_BADGE: Record<PerfCycleStatus, string> = {
 }
 
 export const PARTICIPANT_STATUS_LABEL: Record<PerfParticipantStatus, string> = {
-  PENDING_SELF_REVIEW: '待自评',
-  SELF_SUBMITTED: '自评已提交',
-  RETURNED: '自评被退回',
-  REVIEWED: '评审完成',
-  AI_DONE: 'AI 分析完成',
+  ACTIVE: '评估进行中',
   CALIBRATED: '已校准',
-  RESULT_PUSHED: '待确认结果',
   RESULT_PUBLISHED: '待确认结果',
   CONFIRMED: '已确认',
   APPEALING: '申诉中',
   RE_CONFIRMING: '待再次确认',
   NO_RESULT: '当前周期无绩效结果',
-  ARCHIVED: '已归档'
+  WITHDRAWN: '已退出周期'
 }
 
 export const CYCLE_TYPE_LABEL: Record<PerfCycleType, string> = {
@@ -106,30 +93,10 @@ export const CYCLE_TYPE_LABEL: Record<PerfCycleType, string> = {
   ANNUAL: '年度'
 }
 
-export const DIMENSION_TYPE_LABEL: Record<PerfDimensionType, string> = {
-  REGULAR: '常规评估',
-  PROMOTION: '晋升评估',
-  TEXT: '文本反馈',
-  METRIC: '系统指标'
-}
-
-export const SCORING_METHOD_LABEL: Record<PerfScoringMethod, string> = {
-  LEVEL: '等级',
-  SCORE: '分值',
-  CONCLUSION: '结论型',
-  TEXT: '文本'
-}
-
 export const APPEAL_STATUS_LABEL: Record<PerfAppealStatus, string> = {
   PENDING: '待处理',
   IN_INTERVIEW: '面谈处理中',
   RESOLVED: '已处理'
-}
-
-export const SELF_REVIEW_STATUS_LABEL: Record<PerfSelfReviewStatus, string> = {
-  DRAFT: '草稿',
-  SUBMITTED: '已提交',
-  RETURNED: '已退回'
 }
 
 // ===== 通用实体类型 =====
@@ -153,30 +120,6 @@ export type EvaluationRating = {
 
 export type CommentRequiredRules = { requiredRatingSymbols?: string[] }
 
-export type PerfDimension = {
-  id: number
-  cycleId: number
-  name: string
-  type: PerfDimensionType
-  scoringMethod: PerfScoringMethod
-  weight: string | number | null
-  required: boolean
-  sortOrder: number
-  visibleRoles: PerfRole[]
-  editableRoles: PerfRole[]
-  formSchema?: Record<string, unknown> | null
-  applicableScope?: Record<string, unknown> | null
-  conclusionOptions?: string[] | null
-  employeeVisible?: boolean | null
-}
-
-export type PerfEvaluationRule = {
-  id: number
-  cycleId: number
-  levels: EvaluationRating[]
-  commentRequiredRules?: CommentRequiredRules | null
-}
-
 export type PerfCycle = {
   id: number
   name: string
@@ -184,19 +127,13 @@ export type PerfCycle = {
   status: PerfCycleStatus
   plannedStartAt?: string | null
   ownerOpenId: string
-  templateId?: number | null
-  template?: { id: number; name: string } | null
   currentConfigVersionId?: number | null
   currentConfigVersion?: {
     id: number
     version: number
     sourceConfigTemplateVersionId?: number | null
   } | null
-  windows?: Record<string, { startAt?: string; endAt?: string }> | null
-  notificationRules?: Record<string, unknown> | null
-  evaluationRule?: PerfEvaluationRule | null
-  dimensions?: PerfDimension[]
-  _count?: { participants: number; dimensions?: number }
+  _count?: { participants: number }
 }
 
 /** 周期看板的任务事实；openedAt 是硬开放的权威标记，提醒时间不参与可写判断。 */
@@ -275,9 +212,10 @@ export type PerfParticipantItem = {
   jobLevelCodeSnapshot?: string | null
   jobLevelPrefixSnapshot?: PerfJobLevelPrefix | null
   formSnapshotId?: number | null
-  selfReview?: { status: PerfSelfReviewStatus; submittedAt?: string | null } | null
-  managerReview?: { status: PerfReviewStatus; initialLevel?: string | null } | null
-  result?: { finalLevel: string; confirmedByEmployee: boolean } | null
+  selfSubmission?: { status: PerfReviewStatus; submittedAt?: string | null } | null
+  managerSubmission?: { status: PerfReviewStatus; submittedAt?: string | null } | null
+  managerInitialLevel?: string | null
+  resultVersion?: { finalLevel: string; confirmedByEmployee: boolean } | null
   _count?: { reviewerAssignments: number }
 }
 
@@ -311,21 +249,6 @@ export type StartCheckItem = {
   actionLabel?: string
   issues?: Array<{ code: string; path: string; message: string; participantId?: number; employeeOpenId?: string }>
 }
-
-export type PerfTemplate = {
-  id: number
-  name: string
-  description?: string | null
-  isDefault: boolean
-  canCreateCycle?: boolean
-  unavailableReasons?: string[]
-  levels: EvaluationRating[]
-  commentRequiredRules?: CommentRequiredRules | null
-  dimensions?: PerfDimensionTemplateItem[]
-  _count?: { dimensions: number; cycles: number }
-}
-
-export type PerfDimensionTemplateItem = Omit<PerfDimension, 'cycleId'> & { templateId: number }
 
 // ===== 版本化评估表单模板 =====
 

@@ -179,8 +179,7 @@ export class CalibrationDecisionService {
     const participant = await tx.perfParticipant.findUnique({
       where: { id: participantId },
       include: {
-        cycle: { include: { evaluationRule: true } },
-        managerReview: { select: { initialLevel: true, status: true } },
+        cycle: { include: { currentConfigVersion: true } },
         calibrations: {
           where: { invalidatedAt: null },
           orderBy: { id: 'desc' },
@@ -191,7 +190,6 @@ export class CalibrationDecisionService {
           select: { id: true, status: true },
           take: 1,
         },
-        result: { select: { archivedAt: true } },
         aiReport: {
           select: {
             status: true,
@@ -312,9 +310,7 @@ export class CalibrationDecisionService {
     );
     const managerLevel =
       stageResults.find((item) => item.stage === PerfEvaluationTaskType.MANAGER)
-        ?.stageLevel ??
-      participant.managerReview?.initialLevel ??
-      null;
+        ?.stageLevel ?? null;
     if (!managerLevel || !this.isRatingSymbol(managerLevel)) {
       throw new ConflictException('上级评估尚未形成可校准的权威阶段等级');
     }
@@ -398,14 +394,10 @@ export class CalibrationDecisionService {
   private assertCycleAllowsCalibration(participant: {
     status: PerfParticipantStatus;
     cycle: { status: PerfCycleStatus };
-    result: { archivedAt: Date | null } | null;
     appeals: Array<{ id: number }>;
   }) {
     if (participant.cycle.status !== PerfCycleStatus.ACTIVE) {
       throw new ConflictException('只有进行中的周期可以校准');
-    }
-    if (participant.result?.archivedAt) {
-      throw new ConflictException('结果已归档，不能继续校准');
     }
     if (participant.status === PerfParticipantStatus.NO_RESULT) {
       throw new ConflictException('当前周期无绩效结果的参与者不能校准');
@@ -424,7 +416,6 @@ export class CalibrationDecisionService {
     const closedStatuses = new Set<PerfParticipantStatus>([
       PerfParticipantStatus.RE_CONFIRMING,
       PerfParticipantStatus.WITHDRAWN,
-      PerfParticipantStatus.ARCHIVED,
     ]);
     if (closedStatuses.has(participant.status)) {
       throw new ConflictException({
@@ -477,8 +468,9 @@ export class CalibrationDecisionService {
     `;
     if (participants.length !== 1) throw new NotFoundException('参与者不存在');
     await tx.$queryRaw<Array<{ id: number }>>`
-      SELECT "id" FROM "performance"."perf_results"
+      SELECT "id" FROM "performance"."perf_result_versions"
       WHERE "participant_id" = ${participantId}
+      ORDER BY "version" DESC
       FOR UPDATE
     `;
   }

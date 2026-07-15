@@ -37,7 +37,7 @@ const ratings = [
     mappingScore: '50',
     commentRequired: true,
   },
-];
+] as const;
 const constraints = {
   WEIGHTED_RATING: [
     {
@@ -532,7 +532,7 @@ describeWithDedicatedDatabase(
           await prisma.perfEvaluationItemResult.findUniqueOrThrow({
             where: { id: itemId },
           })
-        ).calculationScore.toString(),
+        ).calculationScore!.toString(),
       ).toBe('88');
       expect(
         await prisma.perfStageResult.count({

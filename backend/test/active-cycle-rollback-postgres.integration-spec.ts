@@ -122,7 +122,7 @@ describe('Ticket 17 PostgreSQL 周期整体退回集成', () => {
     await first.query(
       `
       INSERT INTO "${schema}"."notification_events" (dedupe_key, rollback_id, receiver_open_id)
-      SELECT 'result-invalidated:' || $1 || ':' || participant.id, $1, participant.id::text
+      SELECT 'result-invalidated:' || $1::integer || ':' || participant.id, $1::integer, participant.id::text
       FROM "${schema}"."participants" AS participant
       WHERE participant.id IN (102, 103, 104, 105)
     `,

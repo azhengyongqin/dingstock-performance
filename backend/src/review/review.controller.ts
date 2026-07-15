@@ -6,16 +6,10 @@ import {
   ParseIntPipe,
   Post,
   Put,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PerfRole } from '../generated/prisma/enums';
@@ -24,13 +18,10 @@ import { RolesGuard } from '../rbac/roles.guard';
 import {
   BatchAddReviewersDto,
   ReplaceReviewerDto,
-  SaveSelfReviewDto,
-  SubmitSelfReviewDto,
   UpsertReviewersDto,
 } from './review.dto';
 import { ReviewService } from './review.service';
 import { ReviewerService } from './reviewer.service';
-import { SelfReviewService } from './self-review.service';
 
 /** 评审员指派：数据范围（Leader/HR）在 service 层校验 */
 @ApiTags('review')
@@ -40,7 +31,6 @@ import { SelfReviewService } from './self-review.service';
 export class ReviewController {
   constructor(
     private readonly reviewerService: ReviewerService,
-    private readonly selfReviewService: SelfReviewService,
     private readonly reviewService: ReviewService,
   ) {}
 
@@ -105,41 +95,6 @@ export class ReviewController {
       dto.participantIds,
       dto.items,
     );
-  }
-
-  // ---- 员工自评 ----
-
-  @Get('self-reviews/current')
-  @ApiOperation({
-    summary: '我的自评上下文（参与记录/草稿/可填维度/评估规则）',
-  })
-  @ApiQuery({ name: 'cycle_id', required: false })
-  getCurrentSelfReview(
-    @Req() req: AuthenticatedRequest,
-    @Query('cycle_id') cycleId?: string,
-  ) {
-    return this.selfReviewService.getCurrent(
-      req.user.open_id,
-      cycleId ? Number(cycleId) : undefined,
-    );
-  }
-
-  @Put('self-reviews/current')
-  @ApiOperation({ summary: '保存自评草稿（自动保存）' })
-  saveSelfReview(
-    @Req() req: AuthenticatedRequest,
-    @Body() dto: SaveSelfReviewDto,
-  ) {
-    return this.selfReviewService.saveDraft(req.user.open_id, dto);
-  }
-
-  @Post('self-reviews/current/submit')
-  @ApiOperation({ summary: '提交自评' })
-  submitSelfReview(
-    @Req() req: AuthenticatedRequest,
-    @Body() dto: SubmitSelfReviewDto,
-  ) {
-    return this.selfReviewService.submit(req.user.open_id, dto.cycleId);
   }
 
   // ---- 评审任务（360° 与上级评估共用任务模型） ----

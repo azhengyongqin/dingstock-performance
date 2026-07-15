@@ -17,12 +17,10 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "lark:play": "ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\",\"resolvePackageJsonExports\":false}' src/scripts/lark-playground.ts",
-    "seed:template": "pnpm build && node dist/src/scripts/seed-default-template.js",
     "seed:form-templates": "pnpm build && node dist/src/scripts/seed-default-form-templates.js",
     "seed:baseline": "pnpm build && node dist/src/scripts/seed-baseline-data.js",
-    "migration:legacy": "pnpm build && node dist/src/scripts/migrate-legacy-performance.js",
     "test": "pnpm prisma:generate && jest",
-    "test:postgres": "jest --config test/jest-postgres-integration.json --runInBand",
+    "test:postgres": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config test/jest-postgres-integration.json --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
@@ -87,6 +85,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

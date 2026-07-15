@@ -5,7 +5,6 @@ import {
   IsInt,
   IsIn,
   IsNotEmpty,
-  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -46,85 +45,6 @@ export class UpsertReviewersDto {
   @IsArray()
   @IsInt({ each: true })
   knownAssignmentIds?: number[];
-}
-
-export class SaveSelfReviewDto {
-  @IsInt()
-  cycleId!: number;
-
-  @IsOptional()
-  @IsObject()
-  okrContent?: Record<string, unknown>;
-
-  /** 工作总结分节：{ outputs, results, collaboration, reflection, plan } */
-  @IsOptional()
-  @IsObject()
-  summary?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsObject()
-  promotionSelfReview?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  attachments?: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsString()
-  documentToken?: string;
-}
-
-export class SubmitSelfReviewDto {
-  @IsInt()
-  cycleId!: number;
-}
-
-/** 360° 评估草稿；dimensionScores: [{ dimensionId, score?, level?, conclusion?, comment }] */
-export class SaveReviewDto {
-  @IsInt()
-  participantId!: number;
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  dimensionScores?: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsString()
-  comments?: string;
-
-  @IsOptional()
-  @IsObject()
-  promotionFeedback?: Record<string, unknown>;
-}
-
-export class SubmitByParticipantDto {
-  @IsInt()
-  participantId!: number;
-}
-
-export class SaveManagerReviewDto {
-  @IsInt()
-  participantId!: number;
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  dimensionScores?: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsString()
-  overallComment?: string;
-
-  /** 初步评级，取值受周期评估规则 levels 约束（service 校验） */
-  @IsOptional()
-  @IsString()
-  initialLevel?: string;
-
-  @IsOptional()
-  @IsString()
-  promotionConclusion?: string;
 }
 
 export class BatchAddReviewersDto {

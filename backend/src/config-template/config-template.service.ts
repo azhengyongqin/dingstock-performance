@@ -84,7 +84,7 @@ type ConfigVersionRecord = NonNullable<
 /**
  * 版本化配置模板应用服务。
  *
- * 配置版本只保存规则和精确表单版本引用；旧 PerfTemplate 与周期复制链路在 Ticket 04 前保持不变。
+ * 配置版本保存规则和精确表单版本引用，是周期配置快照的唯一模板来源。
  */
 @Injectable()
 export class ConfigTemplateService {

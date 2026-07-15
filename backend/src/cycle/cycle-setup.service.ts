@@ -32,7 +32,6 @@ import {
 } from './participant-prefix';
 import type {
   CreateCycleDto,
-  InitializeCycleSetupDto,
   ReapplyCycleSetupDto,
   UpdateCycleAdvancedConfigDto,
   UpsertCyclePlanDto,
@@ -175,65 +174,6 @@ export class CycleSetupService {
         plannedStartAt: dto.plannedStartAt,
         status: PerfCycleStatus.DRAFT,
       },
-    });
-    return this.getSetup(cycleId);
-  }
-
-  /**
-   * 旧 PENDING 周期迁回 DRAFT 后没有新版快照；由用户明确选择配置版本后一次性补齐。
-   * 该入口不会覆盖已经初始化的周期，避免误换快照破坏历史绑定。
-   */
-  async initializeLegacyDraft(
-    operatorOpenId: string,
-    cycleId: number,
-    dto: InitializeCycleSetupDto,
-  ) {
-    if (!/(Z|[+-]\d{2}:\d{2})$/i.test(dto.plannedStartAt)) {
-      throw new BadRequestException('计划启动时间必须包含时区');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await this.lockCycle(tx, cycleId);
-      const cycle = await this.getSetup(cycleId, tx);
-      if (cycle.status !== PerfCycleStatus.DRAFT) {
-        throw new ConflictException('只有旧草稿周期允许初始化配置快照');
-      }
-      if (cycle.currentConfigVersionId || cycle.currentConfigVersion) {
-        throw new ConflictException('周期配置快照已存在，不能重复初始化');
-      }
-
-      const source = await this.resolvePublishedSource(
-        tx,
-        dto.configTemplateVersionId,
-        dto.plannedStartAt,
-      );
-
-      const snapshot = await tx.perfCycleConfigVersion.create({
-        data: this.buildSnapshotCreateData(source, cycleId, 1, operatorOpenId),
-        include: { formSnapshots: true },
-      });
-      await tx.perfCycle.update({
-        where: { id: cycleId },
-        data: {
-          name: dto.name,
-          plannedStartAt: new Date(dto.plannedStartAt),
-          currentConfigVersionId: snapshot.id,
-        },
-      });
-
-      await this.rebindParticipantsToSnapshot(
-        tx,
-        cycle.participants,
-        snapshot.formSnapshots,
-      );
-    });
-
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'cycle.setup.initialize_legacy_draft',
-      targetType: 'perf_cycle',
-      targetId: String(cycleId),
-      after: dto,
     });
     return this.getSetup(cycleId);
   }
@@ -476,9 +416,11 @@ export class CycleSetupService {
     },
   ) {
     return {
-      cycleId,
+      // 使用 checked relation connect，避免与嵌套 formSnapshots 混用时 Prisma
+      // 把载荷判为 checked input 后拒绝裸 cycleId 标量。
+      cycle: { connect: { id: cycleId } },
       version,
-      sourceConfigTemplateVersionId: source.id,
+      sourceConfigVersion: { connect: { id: source.id } },
       selfStageMode: source.selfStageMode,
       peerStageMode: source.peerStageMode,
       managerStageMode: source.managerStageMode,
@@ -498,9 +440,12 @@ export class CycleSetupService {
       createdByOpenId: operatorOpenId,
       formSnapshots: {
         create: source.formBindings.map((binding) => ({
-          cycleId,
           jobLevelPrefix: binding.jobLevelPrefix,
-          sourceFormTemplateVersionId: binding.formTemplateVersionId,
+          // cycleId 属于 configVersion 复合关系的一部分，嵌套创建时由父关系自动带入；
+          // 此处只显式连接另一条必填关系，避免 Prisma 将嵌套载荷判为非法输入。
+          sourceFormVersion: {
+            connect: { id: binding.formTemplateVersionId },
+          },
           content: this.inputJson(
             this.toFormSnapshotContent(binding.formTemplateVersion),
           ),

@@ -34,7 +34,7 @@ export class CalibrationService {
   async listForCycle(operatorOpenId: string, cycleId: number) {
     const cycle = await this.prisma.perfCycle.findFirst({
       where: { id: cycleId, deletedAt: null },
-      include: { evaluationRule: true },
+      include: { currentConfigVersion: { select: { ratings: true } } },
     });
     if (!cycle) throw new NotFoundException('绩效周期不存在');
 
@@ -53,13 +53,6 @@ export class CalibrationService {
     const participants = await this.prisma.perfParticipant.findMany({
       where: participantWhere,
       include: {
-        managerReview: {
-          select: {
-            initialLevel: true,
-            promotionConclusion: true,
-            status: true,
-          },
-        },
         stageResults: {
           where: {
             stage: 'MANAGER',
@@ -102,7 +95,6 @@ export class CalibrationService {
           },
           orderBy: { id: 'asc' },
         },
-        result: { select: { finalLevel: true } },
       },
       orderBy: { id: 'asc' },
     });
@@ -119,10 +111,7 @@ export class CalibrationService {
     const userMap = new Map(users.map((u) => [u.open_id, u]));
 
     const items = participants.map((participant) => {
-      const initialLevel =
-        participant.stageResults?.[0]?.stageLevel ??
-        participant.managerReview?.initialLevel ??
-        null;
+      const initialLevel = participant.stageResults?.[0]?.stageLevel ?? null;
       const currentLevel =
         participant.redLineFindings.length > 0
           ? 'C'
@@ -136,8 +125,7 @@ export class CalibrationService {
         isPromotionEnabled: participant.isPromotionEnabled,
         initialLevel,
         currentLevel,
-        promotionConclusion:
-          participant.managerReview?.promotionConclusion ?? null,
+        promotionConclusion: null,
         aiReportStatus: participant.aiReport?.status ?? null,
         riskFlags: participant.aiReport?.riskFlags ?? null,
         // 校准工作台是管理端授权接口，可在同一行直接使用完整 AI 参考。
@@ -161,7 +149,7 @@ export class CalibrationService {
       items,
       total: items.length,
       distribution,
-      levels: cycle.evaluationRule?.levels ?? [],
+      levels: cycle.currentConfigVersion?.ratings ?? [],
     };
   }
 
@@ -258,11 +246,12 @@ export class CalibrationService {
     if (participants.length !== 1) {
       throw new NotFoundException('参与者不存在');
     }
-    // 结果尚未创建时返回空是合法状态；已存在时锁住该行，防止并发归档。
+    // 结果版本为空是合法状态；已存在时锁住版本链，防止并发发布或确认。
     await tx.$queryRaw<Array<{ id: number }>>`
       SELECT "id"
-      FROM "performance"."perf_results"
+      FROM "performance"."perf_result_versions"
       WHERE "participant_id" = ${participantId}
+      ORDER BY "version" DESC
       FOR UPDATE
     `;
   }

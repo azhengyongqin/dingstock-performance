@@ -22,7 +22,7 @@ describe('CycleProgressService', () => {
       plannedStartAt: new Date('2026-07-14T01:00:00.000Z'),
     });
     prisma.perfParticipant.findMany.mockResolvedValue([
-      { id: 101, employeeOpenId: 'ou_1', status: 'PENDING_SELF_REVIEW' },
+      { id: 101, employeeOpenId: 'ou_1', status: 'ACTIVE' },
     ]);
     prisma.perfEvaluationTask.findMany.mockResolvedValue([
       {

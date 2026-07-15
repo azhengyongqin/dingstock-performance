@@ -8,12 +8,9 @@ import { UserAvatar } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 
 // Util Imports
-import type { PerfCycleSchedule, PerfDimension, PerfParticipantItem } from '@/lib/perf-api'
+import type { PerfCycleSchedule, PerfParticipantItem } from '@/lib/perf-api'
 import {
-  DIMENSION_TYPE_LABEL,
   PARTICIPANT_STATUS_LABEL,
-  SCORING_METHOD_LABEL,
-  SELF_REVIEW_STATUS_LABEL,
   avatarUrlOf,
   formatDateTime
 } from '@/lib/perf-api'
@@ -80,12 +77,12 @@ export const participantColumns: ColumnDef<ParticipantRow>[] = [
       )
   },
   {
-    id: 'selfReview',
+    id: 'selfSubmission',
     header: '自评',
     cell: ({ row }) => {
-      const status = row.original.selfReview?.status
+      const status = row.original.selfSubmission?.status
 
-      return status ? SELF_REVIEW_STATUS_LABEL[status] : <span className='text-muted-foreground'>未填写</span>
+      return status === 'SUBMITTED' ? '已提交' : status === 'DRAFT' ? '草稿' : <span className='text-muted-foreground'>未填写</span>
     }
   },
   {
@@ -94,48 +91,6 @@ export const participantColumns: ColumnDef<ParticipantRow>[] = [
     cell: ({ row }) => (
       <Badge variant='outline'>{PARTICIPANT_STATUS_LABEL[row.original.status] ?? row.original.status}</Badge>
     )
-  }
-]
-
-// ===== 评估维度 =====
-
-export type DimensionRow = PerfDimension
-
-const ROLE_LABEL: Record<string, string> = {
-  EMPLOYEE: '员工',
-  REVIEWER: '评审员',
-  LEADER: '上级',
-  HR: 'HR',
-  ADMIN: '管理员'
-}
-
-export const dimensionColumns: ColumnDef<DimensionRow>[] = [
-  { accessorKey: 'name', header: '维度名称' },
-  {
-    id: 'type',
-    accessorFn: row => DIMENSION_TYPE_LABEL[row.type] ?? row.type,
-    header: '类型'
-  },
-  {
-    id: 'scoringMethod',
-    accessorFn: row => SCORING_METHOD_LABEL[row.scoringMethod] ?? row.scoringMethod,
-    header: '计分方式'
-  },
-  {
-    id: 'weight',
-    header: '权重',
-    meta: { headClassName: 'text-right', cellClassName: 'text-right' },
-    cell: ({ row }) => (row.original.weight != null ? `${Number(row.original.weight)}%` : '-')
-  },
-  {
-    id: 'editableRoles',
-    header: '填写角色',
-    cell: ({ row }) => row.original.editableRoles.map(role => ROLE_LABEL[role] ?? role).join(' / ') || '-'
-  },
-  {
-    id: 'required',
-    header: '必填',
-    cell: ({ row }) => (row.original.required ? '是' : '否')
   }
 ]
 

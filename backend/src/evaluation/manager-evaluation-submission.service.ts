@@ -140,17 +140,19 @@ export class ManagerEvaluationSubmissionService {
         },
       }),
       this.peerStageResultService.recalculate(participant.id),
-      this.prisma.perfResult.findMany({
+      this.prisma.perfResultVersion.findMany({
         where: {
           participant: {
             employeeOpenId: participant.employeeOpenId,
             cycleId: { not: participant.cycleId },
+            cycle: { status: 'ARCHIVED' },
           },
-          archivedAt: { not: null },
+          supersededAt: null,
+          invalidatedAt: null,
         },
         select: {
           finalLevel: true,
-          promotionResult: true,
+          resultSnapshot: true,
           participant: {
             select: { cycle: { select: { id: true, name: true } } },
           },
@@ -185,7 +187,12 @@ export class ManagerEvaluationSubmissionService {
       selfEvaluation,
       peerResult,
       managerResult,
-      history,
+      history: history.map((version) => ({
+        finalLevel: version.finalLevel,
+        promotionResult:
+          (version.resultSnapshot as Record<string, unknown>).promotion ?? null,
+        participant: version.participant,
+      })),
     };
   }
 

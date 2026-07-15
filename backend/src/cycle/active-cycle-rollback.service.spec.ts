@@ -73,7 +73,6 @@ describe('ActiveCycleRollbackService', () => {
     perfCycle: { findFirst: jest.fn(), update: jest.fn() },
     perfCycleRollback: { create: jest.fn() },
     perfCalibration: { updateMany: jest.fn() },
-    perfResult: { updateMany: jest.fn() },
     perfResultVersion: { updateMany: jest.fn() },
     perfAppeal: { updateMany: jest.fn() },
     perfParticipant: { update: jest.fn() },
@@ -149,7 +148,7 @@ describe('ActiveCycleRollbackService', () => {
     expect(tx.perfAppeal.updateMany).toHaveBeenCalled();
     expect(tx.perfParticipant.update).toHaveBeenCalledWith({
       where: { id: 101 },
-      data: { evaluationLockedAt: null, status: 'REVIEWED' },
+      data: { evaluationLockedAt: null, status: 'ACTIVE' },
     });
     expect(tx.perfCycle.update).toHaveBeenCalledWith({
       where: { id: 17 },
@@ -239,12 +238,11 @@ describe('ActiveCycleRollbackService', () => {
 
   it.each([
     'CALIBRATED',
-    'RESULT_PUSHED',
     'RESULT_PUBLISHED',
     'APPEALING',
     'RE_CONFIRMING',
     'CONFIRMED',
-  ])('任意结果链进度 %s 均解除锁并恢复为可编辑 REVIEWED', async (status) => {
+  ])('任意结果链进度 %s 均解除锁并恢复为可编辑 ACTIVE', async (status) => {
     const participant = cycleFixture().participants[0];
     const cycle = {
       ...cycleFixture(),
@@ -268,7 +266,7 @@ describe('ActiveCycleRollbackService', () => {
 
     expect(tx.perfParticipant.update).toHaveBeenCalledWith({
       where: { id: 101 },
-      data: { evaluationLockedAt: null, status: 'REVIEWED' },
+      data: { evaluationLockedAt: null, status: 'ACTIVE' },
     });
   });
 

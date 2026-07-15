@@ -16,10 +16,9 @@ import { Progress } from '@/components/ui/progress'
 import type {
   LarkUserBrief,
   PerfParticipantStatus,
-  PerfReviewStatus,
-  PerfSelfReviewStatus
+  PerfReviewStatus
 } from '@/lib/perf-api'
-import { SELF_REVIEW_STATUS_LABEL, avatarUrlOf } from '@/lib/perf-api'
+import { avatarUrlOf } from '@/lib/perf-api'
 
 /** 成员评审进度行 = 后端 GET /dashboard/team 的 item */
 export type MemberProgressRow = {
@@ -27,18 +26,17 @@ export type MemberProgressRow = {
   employee: LarkUserBrief | null
   status: PerfParticipantStatus
   isPromotionEnabled: boolean
-  selfReviewStatus: PerfSelfReviewStatus | null
+  selfSubmissionStatus: PerfReviewStatus | null
   reviewProgress: { submitted: number; total: number }
-  managerReviewStatus: PerfReviewStatus | null
-  initialLevel: string | null
+  managerSubmissionStatus: PerfReviewStatus | null
+  managerInitialLevel: string | null
   finalLevel: string | null
 }
 
-// 环节状态 Badge 色彩语义：已提交绿、草稿蓝、已退回黄、未开始灰
-const SELF_REVIEW_BADGE: Record<PerfSelfReviewStatus, string> = {
+// 自评状态直接来自统一 submission，不再复用旧 self-review 状态机。
+const SELF_REVIEW_BADGE: Record<PerfReviewStatus, string> = {
   SUBMITTED: 'bg-green-500/10 text-green-600 dark:text-green-400',
-  DRAFT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  RETURNED: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
+  DRAFT: 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
 }
 
 const MUTED_BADGE = 'bg-muted text-muted-foreground'
@@ -73,15 +71,15 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
     }
   },
   {
-    id: 'selfReview',
+    id: 'selfSubmission',
     header: '员工自评',
     enableSorting: false,
     cell: ({ row }) => {
-      const status = row.original.selfReviewStatus
+      const status = row.original.selfSubmissionStatus
 
       return (
         <Badge className={status ? SELF_REVIEW_BADGE[status] : MUTED_BADGE}>
-          {status ? SELF_REVIEW_STATUS_LABEL[status] : '未开始'}
+          {status === 'SUBMITTED' ? '已提交' : status === 'DRAFT' ? '草稿' : '未开始'}
         </Badge>
       )
     }
@@ -111,11 +109,11 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
     }
   },
   {
-    id: 'managerReview',
+    id: 'managerSubmission',
     header: '上级评估',
     enableSorting: false,
     cell: ({ row }) => {
-      const status = row.original.managerReviewStatus
+      const status = row.original.managerSubmissionStatus
 
       return (
         <Badge
@@ -133,12 +131,12 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
     }
   },
   {
-    id: 'initialLevel',
+    id: 'managerInitialLevel',
     header: '初评等级',
     enableSorting: false,
     cell: ({ row }) =>
-      row.original.initialLevel ? (
-        <Badge variant='outline'>{row.original.initialLevel}</Badge>
+      row.original.managerInitialLevel ? (
+        <Badge variant='outline'>{row.original.managerInitialLevel}</Badge>
       ) : (
         <span className='text-muted-foreground'>-</span>
       )
@@ -149,7 +147,7 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
     enableSorting: false,
     meta: { headClassName: 'text-right', cellClassName: 'text-right' },
     cell: ({ row }) => {
-      const { participantId, managerReviewStatus } = row.original
+      const { participantId, managerSubmissionStatus } = row.original
 
       return (
         <div className='flex justify-end gap-1'>
@@ -161,7 +159,7 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
           >
             评审人指派
           </Button>
-          {managerReviewStatus === 'SUBMITTED' ? (
+          {managerSubmissionStatus === 'SUBMITTED' ? (
 
             // 上级评估已提交后不可重复填写
             <Button variant='ghost' size='sm' disabled>

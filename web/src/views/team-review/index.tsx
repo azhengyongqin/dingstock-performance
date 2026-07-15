@@ -66,13 +66,13 @@ const TeamReview = () => {
   const total = data?.total ?? members.length
 
   // 完成率统计：自评已提交 / 360° 全部提交 / 上级评估已提交
-  const selfDone = members.filter(member => member.selfReviewStatus === 'SUBMITTED').length
+  const selfDone = members.filter(member => member.selfSubmissionStatus === 'SUBMITTED').length
 
   const peerDone = members.filter(
     member => member.reviewProgress.total > 0 && member.reviewProgress.submitted >= member.reviewProgress.total
   ).length
 
-  const managerDone = members.filter(member => member.managerReviewStatus === 'SUBMITTED').length
+  const managerDone = members.filter(member => member.managerSubmissionStatus === 'SUBMITTED').length
 
   const stats = [
     { label: '团队成员', value: `${total} 人` },

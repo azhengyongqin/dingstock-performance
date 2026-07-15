@@ -14,32 +14,7 @@ import {
 import { PrismaService } from '../shared/database/prisma.service';
 import { RbacService } from '../rbac/rbac.service';
 
-/** 已提交自评的参与者状态集合（含后续阶段） */
-const SELF_DONE: PerfParticipantStatus[] = [
-  PerfParticipantStatus.SELF_SUBMITTED,
-  PerfParticipantStatus.REVIEWED,
-  PerfParticipantStatus.AI_DONE,
-  PerfParticipantStatus.CALIBRATED,
-  PerfParticipantStatus.RESULT_PUSHED,
-  PerfParticipantStatus.CONFIRMED,
-  PerfParticipantStatus.APPEALING,
-  PerfParticipantStatus.RE_CONFIRMING,
-  PerfParticipantStatus.ARCHIVED,
-];
-const REVIEW_DONE: PerfParticipantStatus[] = SELF_DONE.filter(
-  (status) => status !== PerfParticipantStatus.SELF_SUBMITTED,
-);
-const CALIBRATION_DONE: PerfParticipantStatus[] = REVIEW_DONE.filter(
-  (status) =>
-    status !== PerfParticipantStatus.REVIEWED &&
-    status !== PerfParticipantStatus.AI_DONE,
-);
-const CONFIRM_DONE: PerfParticipantStatus[] = [
-  PerfParticipantStatus.CONFIRMED,
-  PerfParticipantStatus.ARCHIVED,
-];
-
-/** 看板统计：内置指标 SQL 聚合（研发文档 §8.8），指标口径集中在本文件复用 */
+/** 看板只聚合统一任务、统一提交、阶段结果和不可变结果版本。 */
 @Injectable()
 export class DashboardService {
   constructor(
@@ -50,67 +25,27 @@ export class DashboardService {
   private async resolveCycleId(cycleId?: number) {
     if (cycleId) return cycleId;
     const cycle = await this.prisma.perfCycle.findFirst({
-      where: { deletedAt: null, status: { notIn: ['DRAFT'] } },
+      where: { deletedAt: null, status: { not: 'DRAFT' } },
       orderBy: { id: 'desc' },
       select: { id: true },
     });
     return cycle?.id;
   }
 
-  /** HR 全局仪表盘（产品 §7.1） */
   async hrDashboard(cycleId?: number) {
     const resolvedCycleId = await this.resolveCycleId(cycleId);
     if (!resolvedCycleId) return { cycle: null, stats: null };
     const cycle = await this.prisma.perfCycle.findUnique({
       where: { id: resolvedCycleId },
-      select: {
-        id: true,
-        name: true,
-        status: true,
-        startDate: true,
-        endDate: true,
-      },
+      select: { id: true, name: true, status: true, plannedStartAt: true },
     });
     if (!cycle) throw new NotFoundException('绩效周期不存在');
-
-    const where = { cycleId: resolvedCycleId };
-    const [
-      total,
-      selfDone,
-      reviewDone,
-      calibrated,
-      confirmed,
-      appeals,
-      participants,
-    ] = await Promise.all([
-      this.prisma.perfParticipant.count({ where }),
-      this.prisma.perfParticipant.count({
-        where: { ...where, status: { in: SELF_DONE } },
-      }),
-      this.prisma.perfParticipant.count({
-        where: { ...where, status: { in: REVIEW_DONE } },
-      }),
-      this.prisma.perfParticipant.count({
-        where: { ...where, status: { in: CALIBRATION_DONE } },
-      }),
-      this.prisma.perfParticipant.count({
-        where: { ...where, status: { in: CONFIRM_DONE } },
-      }),
-      this.prisma.perfAppeal.count({
-        where: {
-          participant: { cycleId: resolvedCycleId },
-          invalidatedAt: null,
-        },
-      }),
+    const [participants, submitted] = await Promise.all([
       this.prisma.perfParticipant.findMany({
-        where,
+        where: { cycleId: resolvedCycleId },
         select: {
+          id: true,
           status: true,
-          result: {
-            where: { invalidatedAt: null },
-            select: { finalLevel: true },
-          },
-          managerReview: { select: { initialLevel: true } },
           stageResults: {
             where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
             orderBy: { calculatedAt: 'desc' },
@@ -123,34 +58,58 @@ export class DashboardService {
             take: 1,
             select: { afterLevel: true },
           },
+          resultVersions: {
+            where: { supersededAt: null, invalidatedAt: null },
+            take: 1,
+            select: { finalLevel: true, confirmedAt: true },
+          },
         },
       }),
+      this.prisma.perfEvaluationSubmission.findMany({
+        where: { cycleId: resolvedCycleId, status: PerfReviewStatus.SUBMITTED },
+        distinct: ['participantId', 'stage'],
+        select: { participantId: true, stage: true },
+      }),
     ]);
-
-    // 等级分布（当前口径：结果 > 校准 > 初评）
+    const selfIds = new Set(
+      submitted
+        .filter((row) => row.stage === 'SELF')
+        .map((row) => row.participantId),
+    );
+    const managerIds = new Set(
+      submitted
+        .filter((row) => row.stage === 'MANAGER')
+        .map((row) => row.participantId),
+    );
     const levelDistribution: Record<string, number> = {};
-    for (const participant of participants) {
-      const level =
-        participant.result?.finalLevel ??
-        participant.calibrations[0]?.afterLevel ??
-        participant.stageResults[0]?.stageLevel ??
-        participant.managerReview?.initialLevel;
-      if (level) levelDistribution[level] = (levelDistribution[level] ?? 0) + 1;
-    }
     const statusDistribution: Record<string, number> = {};
     for (const participant of participants) {
+      const level =
+        participant.resultVersions[0]?.finalLevel ??
+        participant.calibrations[0]?.afterLevel ??
+        participant.stageResults[0]?.stageLevel;
+      if (level) levelDistribution[level] = (levelDistribution[level] ?? 0) + 1;
       statusDistribution[participant.status] =
         (statusDistribution[participant.status] ?? 0) + 1;
     }
-
+    const total = participants.length;
     const rate = (count: number) =>
-      total > 0 ? Math.round((count / total) * 1000) / 10 : 0;
+      total ? Math.round((count / total) * 1000) / 10 : 0;
+    const calibrated = participants.filter(
+      (row) => row.calibrations.length,
+    ).length;
+    const confirmed = participants.filter(
+      (row) => row.resultVersions[0]?.confirmedAt,
+    ).length;
+    const appeals = await this.prisma.perfAppeal.count({
+      where: { participant: { cycleId: resolvedCycleId }, invalidatedAt: null },
+    });
     return {
       cycle,
       stats: {
         total,
-        selfReviewRate: rate(selfDone),
-        reviewRate: rate(reviewDone),
+        selfSubmissionRate: rate(selfIds.size),
+        reviewRate: rate(managerIds.size),
         calibrationRate: rate(calibrated),
         confirmRate: rate(confirmed),
         appealCount: appeals,
@@ -161,23 +120,15 @@ export class DashboardService {
     };
   }
 
-  /** Leader 团队看板（产品 §7.2）：以 Leader 快照过滤 */
   async teamDashboard(leaderOpenId: string, cycleId?: number) {
     const resolvedCycleId = await this.resolveCycleId(cycleId);
     if (!resolvedCycleId) return { cycle: null, items: [], total: 0 };
-
     const members = await this.prisma.perfParticipant.findMany({
       where: { cycleId: resolvedCycleId, leaderOpenIdSnapshot: leaderOpenId },
       include: {
-        selfReview: { select: { status: true, submittedAt: true } },
-        managerReview: { select: { status: true, initialLevel: true } },
         evaluationSubmissions: {
-          where: {
-            stage: PerfEvaluationTaskType.MANAGER,
-            status: PerfReviewStatus.SUBMITTED,
-          },
-          select: { status: true },
-          take: 1,
+          where: { status: PerfReviewStatus.SUBMITTED },
+          select: { stage: true, status: true, submittedAt: true },
         },
         stageResults: {
           where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
@@ -189,113 +140,116 @@ export class DashboardService {
           where: { status: { not: PerfAssignmentStatus.REPLACED } },
           select: { status: true },
         },
-        result: { select: { finalLevel: true, confirmedByEmployee: true } },
+        resultVersions: {
+          where: { supersededAt: null, invalidatedAt: null },
+          take: 1,
+          select: { finalLevel: true },
+        },
       },
       orderBy: { id: 'asc' },
     });
     const users = await this.prisma.larkUser.findMany({
-      where: { open_id: { in: members.map((m) => m.employeeOpenId) } },
+      where: { open_id: { in: members.map((row) => row.employeeOpenId) } },
       select: { open_id: true, name: true, avatar: true, job_title: true },
     });
-    const userMap = new Map(users.map((u) => [u.open_id, u]));
+    const userMap = new Map(users.map((user) => [user.open_id, user]));
     const cycle = await this.prisma.perfCycle.findUnique({
       where: { id: resolvedCycleId },
       select: { id: true, name: true, status: true },
     });
-
     return {
       cycle,
-      items: members.map((member) => {
-        const totalAssignments = member.reviewerAssignments.length;
-        const submittedAssignments = member.reviewerAssignments.filter(
-          (a) => a.status === PerfAssignmentStatus.SUBMITTED,
-        ).length;
-        return {
-          participantId: member.id,
-          employee: userMap.get(member.employeeOpenId) ?? null,
-          status: member.status,
-          isPromotionEnabled: member.isPromotionEnabled,
-          selfReviewStatus: member.selfReview?.status ?? null,
-          reviewProgress: {
-            submitted: submittedAssignments,
-            total: totalAssignments,
-          },
-          managerReviewStatus:
-            member.evaluationSubmissions[0]?.status ??
-            member.managerReview?.status ??
-            null,
-          initialLevel:
-            member.stageResults[0]?.stageLevel ??
-            member.managerReview?.initialLevel ??
-            null,
-          finalLevel: member.result?.finalLevel ?? null,
-        };
-      }),
+      items: members.map((member) => ({
+        participantId: member.id,
+        employee: userMap.get(member.employeeOpenId) ?? null,
+        status: member.status,
+        isPromotionEnabled: member.isPromotionEnabled,
+        selfSubmissionStatus: member.evaluationSubmissions.some(
+          (row) => row.stage === 'SELF',
+        )
+          ? 'SUBMITTED'
+          : null,
+        reviewProgress: {
+          submitted: member.reviewerAssignments.filter(
+            (row) => row.status === PerfAssignmentStatus.SUBMITTED,
+          ).length,
+          total: member.reviewerAssignments.length,
+        },
+        managerSubmissionStatus: member.evaluationSubmissions.some(
+          (row) => row.stage === 'MANAGER',
+        )
+          ? 'SUBMITTED'
+          : null,
+        managerInitialLevel: member.stageResults[0]?.stageLevel ?? null,
+        finalLevel: member.resultVersions[0]?.finalLevel ?? null,
+      })),
       total: members.length,
     };
   }
 
-  /** 个人绩效档案（产品 §7.17）：本人/其 Leader/HR 可见；历史结果仅取已归档 */
   async profile(operatorOpenId: string, targetOpenId: string) {
     if (operatorOpenId !== targetOpenId) {
       const isHr = await this.rbacService.hasAnyRole(operatorOpenId, [
         PerfRole.HR,
         PerfRole.ADMIN,
       ]);
-      if (!isHr) {
-        const isLeader = await this.prisma.perfParticipant.findFirst({
-          where: {
-            employeeOpenId: targetOpenId,
-            leaderOpenIdSnapshot: operatorOpenId,
-          },
-          select: { id: true },
-        });
-        if (!isLeader) throw new ForbiddenException('无权查看该员工的绩效档案');
-      }
+      const isLeader = isHr
+        ? true
+        : Boolean(
+            await this.prisma.perfParticipant.findFirst({
+              where: {
+                employeeOpenId: targetOpenId,
+                leaderOpenIdSnapshot: operatorOpenId,
+              },
+              select: { id: true },
+            }),
+          );
+      if (!isLeader) throw new ForbiddenException('无权查看该员工的绩效档案');
     }
-
-    const employee = await this.prisma.larkUser.findUnique({
-      where: { open_id: targetOpenId },
-      select: {
-        open_id: true,
-        name: true,
-        avatar: true,
-        job_title: true,
-        department_ids: true,
-      },
-    });
-    const results = await this.prisma.perfResult.findMany({
-      where: {
-        participant: { employeeOpenId: targetOpenId },
-        archivedAt: { not: null },
-      },
-      include: {
-        participant: {
-          select: {
-            cycleId: true,
-            isPromotionEnabled: true,
-            cycle: {
-              select: { id: true, name: true, startDate: true, endDate: true },
+    const [employee, versions] = await Promise.all([
+      this.prisma.larkUser.findUnique({
+        where: { open_id: targetOpenId },
+        select: {
+          open_id: true,
+          name: true,
+          avatar: true,
+          job_title: true,
+          department_ids: true,
+        },
+      }),
+      this.prisma.perfResultVersion.findMany({
+        where: {
+          participant: {
+            employeeOpenId: targetOpenId,
+            cycle: { status: 'ARCHIVED' },
+          },
+          supersededAt: null,
+          invalidatedAt: null,
+        },
+        include: {
+          participant: {
+            select: {
+              cycle: { select: { id: true, name: true, plannedStartAt: true } },
             },
           },
         },
-      },
-      orderBy: { id: 'desc' },
-    });
+        orderBy: { id: 'desc' },
+      }),
+    ]);
     return {
       employee,
-      items: results.map((result) => ({
-        cycle: result.participant.cycle,
-        finalLevel: result.finalLevel,
-        promotionResult: result.promotionResult,
-        confirmedByEmployee: result.confirmedByEmployee,
-        archivedAt: result.archivedAt,
+      items: versions.map((version) => ({
+        cycle: version.participant.cycle,
+        finalLevel: version.finalLevel,
+        promotionResult:
+          (version.resultSnapshot as Record<string, unknown>).promotion ?? null,
+        confirmedByEmployee: Boolean(version.confirmedAt),
+        archivedAt: version.participant.cycle.plannedStartAt,
       })),
-      total: results.length,
+      total: versions.length,
     };
   }
 
-  /** 工作台待办聚合（研发文档 §9.2 workbench） */
   async myTodos(openId: string) {
     const [
       pendingSelfReview,
@@ -304,39 +258,27 @@ export class DashboardService {
       pendingConfirm,
       pendingAppeals,
     ] = await Promise.all([
-      this.prisma.perfParticipant.count({
+      this.prisma.perfEvaluationTask.count({
         where: {
-          employeeOpenId: openId,
-          status: {
-            in: [
-              PerfParticipantStatus.PENDING_SELF_REVIEW,
-              PerfParticipantStatus.RETURNED,
-            ],
-          },
-          cycle: {
-            deletedAt: null,
-            status: 'ACTIVE',
-          },
+          type: PerfEvaluationTaskType.SELF,
+          assigneeOpenId: openId,
+          completedAt: null,
+          cycle: { status: 'ACTIVE', deletedAt: null },
         },
       }),
       this.prisma.perfReviewerAssignment.count({
         where: {
           reviewerOpenId: openId,
           status: PerfAssignmentStatus.PENDING,
-          cycle: {
-            deletedAt: null,
-            status: 'ACTIVE',
-          },
+          cycle: { status: 'ACTIVE', deletedAt: null },
         },
       }),
-      this.prisma.perfParticipant.count({
+      this.prisma.perfEvaluationTask.count({
         where: {
-          leaderOpenIdSnapshot: openId,
-          managerReview: { isNot: { status: PerfReviewStatus.SUBMITTED } },
-          cycle: {
-            deletedAt: null,
-            status: 'ACTIVE',
-          },
+          type: PerfEvaluationTaskType.MANAGER,
+          assigneeOpenId: openId,
+          completedAt: null,
+          cycle: { status: 'ACTIVE', deletedAt: null },
         },
       }),
       this.prisma.perfParticipant.count({
@@ -344,7 +286,7 @@ export class DashboardService {
           employeeOpenId: openId,
           status: {
             in: [
-              PerfParticipantStatus.RESULT_PUSHED,
+              PerfParticipantStatus.RESULT_PUBLISHED,
               PerfParticipantStatus.RE_CONFIRMING,
             ],
           },

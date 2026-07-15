@@ -73,12 +73,10 @@ const gradeChartConfig = {
 // 「已校准及之后」的参与者状态：用于统计卡
 const CALIBRATED_STATUSES = new Set([
   'CALIBRATED',
-  'RESULT_PUSHED',
   'RESULT_PUBLISHED',
   'CONFIRMED',
   'APPEALING',
-  'RE_CONFIRMING',
-  'ARCHIVED'
+  'RE_CONFIRMING'
 ])
 
 /**

@@ -44,10 +44,7 @@ jest.mock(
       AI: 'AI',
     },
     PerfParticipantStatus: {
-      PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
-      SELF_SUBMITTED: 'SELF_SUBMITTED',
-      RETURNED: 'RETURNED',
-      REVIEWED: 'REVIEWED',
+      ACTIVE: 'ACTIVE',
       NO_RESULT: 'NO_RESULT',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
@@ -64,11 +61,6 @@ jest.mock(
     },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfRole: { EMPLOYEE: 'EMPLOYEE', HR: 'HR', ADMIN: 'ADMIN' },
-    PerfSelfReviewStatus: {
-      DRAFT: 'DRAFT',
-      SUBMITTED: 'SUBMITTED',
-      RETURNED: 'RETURNED',
-    },
   }),
   { virtual: true },
 );
@@ -181,7 +173,7 @@ const baseParticipant = {
   id: 7,
   cycleId: 1,
   employeeOpenId: 'ou_me',
-  status: 'PENDING_SELF_REVIEW',
+  status: 'ACTIVE',
   isPromotionEnabled: false,
   formSnapshotId: 88,
   formSnapshot: { id: 88, content: snapshotContent },
@@ -227,16 +219,9 @@ describe('EvaluationSubmissionService 员工自评', () => {
   const prisma = {
     perfParticipant: { findFirst: jest.fn() },
     perfEvaluationSubmission: { findFirst: jest.fn(), findMany: jest.fn() },
-    // 旧自评表：统一提交服务绝不能触碰
-    perfSelfReview: {
-      upsert: jest.fn(),
-      update: jest.fn(),
-      create: jest.fn(),
-    },
     $transaction: jest.fn(),
   };
   const audit = { record: jest.fn() };
-  const participants = { transition: jest.fn() };
   const taskAccess = { ensureWritable: jest.fn(), openIfDue: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = new ParticipantEvaluationLockService();
@@ -248,7 +233,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
     prisma.$transaction.mockImplementation(
       async (fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
     );
-    tx.$queryRaw.mockResolvedValue([{ id: 7, status: 'PENDING_SELF_REVIEW' }]);
+    tx.$queryRaw.mockResolvedValue([{ id: 7, status: 'ACTIVE' }]);
     tx.perfEvaluationSubmission.findFirst.mockResolvedValue(null);
     tx.perfEvaluationSubmission.create.mockImplementation(
       ({ data }: { data: Record<string, unknown> }) =>
@@ -269,7 +254,6 @@ describe('EvaluationSubmissionService 员工自评', () => {
     service = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
-      participants as never,
       taskAccess as never,
       aiReport as never,
       participantEvaluationLock,
@@ -344,7 +328,6 @@ describe('EvaluationSubmissionService 员工自评', () => {
       );
       expect(tx.perfEvaluationSubmission.update).not.toHaveBeenCalled();
       expect(tx.perfEvaluationTask.update).not.toHaveBeenCalled();
-      expect(participants.transition).not.toHaveBeenCalled();
     });
 
     it('并发双击/网络重试导致 DRAFT 部分唯一索引冲突（P2002）时返回业务可读中文冲突错误', async () => {
@@ -636,7 +619,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
       });
     });
 
-    it('首次提交创建 SUBMITTED 行、完成任务并推进参与者状态，且记录审计', async () => {
+    it('首次提交创建 SUBMITTED 行、完成任务但不改写参与者结果状态，且记录审计', async () => {
       await service.submitSelf('ou_me', {
         cycleId: 1,
         items: completeSelfItems,
@@ -656,11 +639,6 @@ describe('EvaluationSubmissionService 员工自评', () => {
           where: { participantId_type: { participantId: 7, type: 'SELF' } },
           data: expect.objectContaining({ completedAt: expect.any(Date) }),
         }),
-      );
-      expect(participants.transition).toHaveBeenCalledWith(
-        'ou_me',
-        7,
-        'SELF_SUBMITTED',
       );
       expect(aiReport.refreshForParticipant).toHaveBeenCalledWith(7, tx);
       expect(audit.record).toHaveBeenCalledWith(
@@ -699,7 +677,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
     it('重新提交在同一事务内整体替换 SUBMITTED 明细并删除 DRAFT，不新增行也不回退参与者进度', async () => {
       prisma.perfParticipant.findFirst.mockResolvedValue({
         ...baseParticipant,
-        status: 'SELF_SUBMITTED',
+        status: 'ACTIVE',
       });
       tx.perfEvaluationSubmission.findFirst.mockResolvedValue({
         id: 100,
@@ -735,7 +713,6 @@ describe('EvaluationSubmissionService 员工自评', () => {
           status: 'DRAFT',
         },
       });
-      expect(participants.transition).not.toHaveBeenCalled();
     });
 
     it('并发双击/网络重试导致 SUBMITTED 部分唯一索引冲突（P2002）时返回业务可读中文冲突错误', async () => {
@@ -769,21 +746,6 @@ describe('EvaluationSubmissionService 员工自评', () => {
       await expect(
         service.submitSelf('ou_me', { cycleId: 1, items: completeSelfItems }),
       ).rejects.toThrow(ConflictException);
-    });
-
-    it('统一提交服务从不写旧 PerfSelfReview 表', async () => {
-      await service.saveSelfDraft('ou_me', {
-        cycleId: 1,
-        items: [completeSelfItems[0]],
-      });
-      await service.submitSelf('ou_me', {
-        cycleId: 1,
-        items: completeSelfItems,
-      });
-
-      expect(prisma.perfSelfReview.upsert).not.toHaveBeenCalled();
-      expect(prisma.perfSelfReview.update).not.toHaveBeenCalled();
-      expect(prisma.perfSelfReview.create).not.toHaveBeenCalled();
     });
   });
 

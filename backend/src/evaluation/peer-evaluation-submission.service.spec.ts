@@ -20,8 +20,7 @@ jest.mock(
       AI: 'AI',
     },
     PerfParticipantStatus: {
-      PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
-      RETURNED: 'RETURNED',
+      ACTIVE: 'ACTIVE',
     },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
@@ -172,7 +171,6 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
     const submissionPolicy = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
-      {} as never,
       taskAccess as never,
       aiReport as never,
       {} as never,

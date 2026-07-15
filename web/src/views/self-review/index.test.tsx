@@ -42,7 +42,7 @@ const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSe
     id: 7,
     cycleId: 1,
     employeeOpenId: 'ou_me',
-    status: 'PENDING_SELF_REVIEW',
+    status: 'ACTIVE',
     isPromotionEnabled: false,
     formSnapshotId: 88,
     cycle: { id: 1, name: '2026 上半年绩效评定', status: 'ACTIVE' }

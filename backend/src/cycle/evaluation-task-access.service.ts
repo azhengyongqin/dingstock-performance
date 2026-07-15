@@ -187,18 +187,15 @@ export class EvaluationTaskAccessService {
   }
 
   private isParticipantLocked(status: string) {
-    // 兼容当前旧枚举与 ADR-0050 后续将引入的收口终态字符串。
+    // 参与者状态只描述结果生命周期；进入校准后人工任务统一只读。
     return new Set([
       'CALIBRATED',
-      'RESULT_PUSHED',
       'RESULT_PUBLISHED',
       'CONFIRMED',
       'APPEALING',
       'RE_CONFIRMING',
-      'RECONFIRMING',
       'NO_RESULT',
       'WITHDRAWN',
-      'ARCHIVED',
     ]).has(status);
   }
 }

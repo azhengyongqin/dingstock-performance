@@ -7,7 +7,6 @@ import { SharedModule } from '../shared/shared.module';
 import { ReviewController } from './review.controller';
 import { ReviewService } from './review.service';
 import { ReviewerService } from './reviewer.service';
-import { SelfReviewService } from './self-review.service';
 import { CycleModule } from '../cycle/cycle.module';
 import { EvaluationModule } from '../evaluation/evaluation.module';
 import { AiReportModule } from '../ai-report/ai-report.module';
@@ -25,7 +24,7 @@ import { AiReportModule } from '../ai-report/ai-report.module';
     AiReportModule,
   ],
   controllers: [ReviewController],
-  providers: [ReviewerService, SelfReviewService, ReviewService],
+  providers: [ReviewerService, ReviewService],
   exports: [ReviewService],
 })
 export class ReviewModule {}

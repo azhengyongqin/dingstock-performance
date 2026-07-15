@@ -57,10 +57,6 @@ export class RedLineFindingService {
         },
       });
       await this.managerStageResultService.recalculate(participantId, tx);
-      await tx.perfResult.updateMany({
-        where: { participantId, archivedAt: null },
-        data: { finalLevel: 'C' },
-      });
       return created;
     });
     await this.auditService.record({
@@ -113,34 +109,7 @@ export class RedLineFindingService {
           operatorOpenId,
         },
       });
-      const managerResult = await this.managerStageResultService.recalculate(
-        participantId,
-        tx,
-      );
-      const [remainingRedLine, latestCalibration] = await Promise.all([
-        tx.perfRedLineFinding.findFirst({
-          where: {
-            participantId,
-            action: PerfRedLineAction.CONFIRM,
-            revokedBy: { none: {} },
-          },
-          select: { id: true },
-        }),
-        tx.perfCalibration.findFirst({
-          where: { participantId, invalidatedAt: null },
-          select: { afterLevel: true },
-          orderBy: { id: 'desc' },
-        }),
-      ]);
-      const restoredLevel = remainingRedLine
-        ? 'C'
-        : (latestCalibration?.afterLevel ?? managerResult.stageLevel);
-      if (restoredLevel) {
-        await tx.perfResult.updateMany({
-          where: { participantId, archivedAt: null },
-          data: { finalLevel: restoredLevel },
-        });
-      }
+      await this.managerStageResultService.recalculate(participantId, tx);
       return created;
     });
     await this.auditService.record({

@@ -6,7 +6,7 @@ import { SharedModule } from '../shared/shared.module';
 import { ConfigTemplateController } from './config-template.controller';
 import { ConfigTemplateService } from './config-template.service';
 
-/** 版本化配置模板独立聚合；旧 PerfTemplate 继续服务现有周期创建路径。 */
+/** 版本化配置模板是周期创建与运行配置的唯一模板聚合。 */
 @Module({
   imports: [SharedModule, AuthModule, RbacModule, AuditModule],
   controllers: [ConfigTemplateController],

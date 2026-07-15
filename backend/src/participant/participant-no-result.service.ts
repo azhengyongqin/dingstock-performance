@@ -12,7 +12,6 @@ import {
   PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
-  PerfSelfReviewStatus,
   PerfStageResultMode,
   PerfStageResultStatus,
 } from '../generated/prisma/enums';
@@ -151,8 +150,6 @@ export class ParticipantNoResultService {
           where: { id: participantId },
           include: {
             cycle: { include: { currentConfigVersion: true } },
-            // 旧写接口在完成收缩前仍公开，收口必须同时识别其有效提交。
-            selfReview: { select: { status: true } },
           },
         });
         if (!participant || participant.cycle.deletedAt) {
@@ -193,20 +190,18 @@ export class ParticipantNoResultService {
             },
             select: { id: true, stage: true, status: true },
           }),
-          tx.perfResult.count({
+          tx.perfResultVersion.count({
             where: { participantId, invalidatedAt: null },
           }),
           tx.perfCalibration.count({
             where: { participantId, invalidatedAt: null },
           }),
         ]);
-        const effectiveSelf =
-          participant.selfReview?.status === PerfSelfReviewStatus.SUBMITTED ||
-          submissions.some(
-            (item) =>
-              item.stage === PerfEvaluationTaskType.SELF &&
-              item.status === PerfReviewStatus.SUBMITTED,
-          );
+        const effectiveSelf = submissions.some(
+          (item) =>
+            item.stage === PerfEvaluationTaskType.SELF &&
+            item.status === PerfReviewStatus.SUBMITTED,
+        );
         if (effectiveSelf) {
           throw new ConflictException(
             '员工已有有效自评，不能因上级评估缺失设置当前周期无绩效结果；请催办或更换考核 Leader',
@@ -364,7 +359,7 @@ export class ParticipantNoResultService {
       });
       return tx.perfParticipant.update({
         where: { id: participantId },
-        data: { status: PerfParticipantStatus.PENDING_SELF_REVIEW },
+        data: { status: PerfParticipantStatus.ACTIVE },
       });
     });
 
@@ -374,7 +369,7 @@ export class ParticipantNoResultService {
       targetType: 'perf_participant',
       targetId: String(participantId),
       before: { status: PerfParticipantStatus.NO_RESULT },
-      after: { status: PerfParticipantStatus.PENDING_SELF_REVIEW },
+      after: { status: PerfParticipantStatus.ACTIVE },
       reason: normalizedReason,
     });
     return result;

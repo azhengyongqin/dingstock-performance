@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { InitializeCycleSetupDto, UpsertCyclePlanDto } from './cycle.dto';
+import { UpsertCyclePlanDto } from './cycle.dto';
 
 const validNotification = (stage: 'SELF' | 'PEER' | 'MANAGER') => ({
   stage,
@@ -18,22 +18,6 @@ const validNotification = (stage: 'SELF' | 'PEER' | 'MANAGER') => ({
     ccHr: true,
     frequency: { type: 'ONCE_AT_DEADLINE' },
   },
-});
-
-describe('InitializeCycleSetupDto', () => {
-  it('旧草稿初始化同样要求配置版本和带时区的计划启动时间', async () => {
-    const errors = await validate(
-      plainToInstance(InitializeCycleSetupDto, {
-        name: '迁移后的周期',
-        configTemplateVersionId: 30,
-        plannedStartAt: '2026-08-01T09:00:00',
-      }),
-    );
-
-    expect(errors.some((error) => error.property === 'plannedStartAt')).toBe(
-      true,
-    );
-  });
 });
 
 describe('UpsertCyclePlanDto', () => {

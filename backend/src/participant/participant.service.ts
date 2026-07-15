@@ -76,15 +76,16 @@ export class ParticipantService {
       where: { cycleId },
       orderBy: { id: 'asc' },
       include: {
-        selfReview: { select: { status: true, submittedAt: true } },
-        managerReview: { select: { status: true, initialLevel: true } },
         evaluationSubmissions: {
           where: {
-            stage: PerfEvaluationTaskType.MANAGER,
+            stage: {
+              in: [PerfEvaluationTaskType.SELF, PerfEvaluationTaskType.MANAGER],
+            },
             status: 'SUBMITTED',
           },
-          select: { status: true },
-          take: 1,
+          select: { stage: true, status: true },
+          // SELF 与 MANAGER 各需一条；take: 1 会在两者均提交时随机丢失一个阶段。
+          take: 2,
         },
         stageResults: {
           where: { stage: PerfEvaluationTaskType.MANAGER, status: 'READY' },
@@ -92,9 +93,11 @@ export class ParticipantService {
           take: 1,
           select: { stageLevel: true },
         },
-        result: {
-          where: { invalidatedAt: null },
-          select: { finalLevel: true, confirmedByEmployee: true },
+        resultVersions: {
+          where: { supersededAt: null, invalidatedAt: null },
+          orderBy: { version: 'desc' },
+          take: 1,
+          select: { finalLevel: true, confirmedAt: true },
         },
         _count: { select: { reviewerAssignments: true } },
       },
@@ -140,20 +143,34 @@ export class ParticipantService {
           participant.leaderOpenIdSnapshot ?? user?.leader_user_id ?? null;
         const departmentId =
           participant.departmentIdSnapshot ?? user?.department_ids?.[0] ?? null;
-        const managerSubmission = participant.evaluationSubmissions[0];
+        const selfSubmission = participant.evaluationSubmissions.find(
+          (item) => item.stage === PerfEvaluationTaskType.SELF,
+        );
+        const managerSubmission = participant.evaluationSubmissions.find(
+          (item) => item.stage === PerfEvaluationTaskType.MANAGER,
+        );
         const managerStageResult = participant.stageResults[0];
+        const currentResultVersion = participant.resultVersions[0] ?? null;
         return {
           ...participant,
-          // 内部过渡查询不扩散到既有参与者列表响应。
+          // 内部聚合查询不扩散到底层列表响应。
           evaluationSubmissions: undefined,
           stageResults: undefined,
-          // 对外兼容既有字段名，但读取优先切换到统一提交与系统计算结果。
-          managerReview: managerSubmission
+          resultVersions: undefined,
+          selfSubmission: selfSubmission
+            ? { status: selfSubmission.status }
+            : null,
+          managerSubmission: managerSubmission
+            ? { status: managerSubmission.status }
+            : null,
+          // 初评等级是 MANAGER 阶段计算产物，不是上级手工录入字段。
+          managerInitialLevel: managerStageResult?.stageLevel ?? null,
+          resultVersion: currentResultVersion
             ? {
-                status: managerSubmission.status,
-                initialLevel: managerStageResult?.stageLevel ?? null,
+                finalLevel: currentResultVersion.finalLevel,
+                confirmedByEmployee: Boolean(currentResultVersion.confirmedAt),
               }
-            : participant.managerReview,
+            : null,
           employee: user ?? null,
           leader: leaderOpenId
             ? (userMap.get(leaderOpenId) ?? { open_id: leaderOpenId })
@@ -336,9 +353,7 @@ export class ParticipantService {
             item.formMatch.status === 'MATCHED'
               ? item.formMatch.formSnapshotId
               : null,
-          status: active
-            ? PerfParticipantStatus.PENDING_SELF_REVIEW
-            : undefined,
+          status: active ? PerfParticipantStatus.ACTIVE : undefined,
         },
       });
     }
@@ -433,7 +448,7 @@ export class ParticipantService {
   private async assertRemovable(participantId: number, confirm?: boolean) {
     const [results, calibrations, aiReports, appeals, interviews] =
       await Promise.all([
-        this.prisma.perfResult.count({ where: { participantId } }),
+        this.prisma.perfResultVersion.count({ where: { participantId } }),
         this.prisma.perfCalibration.count({ where: { participantId } }),
         this.prisma.perfAiReport.count({ where: { participantId } }),
         this.prisma.perfAppeal.count({ where: { participantId } }),
@@ -444,16 +459,14 @@ export class ParticipantService {
         '该员工已产生结果/校准/AI分析/申诉/面谈等数据，无法移除',
       );
     }
-    const [selfReviews, reviews, managerReviews] = await Promise.all([
-      this.prisma.perfSelfReview.count({ where: { participantId } }),
-      this.prisma.perfReview.count({ where: { participantId } }),
-      this.prisma.perfManagerReview.count({ where: { participantId } }),
-    ]);
-    const affectedData = { selfReviews, reviews, managerReviews };
+    const submissions = await this.prisma.perfEvaluationSubmission.count({
+      where: { participantId },
+    });
+    const affectedData = { submissions };
     if (Object.values(affectedData).some((count) => count > 0) && !confirm) {
       throw new ConflictException({
         code: 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM',
-        message: '移除该考核人员会删除其已提交的自评/评审数据，请确认后继续',
+        message: '移除该考核人员会删除其统一评估提交，请确认后继续',
         impact: { changes: ['移除考核人员'], affectedData },
       });
     }

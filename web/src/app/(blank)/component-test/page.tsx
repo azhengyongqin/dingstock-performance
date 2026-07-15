@@ -619,7 +619,7 @@ const CYCLE_SETUP_PARTICIPANTS: PerfCycleSetupParticipant[] = [
     jobLevelCodeSnapshot: 'D5',
     jobLevelPrefixSnapshot: 'D',
     isPromotionEnabled: false,
-    status: 'PENDING_SELF_REVIEW',
+    status: 'ACTIVE',
     employee: { open_id: 'ou_cycle_preview', name: '周期示例员工' },
     leader: null,
     departmentName: '研发部'

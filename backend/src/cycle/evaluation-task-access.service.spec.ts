@@ -33,7 +33,7 @@ describe('EvaluationTaskAccessService', () => {
               startAt: new Date('2026-07-14T02:00:00.000Z'),
               openedAt: null,
               cycle: { status: 'ACTIVE', deletedAt: null },
-              participant: { status: 'PENDING_SELF_REVIEW' },
+              participant: { status: 'ACTIVE' },
             }),
             updateMany: jest.fn(),
           },
@@ -88,7 +88,7 @@ describe('EvaluationTaskAccessService', () => {
                 },
               },
               participant: {
-                status: 'PENDING_SELF_REVIEW',
+                status: 'ACTIVE',
                 leaderOpenIdSnapshot: 'ou_leader',
                 reviewerAssignments: [],
               },
@@ -197,7 +197,7 @@ describe('EvaluationTaskAccessService', () => {
                 currentConfigVersion: { notificationRules: { stages: [] } },
               },
               participant: {
-                status: 'SELF_SUBMITTED',
+                status: 'ACTIVE',
                 leaderOpenIdSnapshot: 'ou_leader',
                 reviewerAssignments: [],
               },

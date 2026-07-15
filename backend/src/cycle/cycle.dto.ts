@@ -6,10 +6,8 @@ import {
   IsArray,
   IsBoolean,
   IsDateString,
-  IsEnum,
   IsIn,
   IsInt,
-  IsNumber,
   IsObject,
   IsOptional,
   IsString,
@@ -18,12 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import {
-  PerfCycleStatus,
-  PerfDimensionType,
-  PerfRole,
-  PerfScoringMethod,
-} from '../generated/prisma/enums';
+import { PerfCycleStatus } from '../generated/prisma/enums';
 import {
   ConfigRatingDto,
   ConfigStageModesDto,
@@ -41,94 +34,6 @@ import {
   type FormItemType,
   type FormSubformType,
 } from '../form-template/form-template.contract';
-
-/** 维度配置项：周期维度与模板维度共用（差异只在归属外键） */
-export class DimensionItemDto {
-  /** 更新场景携带已有维度 id；不带则视为新增 */
-  @IsOptional()
-  @IsInt()
-  id?: number;
-
-  @IsString()
-  @MaxLength(100)
-  name!: string;
-
-  @IsEnum(PerfDimensionType)
-  type!: PerfDimensionType;
-
-  @IsEnum(PerfScoringMethod)
-  scoringMethod!: PerfScoringMethod;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  weight?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  required?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  sortOrder?: number;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsEnum(PerfRole, { each: true })
-  visibleRoles?: PerfRole[];
-
-  @IsOptional()
-  @IsArray()
-  @ArrayUnique()
-  @IsEnum(PerfRole, { each: true })
-  editableRoles?: PerfRole[];
-
-  @IsOptional()
-  @IsObject()
-  formSchema?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsObject()
-  applicableScope?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  conclusionOptions?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  employeeVisible?: boolean;
-}
-
-export class UpsertDimensionsDto {
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => DimensionItemDto)
-  items!: DimensionItemDto[];
-
-  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
-  @IsOptional()
-  @IsBoolean()
-  confirm?: boolean;
-}
-
-/** 评估规则：levels 为评级集合，commentRequiredRules 为评语必填评级配置 */
-export class UpsertEvaluationRuleDto {
-  @IsArray()
-  @IsObject({ each: true })
-  levels!: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsObject()
-  commentRequiredRules?: Record<string, unknown>;
-
-  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
-  @IsOptional()
-  @IsBoolean()
-  confirm?: boolean;
-}
 
 export class CreateCycleDto {
   @IsString()
@@ -148,20 +53,6 @@ export class CreateCycleDto {
   @IsOptional()
   @IsString()
   ownerOpenId?: string;
-}
-
-/** 为迁移后的旧草稿补齐新版配置快照；基础信息与快照必须原子写入。 */
-export class InitializeCycleSetupDto {
-  @IsString()
-  @MaxLength(100)
-  name!: string;
-
-  @IsInt()
-  configTemplateVersionId!: number;
-
-  @IsDateString()
-  @Matches(/(Z|[+-]\d{2}:\d{2})$/i, { message: 'plannedStartAt 必须包含时区' })
-  plannedStartAt!: string;
 }
 
 /** 启动前重新套用已发布配置模板版本；整套覆盖评估规则与维度，不做字段级合并。 */
@@ -447,39 +338,6 @@ export class ApplyCycleFormChangeDto extends PreviewCycleFormChangeDto {
   confirmed!: boolean;
 }
 
-export class ApplyTemplateDto {
-  /** 要重新套用的配置模板；会整体覆盖评估规则与评估维度 */
-  @IsInt()
-  templateId!: number;
-
-  /** 进行中周期的破坏性修改二次确认（管理员编辑） */
-  @IsOptional()
-  @IsBoolean()
-  confirm?: boolean;
-}
-
-export class UpsertWindowsDto {
-  /** { selfReview/review/calibration/confirm/appeal: { startAt, endAt, remindAt[] } } */
-  @IsObject()
-  windows!: Record<string, unknown>;
-}
-
-export class UpsertNotificationRulesDto {
-  @IsObject()
-  notificationRules!: Record<string, unknown>;
-}
-
-export class AdvanceCycleDto {
-  /** 目标状态；合法性由周期状态机校验 */
-  @IsIn(Object.values(PerfCycleStatus))
-  to!: PerfCycleStatus;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
-}
-
 /** Ticket 17：预览只需要目标状态；执行必须回传预览修订并二次确认。 */
 export class PreviewActiveCycleRollbackDto {
   @IsIn([PerfCycleStatus.DRAFT, PerfCycleStatus.SCHEDULED])
@@ -514,52 +372,4 @@ export class ArchiveCycleDto {
 
   @IsBoolean()
   confirmed!: boolean;
-}
-
-export class CreateTemplateDto {
-  @IsString()
-  @MaxLength(100)
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isDefault?: boolean;
-
-  @IsArray()
-  @IsObject({ each: true })
-  levels!: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsObject()
-  commentRequiredRules?: Record<string, unknown>;
-}
-
-export class UpdateTemplateDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  description?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isDefault?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  @IsObject({ each: true })
-  levels?: Record<string, unknown>[];
-
-  @IsOptional()
-  @IsObject()
-  commentRequiredRules?: Record<string, unknown>;
 }

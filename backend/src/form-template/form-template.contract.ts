@@ -57,6 +57,8 @@ export type FormItemConfig = {
   maxSizeMb?: number;
   allowedExtensions?: readonly string[];
   allowedProtocols?: readonly string[];
+  /** 晋升结论是否允许进入员工结果快照；未配置时安全默认隐藏。 */
+  employeeVisible?: boolean;
 };
 
 export type FormTemplateItemContract = {

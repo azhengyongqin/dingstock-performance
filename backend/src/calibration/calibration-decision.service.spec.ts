@@ -27,18 +27,14 @@ jest.mock(
       MANAGER: 'MANAGER',
     },
     PerfParticipantStatus: {
-      SELF_SUBMITTED: 'SELF_SUBMITTED',
-      REVIEWED: 'REVIEWED',
-      AI_DONE: 'AI_DONE',
+      ACTIVE: 'ACTIVE',
       CALIBRATED: 'CALIBRATED',
-      RESULT_PUSHED: 'RESULT_PUSHED',
       RESULT_PUBLISHED: 'RESULT_PUBLISHED',
       CONFIRMED: 'CONFIRMED',
       APPEALING: 'APPEALING',
       RE_CONFIRMING: 'RE_CONFIRMING',
       NO_RESULT: 'NO_RESULT',
       WITHDRAWN: 'WITHDRAWN',
-      ARCHIVED: 'ARCHIVED',
     },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfRedLineAction: { CONFIRM: 'CONFIRM', REVOKE: 'REVOKE' },
@@ -54,19 +50,16 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     employeeOpenId: 'ou_employee',
     leaderOpenIdSnapshot: 'ou_leader',
     departmentIdSnapshot: 'od_product',
-    status: 'REVIEWED',
+    status: 'ACTIVE',
     evaluationLockedAt: null,
     cycle: {
       status: 'ACTIVE',
       deletedAt: null,
       currentConfigVersionId: 88,
-      evaluationRule: null,
     },
     stageResults: [{ id: 301, stageLevel: 'B' }],
-    managerReview: null,
     calibrations: [],
     appeals: [],
-    result: null,
   };
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: 7 }]),
@@ -78,7 +71,6 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     perfStageResult: { findMany: jest.fn() },
     perfCalibration: { create: jest.fn(), findMany: jest.fn() },
     perfRedLineFinding: { findMany: jest.fn() },
-    perfResult: { findUnique: jest.fn() },
     larkUser: { findMany: jest.fn() },
   };
   const prisma = {
@@ -135,7 +127,6 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
       operatorOpenId: 'ou_leader',
     });
     tx.perfRedLineFinding.findMany.mockResolvedValue([]);
-    tx.perfResult.findUnique.mockResolvedValue(null);
     rbac.hasAnyRole.mockResolvedValue(false);
     rbac.getOrgScope.mockResolvedValue([]);
     requiredEvaluation.assertCalibrationReady.mockResolvedValue({
@@ -542,10 +533,10 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     });
   });
 
-  it('SELF_SUBMITTED 仍按有效提交门槛派生完成度并允许决定', async () => {
+  it('ACTIVE 参与者按有效统一提交门槛派生完成度并允许决定', async () => {
     tx.perfParticipant.findUnique.mockResolvedValue({
       ...participant,
-      status: 'SELF_SUBMITTED',
+      status: 'ACTIVE',
     });
     const context = await service.getContext('ou_leader', 7);
 

@@ -65,6 +65,10 @@ class FormItemOptionDto {
 
 class FormItemConfigDto {
   @IsOptional()
+  @IsBoolean()
+  employeeVisible?: boolean;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)

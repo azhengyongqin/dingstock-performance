@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import Link from 'next/link'
-
 import type { ColumnFiltersState, PaginationState, SortingState } from '@tanstack/react-table'
 import {
   getCoreRowModel,
@@ -146,10 +144,9 @@ const ConfigTemplateManager = () => {
       />
 
       <Alert>
-        <AlertTitle>新旧模板正在分阶段切换</AlertTitle>
+        <AlertTitle>统一配置模板已启用</AlertTitle>
         <AlertDescription>
-          新版周期创建将在 Ticket 04 使用这里的已发布版本；当前生产周期仍读取旧 `/templates` 快照入口。
-          <Button variant='link' className='h-auto px-1' render={<Link href='/settings/templates/legacy' />} nativeButton={false}>打开旧版模板管理</Button>
+          周期创建与运行均使用已发布配置版本；旧模板入口已下线，历史迁移台账仅用于审计。
         </AlertDescription>
       </Alert>
 

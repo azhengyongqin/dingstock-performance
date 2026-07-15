@@ -13,6 +13,7 @@ import { validationSchema } from './config/validation.schema';
 import { ContactModule } from './contact/contact.module';
 import { ConfigTemplateModule } from './config-template/config-template.module';
 import { CycleModule } from './cycle/cycle.module';
+import { CutoverModule } from './cutover/cutover.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 import { FormTemplateModule } from './form-template/form-template.module';
@@ -21,7 +22,6 @@ import { ParticipantModule } from './participant/participant.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReviewModule } from './review/review.module';
 import { SharedModule } from './shared/shared.module';
-import { MigrationModule } from './migration/migration.module';
 
 @Module({
   imports: [
@@ -38,6 +38,7 @@ import { MigrationModule } from './migration/migration.module';
     RbacModule,
     AuditModule,
     CycleModule,
+    CutoverModule,
     ParticipantModule,
     ReviewModule,
     EvaluationModule,
@@ -48,7 +49,6 @@ import { MigrationModule } from './migration/migration.module';
     DashboardModule,
     FormTemplateModule,
     ConfigTemplateModule,
-    MigrationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -200,8 +200,8 @@ describe('CycleSetupService', () => {
     const snapshotData = tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
     // 阶段模式、评级、约束、四个关系权重、日程预设、通知规则均须与来源模板版本一致地复制到周期快照。
     expect(snapshotData).toMatchObject({
-      cycleId: 9,
-      sourceConfigTemplateVersionId: 30,
+      cycle: { connect: { id: 9 } },
+      sourceConfigVersion: { connect: { id: 30 } },
       selfStageMode: 'DIRECT_RATING',
       peerStageMode: 'WEIGHTED_RATING',
       managerStageMode: 'WEIGHTED_SCORE',
@@ -218,7 +218,7 @@ describe('CycleSetupService', () => {
     expect(snapshotData.formSnapshots.create).toHaveLength(2);
     expect(snapshotData.formSnapshots.create[0]).toMatchObject({
       jobLevelPrefix: 'D',
-      sourceFormTemplateVersionId: 100,
+      sourceFormVersion: { connect: { id: 100 } },
       content: {
         schemaVersion: 1,
         name: 'D 表单',
@@ -249,7 +249,7 @@ describe('CycleSetupService', () => {
     });
     expect(snapshotData.formSnapshots.create[1]).toMatchObject({
       jobLevelPrefix: 'M',
-      sourceFormTemplateVersionId: 101,
+      sourceFormVersion: { connect: { id: 101 } },
       content: expect.objectContaining({
         jobLevelPrefix: 'M',
         name: 'M 表单',
@@ -326,102 +326,6 @@ describe('CycleSetupService', () => {
       snapshotData.formSnapshots.create[0].content.subforms[0].dimensions[0]
         .name,
     ).toBe('业绩');
-  });
-
-  it('迁移后的旧草稿可原子补齐基础信息、配置与 D/M 表单快照', async () => {
-    tx.perfCycle.findFirst.mockResolvedValue({
-      id: 9,
-      status: 'DRAFT',
-      currentConfigVersionId: null,
-      currentConfigVersion: null,
-      participants: [],
-    });
-
-    await service.initializeLegacyDraft('ou_hr', 9, {
-      name: '迁移后的周期',
-      configTemplateVersionId: 30,
-      plannedStartAt: '2026-08-01T09:00:00+08:00',
-    });
-
-    expect(tx.perfCycleConfigVersion.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          cycleId: 9,
-          sourceConfigTemplateVersionId: 30,
-          formSnapshots: {
-            create: expect.arrayContaining([
-              expect.objectContaining({ jobLevelPrefix: 'D' }),
-              expect.objectContaining({ jobLevelPrefix: 'M' }),
-            ]),
-          },
-        }),
-      }),
-    );
-    expect(tx.perfCycle.update).toHaveBeenCalledWith({
-      where: { id: 9 },
-      data: {
-        name: '迁移后的周期',
-        plannedStartAt: new Date('2026-08-01T01:00:00.000Z'),
-        currentConfigVersionId: 19,
-      },
-    });
-  });
-
-  it('旧草稿初始化时会为已有参与人固化 CoreHR 职级与 D/M 表单绑定', async () => {
-    tx.perfCycle.findFirst.mockResolvedValue({
-      id: 9,
-      status: 'DRAFT',
-      currentConfigVersionId: null,
-      currentConfigVersion: null,
-      participants: [
-        {
-          id: 71,
-          employeeOpenId: 'ou_d',
-          leaderOpenIdSnapshot: null,
-          departmentIdSnapshot: null,
-          jobLevelSnapshot: null,
-        },
-      ],
-    });
-    tx.perfCycleConfigVersion.create.mockResolvedValue({
-      id: 19,
-      formSnapshots: [
-        { id: 81, jobLevelPrefix: 'D' },
-        { id: 82, jobLevelPrefix: 'M' },
-      ],
-    });
-    tx.larkUser.findMany.mockResolvedValue([
-      {
-        open_id: 'ou_d',
-        leader_user_id: 'ou_leader_fallback',
-        department_ids: ['od_fallback'],
-      },
-    ]);
-    tx.larkCorehrEmployee.findMany.mockResolvedValue([
-      {
-        open_id: 'ou_d',
-        direct_manager_id: 'ou_leader',
-        department_id: 'od_corehr',
-        job_level: { code: 'D5', name: [{ value: '资深工程师' }] },
-      },
-    ]);
-
-    await service.initializeLegacyDraft('ou_hr', 9, {
-      name: '迁移后的周期',
-      configTemplateVersionId: 30,
-      plannedStartAt: '2026-08-01T09:00:00+08:00',
-    });
-
-    expect(tx.perfParticipant.update).toHaveBeenCalledWith({
-      where: { id: 71 },
-      data: expect.objectContaining({
-        leaderOpenIdSnapshot: 'ou_leader',
-        departmentIdSnapshot: 'od_corehr',
-        jobLevelSnapshot: { code: 'D5', name: [{ value: '资深工程师' }] },
-        jobLevelPrefixSnapshot: 'D',
-        formSnapshotId: 81,
-      }),
-    });
   });
 
   it('设为待启动只更新周期状态，不生成任务或通知', async () => {
@@ -645,9 +549,9 @@ describe('CycleSetupService', () => {
       const snapshotData =
         tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
       expect(snapshotData).toMatchObject({
-        cycleId: 9,
+        cycle: { connect: { id: 9 } },
         version: 3,
-        sourceConfigTemplateVersionId: 30,
+        sourceConfigVersion: { connect: { id: 30 } },
         selfStageMode: 'DIRECT_RATING',
         peerStageMode: 'WEIGHTED_RATING',
         managerStageMode: 'WEIGHTED_SCORE',
@@ -671,7 +575,7 @@ describe('CycleSetupService', () => {
       expect(snapshotData.formSnapshots.create).toHaveLength(2);
       expect(snapshotData.formSnapshots.create[0]).toMatchObject({
         jobLevelPrefix: 'D',
-        sourceFormTemplateVersionId: 100,
+        sourceFormVersion: { connect: { id: 100 } },
       });
 
       // currentConfigVersionId 必须切换到新快照，旧版本不删除、不再引用。

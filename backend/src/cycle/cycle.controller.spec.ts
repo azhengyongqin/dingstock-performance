@@ -18,18 +18,6 @@ jest.mock(
       ACTIVE: 'ACTIVE',
       ARCHIVED: 'ARCHIVED',
     },
-    PerfDimensionType: {
-      REGULAR: 'REGULAR',
-      PROMOTION: 'PROMOTION',
-      TEXT: 'TEXT',
-      METRIC: 'METRIC',
-    },
-    PerfScoringMethod: {
-      LEVEL: 'LEVEL',
-      SCORE: 'SCORE',
-      CONCLUSION: 'CONCLUSION',
-      TEXT: 'TEXT',
-    },
   }),
   { virtual: true },
 );
@@ -50,7 +38,6 @@ describe('CycleController 四步创建 API', () => {
   };
   const setupService = {
     createFromPublishedConfig: jest.fn(),
-    initializeLegacyDraft: jest.fn(),
     getConfigSnapshot: jest.fn(),
     updateAdvancedConfig: jest.fn(),
     reapplyPublishedConfig: jest.fn(),
@@ -160,21 +147,5 @@ describe('CycleController 四步创建 API', () => {
 
     expect(archiveService.preview).toHaveBeenCalledWith('ou_hr', 9);
     expect(archiveService.archive).toHaveBeenCalledWith('ou_hr', 9, dto);
-  });
-
-  it('旧草稿初始化接口原样转发配置选择与基础信息', async () => {
-    const dto = {
-      name: '迁移后的周期',
-      configTemplateVersionId: 30,
-      plannedStartAt: '2026-08-01T09:00:00+08:00',
-    };
-
-    await controller.initializeConfigSnapshot(request, 9, dto);
-
-    expect(setupService.initializeLegacyDraft).toHaveBeenCalledWith(
-      'ou_hr',
-      9,
-      dto,
-    );
   });
 });

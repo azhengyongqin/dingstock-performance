@@ -26,7 +26,7 @@ export type AppealRow = {
   participant: {
     id: number
     cycle: { id: number; name: string }
-    result: { finalLevel: string } | null
+    resultVersions: Array<{ id: number; version: number; finalLevel: string }>
   }
 }
 
@@ -78,8 +78,8 @@ export const buildAppealTableColumns = ({ onHandle }: AppealColumnsContext): Col
     header: '当前等级',
     enableSorting: false,
     cell: ({ row }) =>
-      row.original.participant.result?.finalLevel ? (
-        <Badge variant='outline'>{row.original.participant.result.finalLevel}</Badge>
+      row.original.participant.resultVersions[0]?.finalLevel ? (
+        <Badge variant='outline'>{row.original.participant.resultVersions[0].finalLevel}</Badge>
       ) : (
         <span className='text-muted-foreground'>-</span>
       )

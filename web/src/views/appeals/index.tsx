@@ -271,7 +271,7 @@ const Appeals = () => {
             <DialogTitle>{activeAppeal?.status === 'RESOLVED' ? '申诉记录' : '处理申诉'}</DialogTitle>
             <DialogDescription>
               {activeAppeal?.employee?.name ?? '-'} · {activeAppeal?.participant.cycle.name ?? '-'} · 当前等级{' '}
-              {activeAppeal?.participant.result?.finalLevel ?? '-'}
+              {activeAppeal?.participant.resultVersions[0]?.finalLevel ?? '-'}
             </DialogDescription>
           </DialogHeader>
 

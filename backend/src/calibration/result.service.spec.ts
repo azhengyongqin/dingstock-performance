@@ -20,7 +20,6 @@ jest.mock(
     PerfParticipantStatus: {
       CALIBRATED: 'CALIBRATED',
       RESULT_PUBLISHED: 'RESULT_PUBLISHED',
-      RESULT_PUSHED: 'RESULT_PUSHED',
       CONFIRMED: 'CONFIRMED',
       APPEALING: 'APPEALING',
       RE_CONFIRMING: 'RE_CONFIRMING',
@@ -42,7 +41,6 @@ describe('ResultService 不可变结果版本', () => {
       update: jest.fn(),
       updateMany: jest.fn(),
     },
-    perfResult: { upsert: jest.fn(), updateMany: jest.fn() },
     perfNotificationEvent: { upsert: jest.fn() },
   };
   const prisma = {
@@ -254,7 +252,7 @@ describe('ResultService 不可变结果版本', () => {
             level: 'A',
             items: [expect.objectContaining({ value: '完成重点项目交付' })],
           }),
-          promotion: expect.objectContaining({ visible: true }),
+          promotion: null,
         }),
       }),
     });
@@ -267,8 +265,68 @@ describe('ResultService 不可变结果版本', () => {
       tx,
     );
     expect(JSON.stringify(tx.perfResultVersion.create.mock.calls)).not.toMatch(
-      /内部敏感校准|PEER|aiReport|reviewerOpenId|relationAggregates/,
+      /内部敏感校准|PEER|aiReport|reviewerOpenId|relationAggregates|晋升自述|推荐晋升/,
     );
+  });
+
+  it('仅在表单项显式配置 employeeVisible 时向员工发布 Leader 晋升结论', async () => {
+    tx.perfParticipant.findUnique.mockResolvedValue({
+      ...participant,
+      formSnapshot: {
+        content: {
+          subforms: [
+            ...participant.formSnapshot.content.subforms.slice(0, 2),
+            {
+              key: 'subform:PROMOTION',
+              type: 'PROMOTION',
+              dimensions: [
+                {
+                  key: 'promotion:self',
+                  audience: 'EMPLOYEE',
+                  name: '员工晋升材料',
+                  items: [
+                    {
+                      key: 'promotion:self:text',
+                      title: '晋升自述',
+                      type: 'LONG_TEXT',
+                    },
+                  ],
+                },
+                {
+                  key: 'promotion:leader',
+                  audience: 'LEADER',
+                  name: 'Leader 晋升结论',
+                  items: [
+                    {
+                      key: 'promotion:leader:conclusion',
+                      title: '晋升结论',
+                      type: 'SINGLE_SELECT',
+                      config: { employeeVisible: true },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+
+    await service.publishCycle('ou_hr', 1, [7]);
+
+    expect(tx.perfResultVersion.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        resultSnapshot: expect.objectContaining({
+          promotion: {
+            visible: true,
+            items: [
+              expect.objectContaining({ value: '晋升自述' }),
+              expect.objectContaining({ value: '推荐晋升' }),
+            ],
+          },
+        }),
+      }),
+    });
   });
 
   it('周期退回后的新结果沿失效历史递增版本号，不与旧版本冲突', async () => {

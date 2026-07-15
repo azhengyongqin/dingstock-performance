@@ -7,13 +7,11 @@ import {
 import {
   PerfEvaluationTaskType,
   PerfFormItemType,
-  PerfParticipantStatus,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
-import { ParticipantService } from '../participant/participant.service';
 import { EvaluationTaskAccessService } from '../cycle/evaluation-task-access.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
@@ -47,7 +45,6 @@ export class EvaluationSubmissionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
-    private readonly participantService: ParticipantService,
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
@@ -290,7 +287,7 @@ export class EvaluationSubmissionService {
         }
       }
       await this.replaceItems(tx, submission.id, rows);
-      // 镜像旧 SelfReviewService.submit：自评任务完成标记与提交同事务生效。
+      // 自评任务完成标记与统一提交必须在同一事务生效。
       await tx.perfEvaluationTask.update({
         where: {
           participantId_type: {
@@ -314,17 +311,6 @@ export class EvaluationSubmissionService {
       return submission;
     });
 
-    if (
-      participant.status === PerfParticipantStatus.PENDING_SELF_REVIEW ||
-      participant.status === PerfParticipantStatus.RETURNED
-    ) {
-      // 重新提交不能回退已经推进到评审/AI 的参与者进度（与旧路径同语义）。
-      await this.participantService.transition(
-        employeeOpenId,
-        participant.id,
-        PerfParticipantStatus.SELF_SUBMITTED,
-      );
-    }
     await this.auditService.record({
       operatorOpenId: employeeOpenId,
       action: 'evaluation.self.submit',

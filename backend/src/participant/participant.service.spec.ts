@@ -27,8 +27,8 @@ jest.mock(
       ARCHIVED: 'ARCHIVED',
     },
     PerfParticipantStatus: {
-      PENDING_SELF_REVIEW: 'PENDING_SELF_REVIEW',
-      ARCHIVED: 'ARCHIVED',
+      ACTIVE: 'ACTIVE',
+      WITHDRAWN: 'WITHDRAWN',
     },
     PerfEvaluationTaskType: {
       SELF: 'SELF',
@@ -85,14 +85,12 @@ describe('ParticipantService', () => {
     },
     larkUser: { findMany: jest.fn() },
     larkCorehrEmployee: { findMany: jest.fn() },
-    perfResult: { count: jest.fn().mockResolvedValue(0) },
+    perfResultVersion: { count: jest.fn().mockResolvedValue(0) },
     perfCalibration: { count: jest.fn().mockResolvedValue(0) },
     perfAiReport: { count: jest.fn().mockResolvedValue(0) },
     perfAppeal: { count: jest.fn().mockResolvedValue(0) },
     perfInterview: { count: jest.fn().mockResolvedValue(0) },
-    perfSelfReview: { count: jest.fn().mockResolvedValue(0) },
-    perfReview: { count: jest.fn().mockResolvedValue(0) },
-    perfManagerReview: { count: jest.fn().mockResolvedValue(0) },
+    perfEvaluationSubmission: { count: jest.fn().mockResolvedValue(0) },
   };
   const auditMock = { record: jest.fn() };
   const rbacMock = { isAdmin: jest.fn().mockResolvedValue(false) };
@@ -108,14 +106,12 @@ describe('ParticipantService', () => {
     );
     rbacMock.isAdmin.mockResolvedValue(false);
     for (const model of [
-      prismaMock.perfResult,
+      prismaMock.perfResultVersion,
       prismaMock.perfCalibration,
       prismaMock.perfAiReport,
       prismaMock.perfAppeal,
       prismaMock.perfInterview,
-      prismaMock.perfSelfReview,
-      prismaMock.perfReview,
-      prismaMock.perfManagerReview,
+      prismaMock.perfEvaluationSubmission,
     ]) {
       model.count.mockResolvedValue(0);
     }
@@ -253,7 +249,7 @@ describe('ParticipantService', () => {
         departmentIdSnapshot: 'd1',
         jobLevelPrefixSnapshot: 'D',
         formSnapshotId: 88,
-        status: 'PENDING_SELF_REVIEW',
+        status: 'ACTIVE',
       }),
     });
     expect(txMock.perfEvaluationTask.createMany).toHaveBeenCalledWith({
@@ -391,7 +387,7 @@ describe('ParticipantService', () => {
       id: 9,
       cycleId: 100,
     });
-    prismaMock.perfResult.count.mockResolvedValue(1);
+    prismaMock.perfResultVersion.count.mockResolvedValue(1);
 
     await expect(service.remove('ou_admin', 100, 9)).rejects.toThrow(
       ConflictException,
@@ -411,7 +407,7 @@ describe('ParticipantService', () => {
     expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
   });
 
-  it('ADMIN 移除仅有自评数据的考核人员时要求二次确认', async () => {
+  it('ADMIN 移除已有统一评估提交的考核人员时要求二次确认', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
@@ -421,7 +417,7 @@ describe('ParticipantService', () => {
       id: 9,
       cycleId: 100,
     });
-    prismaMock.perfSelfReview.count.mockResolvedValue(1);
+    prismaMock.perfEvaluationSubmission.count.mockResolvedValue(1);
 
     await expect(service.remove('ou_admin', 100, 9)).rejects.toMatchObject({
       response: expect.objectContaining({
@@ -431,7 +427,7 @@ describe('ParticipantService', () => {
     expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
   });
 
-  it('ADMIN 带 confirm 时可移除仅有自评数据的考核人员', async () => {
+  it('ADMIN 带 confirm 时可移除已有统一评估提交的考核人员', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
@@ -441,7 +437,7 @@ describe('ParticipantService', () => {
       id: 9,
       cycleId: 100,
     });
-    prismaMock.perfSelfReview.count.mockResolvedValue(1);
+    prismaMock.perfEvaluationSubmission.count.mockResolvedValue(1);
     txMock.$queryRaw.mockResolvedValueOnce([
       { participant_id: 9, cycle_id: 100, cycle_status: 'ACTIVE' },
     ]);

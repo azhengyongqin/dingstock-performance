@@ -38,7 +38,6 @@ export type CalibrationRow = {
 // 参与者状态 Badge 色彩语义：已校准及之后绿、申诉中黄、其余灰
 const STATUS_BADGE: Partial<Record<PerfParticipantStatus, string>> = {
   CALIBRATED: 'bg-green-500/10 text-green-600 dark:text-green-400',
-  RESULT_PUSHED: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   RESULT_PUBLISHED: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   CONFIRMED: 'bg-green-500/10 text-green-600 dark:text-green-400',
   APPEALING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',

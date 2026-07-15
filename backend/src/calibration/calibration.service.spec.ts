@@ -14,10 +14,8 @@ jest.mock(
   () => ({
     PerfNotificationChannel: { BOT_DM: 'BOT_DM' },
     PerfParticipantStatus: {
-      REVIEWED: 'REVIEWED',
-      AI_DONE: 'AI_DONE',
+      ACTIVE: 'ACTIVE',
       CALIBRATED: 'CALIBRATED',
-      RESULT_PUSHED: 'RESULT_PUSHED',
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfRedLineAction: { CONFIRM: 'CONFIRM', REVOKE: 'REVOKE' },
@@ -33,17 +31,14 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
     departmentIdSnapshot: 'od_product',
     cycle: {
       deletedAt: null,
-      evaluationRule: null,
     },
-    managerReview: { initialLevel: 'B', status: 'SUBMITTED' },
+    stageResults: [{ stageLevel: 'B' }],
     calibrations: [{ id: 10, afterLevel: 'B' }],
-    result: { archivedAt: null },
   };
   const prisma = {
     perfCycle: { findFirst: jest.fn() },
     perfParticipant: { findUnique: jest.fn(), findMany: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
-    perfResult: { upsert: jest.fn() },
     perfNotification: { create: jest.fn() },
     larkUser: { findMany: jest.fn() },
     $transaction: jest.fn(),
@@ -51,7 +46,6 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
   const tx = {
     perfParticipant: { findUnique: jest.fn(), update: jest.fn() },
     perfCalibration: { findMany: jest.fn(), create: jest.fn() },
-    perfResult: { upsert: jest.fn() },
     perfNotification: { create: jest.fn() },
     larkUser: { findMany: jest.fn() },
     $queryRaw: jest.fn(),
@@ -165,19 +159,15 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
   it('授权校准工作台在同一参与者行返回完整 AI 参考', async () => {
     prisma.perfCycle.findFirst.mockResolvedValue({
       id: 1,
-      evaluationRule: { levels: [] },
+      currentConfigVersion: { ratings: [] },
     });
     prisma.perfParticipant.findMany.mockResolvedValue([
       {
         id: 7,
         employeeOpenId: 'ou_employee',
-        status: 'REVIEWED',
+        status: 'ACTIVE',
         isPromotionEnabled: false,
-        managerReview: {
-          initialLevel: 'B',
-          promotionConclusion: null,
-          status: 'SUBMITTED',
-        },
+        stageResults: [{ stageLevel: 'B' }],
         calibrations: [],
         redLineFindings: [
           {

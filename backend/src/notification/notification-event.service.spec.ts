@@ -209,7 +209,7 @@ describe('NotificationEventService', () => {
       resultVersionId: 41,
       receiverOpenId: 'ou_employee',
       targetStatus: 'DRAFT',
-    };
+    } as const;
 
     const first = await service.enqueueResultInvalidatedEvent(input);
     const duplicate = await service.enqueueResultInvalidatedEvent(input);

@@ -24,20 +24,14 @@ import { PerfCycleStatus, PerfRole } from '../generated/prisma/enums';
 import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import {
-  ApplyTemplateDto,
   ApplyActiveCycleRollbackDto,
   ArchiveCycleDto,
   CreateCycleDto,
-  InitializeCycleSetupDto,
   ReapplyCycleSetupDto,
   UpdateCycleAdvancedConfigDto,
   UpdateCycleDto,
   PreviewActiveCycleRollbackDto,
-  UpsertDimensionsDto,
   UpsertCyclePlanDto,
-  UpsertNotificationRulesDto,
-  UpsertEvaluationRuleDto,
-  UpsertWindowsDto,
 } from './cycle.dto';
 import { CycleService } from './cycle.service';
 import { CycleSetupService } from './cycle-setup.service';
@@ -92,20 +86,6 @@ export class CycleController {
   @ApiOperation({ summary: '读取周期独立配置与 D/M 表单快照' })
   configSnapshot(@Param('id', ParseIntPipe) id: number) {
     return this.cycleSetupService.getConfigSnapshot(id);
-  }
-
-  @Post(':id/config-snapshot/initialize')
-  @ApiOperation({ summary: '为迁移后的旧草稿原子初始化配置与表单快照' })
-  initializeConfigSnapshot(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: InitializeCycleSetupDto,
-  ) {
-    return this.cycleSetupService.initializeLegacyDraft(
-      req.user.open_id,
-      id,
-      dto,
-    );
   }
 
   @Post(':id/config-snapshot/reapply')
@@ -175,64 +155,6 @@ export class CycleController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     return this.cycleService.deleteCycle(req.user.open_id, id);
-  }
-
-  @Put(':id/evaluation-rule')
-  @ApiOperation({ summary: '配置评估规则（启动前）' })
-  upsertEvaluationRule(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpsertEvaluationRuleDto,
-  ) {
-    return this.cycleService.upsertEvaluationRule(req.user.open_id, id, dto);
-  }
-
-  @Put(':id/dimensions')
-  @ApiOperation({
-    summary: '整体维护评估维度（带 id 更新/不带新增/缺席软删；启动前）',
-  })
-  upsertDimensions(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpsertDimensionsDto,
-  ) {
-    return this.cycleService.upsertDimensions(req.user.open_id, id, dto);
-  }
-
-  @Post(':id/apply-template')
-  @ApiOperation({
-    summary: '启动前重新套用模板：整体覆盖评估规则与评估维度',
-  })
-  applyTemplate(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ApplyTemplateDto,
-  ) {
-    return this.cycleService.applyTemplate(req.user.open_id, id, dto);
-  }
-
-  @Put(':id/windows')
-  @ApiOperation({ summary: '配置/调整时间窗口（启动后调整=延长窗口，写审计）' })
-  updateWindows(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpsertWindowsDto,
-  ) {
-    return this.cycleService.updateWindows(req.user.open_id, id, dto.windows);
-  }
-
-  @Put(':id/notification-rules')
-  @ApiOperation({ summary: '配置催办/通知规则' })
-  updateNotificationRules(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpsertNotificationRulesDto,
-  ) {
-    return this.cycleService.updateNotificationRules(
-      req.user.open_id,
-      id,
-      dto.notificationRules,
-    );
   }
 
   @Get(':id/start-check')

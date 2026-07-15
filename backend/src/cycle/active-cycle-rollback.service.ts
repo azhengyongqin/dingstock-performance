@@ -177,13 +177,6 @@ export class ActiveCycleRollbackService {
             },
             data: invalidation,
           }),
-          tx.perfResult.updateMany({
-            where: {
-              participantId: { in: participantIds },
-              invalidatedAt: null,
-            },
-            data: invalidation,
-          }),
         ]);
 
         for (const participant of cycle.participants) {
@@ -331,26 +324,14 @@ export class ActiveCycleRollbackService {
     }
     const resultChainStatuses = new Set<PerfParticipantStatus>([
       PerfParticipantStatus.CALIBRATED,
-      PerfParticipantStatus.RESULT_PUSHED,
       PerfParticipantStatus.RESULT_PUBLISHED,
       PerfParticipantStatus.CONFIRMED,
       PerfParticipantStatus.APPEALING,
       PerfParticipantStatus.RE_CONFIRMING,
     ]);
     if (!resultChainStatuses.has(participant.status)) return participant.status;
-    const submittedStages = new Set(
-      participant.evaluationSubmissions.map((item) => item.stage),
-    );
-    if (
-      submittedStages.has(PerfEvaluationTaskType.SELF) &&
-      submittedStages.has(PerfEvaluationTaskType.MANAGER)
-    ) {
-      return PerfParticipantStatus.REVIEWED;
-    }
-    if (submittedStages.has(PerfEvaluationTaskType.SELF)) {
-      return PerfParticipantStatus.SELF_SUBMITTED;
-    }
-    return PerfParticipantStatus.PENDING_SELF_REVIEW;
+    // 退回只解除结果生命周期；人工评估进度继续由提交与任务事实派生。
+    return PerfParticipantStatus.ACTIVE;
   }
 
   private parseScheduledStart(input: ActiveCycleRollbackInput, now: Date) {

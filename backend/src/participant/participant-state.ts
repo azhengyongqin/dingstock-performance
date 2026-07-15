@@ -1,57 +1,29 @@
 import { ConflictException } from '@nestjs/common';
 import { PerfParticipantStatus } from '../generated/prisma/enums';
 
-/**
- * 参与者状态机（研发文档 §8.2）。映射表即文档，非法流转抛 409。
- * 周期归档不改写参与者状态；CONFIRMED / NO_RESULT / WITHDRAWN 随周期统一只读。
- */
+/** 参与者状态只描述结果生命周期，评估进度由任务与统一提交派生。 */
 const PARTICIPANT_TRANSITIONS: Record<
   PerfParticipantStatus,
   PerfParticipantStatus[]
 > = {
-  // Ticket 20 新生命周期态；人工评估进度不再落在 participant.status。
   ACTIVE: [
     PerfParticipantStatus.CALIBRATED,
     PerfParticipantStatus.NO_RESULT,
     PerfParticipantStatus.WITHDRAWN,
   ],
-  PENDING_SELF_REVIEW: [
-    PerfParticipantStatus.SELF_SUBMITTED,
-    PerfParticipantStatus.NO_RESULT,
-  ],
-  SELF_SUBMITTED: [
-    PerfParticipantStatus.RETURNED,
-    PerfParticipantStatus.REVIEWED,
-    // 评估完成度已改由统一答卷派生；旧 SELF_SUBMITTED 状态可直接进入首次校准。
-    PerfParticipantStatus.CALIBRATED,
-  ],
-  RETURNED: [PerfParticipantStatus.SELF_SUBMITTED],
-  // AI 不再是参与者阶段；AI_DONE 仅保留给迁移前历史记录继续走向校准。
-  REVIEWED: [PerfParticipantStatus.CALIBRATED],
-  AI_DONE: [PerfParticipantStatus.CALIBRATED],
-  CALIBRATED: [
-    PerfParticipantStatus.RESULT_PUSHED,
-    PerfParticipantStatus.RESULT_PUBLISHED,
-  ],
-  RESULT_PUSHED: [
-    PerfParticipantStatus.CONFIRMED,
-    PerfParticipantStatus.APPEALING,
-  ],
+  CALIBRATED: [PerfParticipantStatus.RESULT_PUBLISHED],
   RESULT_PUBLISHED: [
     PerfParticipantStatus.CONFIRMED,
     PerfParticipantStatus.APPEALING,
   ],
-  // 维持原等级时回到原版本确认链；改判发布新版本后进入再次确认。
   APPEALING: [
     PerfParticipantStatus.RESULT_PUBLISHED,
     PerfParticipantStatus.RE_CONFIRMING,
   ],
-  // 每人每周期限一次申诉，再次确认阶段不能重新进入申诉。
   RE_CONFIRMING: [PerfParticipantStatus.CONFIRMED],
-  NO_RESULT: [],
+  NO_RESULT: [PerfParticipantStatus.ACTIVE],
   WITHDRAWN: [],
   CONFIRMED: [],
-  ARCHIVED: [],
 };
 
 export function assertParticipantTransition(
