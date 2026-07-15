@@ -36,6 +36,7 @@ import {
 
 import { participantColumns, stageWindowColumns } from './cycle-detail-columns'
 import CycleProgressDashboard from './cycle-progress-dashboard'
+import SnapshotProvenanceCard from './snapshot-provenance-card'
 
 function BasicDataTable<TData>({
   data,
@@ -208,24 +209,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
         </TabsContent>
 
         <TabsContent value='snapshot' className='mt-4'>
-          <Card>
-            <CardHeader>
-              <CardTitle>独立配置快照</CardTitle>
-              <CardDescription>
-                {snapshot?.source
-                  ? `来源：${snapshot.source.name} · v${snapshot.source.version}；后续模板更新不会影响本周期。`
-                  : '未记录来源配置模板版本。'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='flex flex-wrap gap-2'>
-              {snapshot?.forms.map(form => (
-                <Badge key={form.id} variant='outline'>
-                  {form.jobLevelPrefix} ·{' '}
-                  {form.name ?? form.content?.name ?? `表单版本 #${form.sourceFormTemplateVersionId}`}
-                </Badge>
-              ))}
-            </CardContent>
-          </Card>
+          <SnapshotProvenanceCard snapshot={snapshot} />
         </TabsContent>
 
         <TabsContent value='plan' className='mt-4'>

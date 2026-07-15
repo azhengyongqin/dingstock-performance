@@ -347,6 +347,9 @@ const CycleSetupEditor = ({
                     <div className='rounded-md border p-3 text-sm'>
                       <span className='font-medium'>{sourceConfigLabel}</span>
                       <p className='text-muted-foreground mt-1 text-xs'>周期已保存独立快照，来源模板后续变化不会影响本周期。</p>
+                      {snapshotManuallyModified && (
+                        <p className='text-amber-600 mt-1 text-xs'>当前评估规则与评估维度可能已被手动修改。</p>
+                      )}
                       {editable && (
                         <Button variant='outline' size='sm' className='mt-3' onClick={openReapplyDialog}>
                           重新套用模板

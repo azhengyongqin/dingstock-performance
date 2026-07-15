@@ -283,8 +283,9 @@ describe('CycleSetupEditor 重新套用模板', () => {
     await user.click(screen.getByRole('button', { name: '套用' }))
 
     expect(screen.getByText(/整体覆盖为所选模板版本的快照/)).toBeInTheDocument()
-    expect(screen.getByText(/评估规则/)).toBeInTheDocument()
-    expect(screen.getByText(/评估维度/)).toBeInTheDocument()
+
+    // 确认覆盖文案必须使用「评估规则」「评估维度」术语；基本信息只读块另有“与”措辞提示，这里用 Dialog 特有的“或”措辞精确匹配。
+    expect(screen.getByText(/当前评估规则或评估维度可能已被手动修改/)).toBeInTheDocument()
     expect(props.onReapplyTemplate).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: '取消' }))
@@ -298,6 +299,16 @@ describe('CycleSetupEditor 重新套用模板', () => {
 
     expect(props.onReapplyTemplate).toHaveBeenCalledOnce()
     expect(props.onReapplyTemplate).toHaveBeenCalledWith(11)
+  })
+
+  it('快照已手动修改：基本信息步骤展示手动修改提示，未修改时不出现', () => {
+    const props = { ...createProps(), sourceConfigLabel: '标准配置 · v2', snapshotManuallyModified: true }
+    const view = render(<CycleSetupEditor {...props} />)
+
+    expect(screen.getByText(/当前评估规则与评估维度可能已被手动修改/)).toBeInTheDocument()
+
+    view.rerender(<CycleSetupEditor {...props} snapshotManuallyModified={false} />)
+    expect(screen.queryByText(/可能已被手动修改/)).not.toBeInTheDocument()
   })
 
   it('editable 为 false 时不渲染重新套用模板入口', () => {
