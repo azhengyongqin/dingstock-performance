@@ -4,11 +4,35 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
+import { Prisma } from '../generated/prisma/client';
 import type { EvaluationItemAnswerDto } from './evaluation.dto';
 
-jest.mock('../generated/prisma/client', () => ({ PrismaClient: class {} }), {
-  virtual: true,
-});
+// jest.mock 工厂会被提升到 import 之前执行，工厂体内不能引用外部变量（TDZ），
+// 因此与真实 @prisma/client 运行时同形的错误类（code + meta.target）需在工厂内部自包含定义；
+// 上面对 Prisma 的 import 在测试运行时会解析到这里 mock 出的对象，用于构造 P2002 冲突异常。
+jest.mock(
+  '../generated/prisma/client',
+  () => {
+    class PrismaClientKnownRequestError extends Error {
+      code: string;
+      meta?: { target?: string | string[] };
+      constructor(
+        message: string,
+        options: { code: string; meta?: { target?: string | string[] } },
+      ) {
+        super(message);
+        this.name = 'PrismaClientKnownRequestError';
+        this.code = options.code;
+        this.meta = options.meta;
+      }
+    }
+    return {
+      PrismaClient: class {},
+      Prisma: { PrismaClientKnownRequestError },
+    };
+  },
+  { virtual: true },
+);
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -315,6 +339,47 @@ describe('EvaluationSubmissionService 员工自评', () => {
       expect(participants.transition).not.toHaveBeenCalled();
     });
 
+    it('并发双击/网络重试导致 DRAFT 部分唯一索引冲突（P2002）时返回业务可读中文冲突错误', async () => {
+      tx.perfEvaluationSubmission.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: {
+            target: 'perf_evaluation_submissions_active_draft_key',
+          },
+        }),
+      );
+
+      const error = await service
+        .saveSelfDraft('ou_me', {
+          cycleId: 1,
+          items: [completeSelfItems[0]],
+        })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as Error).message).toContain('保存冲突');
+    });
+
+    it('其他 P2002（非 DRAFT 部分唯一索引）不被吞掉，原样冒泡', async () => {
+      tx.perfEvaluationSubmission.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: {
+            target: 'perf_evaluation_submissions_id_form_snapshot_id_key',
+          },
+        }),
+      );
+
+      await expect(
+        service.saveSelfDraft('ou_me', {
+          cycleId: 1,
+          items: [completeSelfItems[0]],
+        }),
+      ).rejects.toThrow('Unique constraint failed');
+    });
+
     it('员工不在周期名单时拒绝且不触发任务开放', async () => {
       prisma.perfParticipant.findFirst.mockResolvedValue(null);
 
@@ -616,6 +681,28 @@ describe('EvaluationSubmissionService 员工自评', () => {
         },
       });
       expect(participants.transition).not.toHaveBeenCalled();
+    });
+
+    it('并发双击/网络重试导致 SUBMITTED 部分唯一索引冲突（P2002）时返回业务可读中文冲突错误', async () => {
+      tx.perfEvaluationSubmission.create.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: 'test',
+          meta: {
+            target: 'perf_evaluation_submissions_active_submitted_key',
+          },
+        }),
+      );
+
+      const error = await service
+        .submitSelf('ou_me', {
+          cycleId: 1,
+          items: completeSelfItems,
+        })
+        .catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as Error).message).toContain('提交冲突');
     });
 
     it('周期评级配置缺失映射分时提交报错', async () => {

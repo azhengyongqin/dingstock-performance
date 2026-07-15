@@ -10,7 +10,7 @@ import {
   PerfParticipantStatus,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
-import type { Prisma } from '../generated/prisma/client';
+import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { ParticipantService } from '../participant/participant.service';
@@ -177,18 +177,28 @@ export class EvaluationSubmissionService {
           status: PerfReviewStatus.DRAFT,
         },
       });
-      const submission =
-        existing ??
-        (await tx.perfEvaluationSubmission.create({
-          data: {
-            cycleId: participant.cycleId,
-            participantId: participant.id,
-            stage: PerfEvaluationTaskType.SELF,
-            reviewerOpenId: employeeOpenId,
-            formSnapshotId: participant.formSnapshotId!,
-            status: PerfReviewStatus.DRAFT,
-          },
-        }));
+      let submission = existing;
+      if (!submission) {
+        try {
+          submission = await tx.perfEvaluationSubmission.create({
+            data: {
+              cycleId: participant.cycleId,
+              participantId: participant.id,
+              stage: PerfEvaluationTaskType.SELF,
+              reviewerOpenId: employeeOpenId,
+              formSnapshotId: participant.formSnapshotId!,
+              status: PerfReviewStatus.DRAFT,
+            },
+          });
+        } catch (error) {
+          // 双击/网络重试并发创建 DRAFT：部分唯一索引兜底数据完整性，这里只转换错误语义为业务可读中文。
+          this.mapDuplicateSubmissionError(
+            error,
+            'active_draft_key',
+            '保存冲突：已有并发保存草稿，请重试',
+          );
+        }
+      }
       await this.replaceItems(tx, submission.id, rows);
       return submission;
     });
@@ -231,12 +241,17 @@ export class EvaluationSubmissionService {
         },
       });
       // 重新提交原子替换当前 SUBMITTED 行内容，不新增行（部分唯一索引兜底并发）。
-      const submission = existing
-        ? await tx.perfEvaluationSubmission.update({
-            where: { id: existing.id },
-            data: { submittedAt, submittedByOpenId: employeeOpenId },
-          })
-        : await tx.perfEvaluationSubmission.create({
+      let submission: Awaited<
+        ReturnType<typeof tx.perfEvaluationSubmission.update>
+      >;
+      if (existing) {
+        submission = await tx.perfEvaluationSubmission.update({
+          where: { id: existing.id },
+          data: { submittedAt, submittedByOpenId: employeeOpenId },
+        });
+      } else {
+        try {
+          submission = await tx.perfEvaluationSubmission.create({
             data: {
               cycleId: participant.cycleId,
               participantId: participant.id,
@@ -248,6 +263,15 @@ export class EvaluationSubmissionService {
               submittedByOpenId: employeeOpenId,
             },
           });
+        } catch (error) {
+          // 双击/网络重试并发创建 SUBMITTED：部分唯一索引兜底数据完整性，这里只转换错误语义为业务可读中文。
+          this.mapDuplicateSubmissionError(
+            error,
+            'active_submitted_key',
+            '提交冲突：已有并发提交生效，请重试',
+          );
+        }
+      }
       await this.replaceItems(tx, submission.id, rows);
       // 镜像旧 SelfReviewService.submit：自评任务完成标记与提交同事务生效。
       await tx.perfEvaluationTask.update({
@@ -292,6 +316,39 @@ export class EvaluationSubmissionService {
   }
 
   // ---- 私有辅助 ----
+
+  /**
+   * 把并发创建 DRAFT/SUBMITTED 行触发的部分唯一索引冲突（P2002）转换为业务可读中文错误。
+   * 只精确匹配 indexNameFragment 对应的约束，其余异常（含其他 P2002）原样抛出，不吞错误。
+   */
+  private mapDuplicateSubmissionError(
+    error: unknown,
+    indexNameFragment: string,
+    message: string,
+  ): never {
+    if (this.isSubmissionUniqueConflict(error, indexNameFragment)) {
+      throw new ConflictException(message);
+    }
+    throw error;
+  }
+
+  private isSubmissionUniqueConflict(
+    error: unknown,
+    indexNameFragment: string,
+  ): boolean {
+    if (
+      !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+      error.code !== 'P2002'
+    ) {
+      return false;
+    }
+    const target = error.meta?.target;
+    if (typeof target === 'string') return target.includes(indexNameFragment);
+    if (Array.isArray(target)) {
+      return target.some((item) => String(item).includes(indexNameFragment));
+    }
+    return false;
+  }
 
   private async requireParticipant(employeeOpenId: string, cycleId: number) {
     const participant = await this.findMyParticipant(employeeOpenId, cycleId);
