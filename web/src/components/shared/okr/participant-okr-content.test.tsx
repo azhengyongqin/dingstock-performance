@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PerfApi from '@/lib/perf-api'
@@ -101,7 +101,7 @@ describe('OkrReferenceContent 状态展示', () => {
     render(<OkrReferenceContent data={snapshot({ cycles: [], sync: { status: 'success' } })} />)
 
     expect(screen.getByText('暂无 OKR')).toBeInTheDocument()
-    expect(screen.getByText('已完成飞书同步，该员工当前没有可展示的 OKR')).toBeInTheDocument()
+    expect(screen.getByText('该员工当前没有可展示的 OKR')).toBeInTheDocument()
   })
 
   it('数据库无 OKR 且后台仍在同步时持续展示骨架，不提前显示空状态', () => {
@@ -111,47 +111,43 @@ describe('OkrReferenceContent 状态展示', () => {
     expect(screen.queryByText('暂无 OKR')).not.toBeInTheDocument()
   })
 
-  it('无缓存轮询失败时错误状态优先于旧的 running 状态', () => {
+  it('无缓存同步失败时只展示无数据状态，不暴露接口错误', () => {
     render(
       <OkrReferenceContent
-        data={snapshot({ cycles: [], sync: { status: 'running' } })}
-        error='同步状态查询失败'
-        onRetry={vi.fn()}
+        data={snapshot({
+          cycles: [],
+          sync: { status: 'failed', error: 'Request failed with status code 400' }
+        })}
       />
     )
 
-    expect(screen.getByText('OKR 加载失败')).toBeInTheDocument()
-    expect(screen.getByText('同步状态查询失败')).toBeInTheDocument()
+    expect(screen.getByText('暂无 OKR')).toBeInTheDocument()
+    expect(screen.queryByText('OKR 加载失败')).not.toBeInTheDocument()
+    expect(screen.queryByText('Request failed with status code 400')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('正在加载 OKR')).not.toBeInTheDocument()
   })
 
-  it('无缓存且同步失败时展示错误状态并允许重试', () => {
-    const onRetry = vi.fn()
-
+  it('无缓存且飞书权限不足时也只展示无数据状态', () => {
     render(
-      <OkrReferenceContent
-        data={snapshot({ cycles: [], sync: { status: 'failed', error: '飞书权限不足' } })}
-        onRetry={onRetry}
-      />
+      <OkrReferenceContent data={snapshot({ cycles: [], sync: { status: 'failed', error: '飞书权限不足' } })} />
     )
-    expect(screen.getByText('OKR 加载失败')).toBeInTheDocument()
-    expect(screen.getByText('飞书权限不足')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '重新同步' }))
-    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('暂无 OKR')).toBeInTheDocument()
+    expect(screen.queryByText('飞书权限不足')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新同步' })).not.toBeInTheDocument()
   })
 
-  it('已有缓存但最新同步失败时保留 OKR，并展示非阻断错误提示', () => {
+  it('已有缓存但最新同步失败时只展示缓存数据，不暴露同步错误', () => {
     render(
       <OkrReferenceContent
-        data={snapshot({ sync: { status: 'failed', error: '飞书接口暂时不可用' } })}
-        onRetry={vi.fn()}
+        data={snapshot({ sync: { status: 'failed', error: 'Request failed with status code 400' } })}
       />
     )
 
     expect(screen.getByText('提升客户成功率')).toBeInTheDocument()
-    expect(screen.getByText('最新同步失败，当前展示上一次缓存')).toBeInTheDocument()
-    expect(screen.getByText('飞书接口暂时不可用')).toBeInTheDocument()
+    expect(screen.queryByText('最新同步失败，当前展示上一次缓存')).not.toBeInTheDocument()
+    expect(screen.queryByText('Request failed with status code 400')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重试同步' })).not.toBeInTheDocument()
   })
 })
 
@@ -206,5 +202,16 @@ describe('ParticipantOkrContent 缓存直出与异步刷新', () => {
     })
     expect(screen.getByText('同步后的最新目标')).toBeInTheDocument()
     expect(getParticipantOkr).toHaveBeenCalledTimes(2)
+  })
+
+  it('读取与同步接口都失败时仍只展示无数据，不泄露 HTTP 错误', async () => {
+    getParticipantOkr.mockRejectedValue(new Error('Request failed with status code 400'))
+    triggerParticipantOkrSync.mockRejectedValue(new Error('Request failed with status code 400'))
+
+    render(<ParticipantOkrContent participantId={7} />)
+
+    expect(await screen.findByText('暂无 OKR')).toBeInTheDocument()
+    expect(screen.queryByText('Request failed with status code 400')).not.toBeInTheDocument()
+    expect(screen.queryByText('OKR 加载失败')).not.toBeInTheDocument()
   })
 })

@@ -1,7 +1,5 @@
 'use client'
 
-import { toast } from 'sonner'
-
 import { OkrReferenceContent } from '@/components/shared/okr'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { ParticipantOkrSnapshot } from '@/lib/perf-api'
@@ -101,7 +99,7 @@ const OkrReferencePreview = () => (
     <Card>
       <CardHeader>
         <CardTitle>同步完成空状态</CardTitle>
-        <CardDescription>明确区分“没有 OKR”和“接口失败”。</CardDescription>
+        <CardDescription>没有可展示目标时统一显示无数据。</CardDescription>
       </CardHeader>
       <CardContent>
         <OkrReferenceContent
@@ -112,8 +110,8 @@ const OkrReferencePreview = () => (
 
     <Card>
       <CardHeader>
-        <CardTitle>同步错误状态</CardTitle>
-        <CardDescription>无缓存时提供错误原因与重新同步入口。</CardDescription>
+        <CardTitle>同步失败无数据</CardTitle>
+        <CardDescription>接口错误仅供内部诊断，前端仍统一显示无数据。</CardDescription>
       </CardHeader>
       <CardContent>
         <OkrReferenceContent
@@ -123,7 +121,6 @@ const OkrReferencePreview = () => (
             cycles: [],
             lastSyncedAt: null
           }}
-          onRetry={() => toast.success('组件示例：已重新触发 OKR 同步')}
         />
       </CardContent>
     </Card>

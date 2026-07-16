@@ -127,7 +127,7 @@ const PeerReferencePanel = ({
           </TabsContent>
 
           <TabsContent value='okr' className='space-y-5 px-4 py-4'>
-            <OkrReferenceContent data={okr.data} loading={okr.loading} error={okr.error} onRetry={okr.retry} />
+            <OkrReferenceContent data={okr.data} loading={okr.loading} />
           </TabsContent>
         </ScrollArea>
       </Tabs>

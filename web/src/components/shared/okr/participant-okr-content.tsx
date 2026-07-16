@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from 'react'
 
-import { AlertCircleIcon, RefreshCwIcon, TargetIcon } from 'lucide-react'
+import { RefreshCwIcon, TargetIcon } from 'lucide-react'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -24,8 +22,6 @@ const POLL_INTERVAL_MS = 1500
 type OkrReferenceContentProps = {
   data?: ParticipantOkrSnapshot | null
   loading?: boolean
-  error?: string | null
-  onRetry?: () => void
 }
 
 /** SDK 富文本只做安全的纯文本投影；链接和人员提及保留可识别文案，不注入 HTML。 */
@@ -128,23 +124,7 @@ const EmptyOkr = () => (
       <TargetIcon className='text-muted-foreground size-5' />
     </div>
     <p className='text-sm font-medium'>暂无 OKR</p>
-    <p className='text-muted-foreground mt-1 max-w-64 text-xs'>已完成飞书同步，该员工当前没有可展示的 OKR</p>
-  </div>
-)
-
-const OkrFailure = ({ message, onRetry }: { message: string; onRetry?: () => void }) => (
-  <div className='flex flex-col items-center rounded-xl border border-dashed px-5 py-12 text-center'>
-    <div className='bg-destructive/10 mb-3 flex size-10 items-center justify-center rounded-full'>
-      <AlertCircleIcon className='text-destructive size-5' />
-    </div>
-    <p className='text-sm font-medium'>OKR 加载失败</p>
-    <p className='text-muted-foreground mt-1 max-w-64 text-xs'>{message}</p>
-    {onRetry && (
-      <Button type='button' variant='outline' size='sm' className='mt-4' onClick={onRetry}>
-        <RefreshCwIcon />
-        重新同步
-      </Button>
-    )}
+    <p className='text-muted-foreground mt-1 max-w-64 text-xs'>该员工当前没有可展示的 OKR</p>
   </div>
 )
 
@@ -209,14 +189,8 @@ const OkrObjective = ({ objective, index }: { objective: OkrObjectiveView; index
 }
 
 /** 纯展示组件，组件实验台可直接注入各种状态；真实页面由 ParticipantOkrContent 负责取数。 */
-export const OkrReferenceContent = ({ data, loading = false, error, onRetry }: OkrReferenceContentProps) => {
+export const OkrReferenceContent = ({ data, loading = false }: OkrReferenceContentProps) => {
   const hasObjectives = Boolean(data?.cycles?.some(cycle => cycle.objectives.length > 0))
-  const failureMessage = error ?? data?.sync?.error ?? '无法从飞书获取该员工的 OKR，请稍后重试'
-  const cachedRefreshFailed = hasObjectives && Boolean(error || data?.sync?.status === 'failed')
-
-  if (!hasObjectives && (error || data?.sync?.status === 'failed')) {
-    return <OkrFailure message={failureMessage} onRetry={onRetry} />
-  }
 
   if (!hasObjectives && (loading || data?.sync?.status === 'running')) return <OkrSkeleton />
 
@@ -235,20 +209,7 @@ export const OkrReferenceContent = ({ data, loading = false, error, onRetry }: O
         ) : (
           <span>{syncedAt ? `更新于 ${syncedAt}` : '本地 OKR 快照'}</span>
         )}
-        {cachedRefreshFailed && onRetry && (
-          <Button type='button' variant='ghost' size='sm' className='h-6 px-2 text-[11px]' onClick={onRetry}>
-            重试同步
-          </Button>
-        )}
       </div>
-
-      {cachedRefreshFailed && (
-        <Alert variant='destructive'>
-          <AlertCircleIcon />
-          <AlertTitle>最新同步失败，当前展示上一次缓存</AlertTitle>
-          <AlertDescription>{failureMessage}</AlertDescription>
-        </Alert>
-      )}
 
       {data?.cycles?.map(cycle => (
         <section key={cycle.id} className='space-y-4'>
@@ -283,8 +244,6 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
   const [data, setData] = useState<ParticipantOkrSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [startingSync, setStartingSync] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!enabled) return
@@ -298,20 +257,17 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
 
         if (!active) return
         setData(next)
-        setError(null)
         if (next.sync?.status === 'running') pollTimer = setTimeout(() => void poll(), POLL_INTERVAL_MS)
-      } catch (caught) {
-        if (!active) return
-        setError(caught instanceof Error ? caught.message : '无法刷新 OKR 同步状态')
+      } catch {
+        // 同步错误仅供服务端诊断；前端保留已有数据，或统一落到无数据状态。
       }
     }
 
     const initialize = async () => {
       setLoading(true)
       setStartingSync(true)
-      setError(null)
 
-      // 同一员工手动重试时继续展示旧快照；participantId 改变时必须清空，避免串人。
+      // 同一参与者重新初始化时保留旧快照；participantId 改变时必须清空，避免串人。
       setData(previous => (previous?.participantId === participantId ? previous : null))
 
       try {
@@ -319,9 +275,8 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
 
         if (!active) return
         setData(cached)
-      } catch (caught) {
-        if (!active) return
-        setError(caught instanceof Error ? caught.message : '无法读取本地 OKR')
+      } catch {
+        // 本地快照读取失败时不向用户暴露接口错误，继续尝试后台同步。
       } finally {
         if (active) setLoading(false)
       }
@@ -334,10 +289,9 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
         setStartingSync(false)
         if (status.status === 'running') pollTimer = setTimeout(() => void poll(), POLL_INTERVAL_MS)
         else await poll()
-      } catch (caught) {
+      } catch {
         if (!active) return
         setStartingSync(false)
-        setError(caught instanceof Error ? caught.message : '无法触发 OKR 同步')
       }
     }
 
@@ -347,13 +301,11 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
       active = false
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [enabled, participantId, reloadKey])
+  }, [enabled, participantId])
 
   return {
     data,
-    loading: loading || startingSync,
-    error,
-    retry: () => setReloadKey(previous => previous + 1)
+    loading: loading || startingSync
   }
 }
 
@@ -363,20 +315,13 @@ export const useParticipantOkrReference = (
 ) => {
   const live = useParticipantOkr(participantId, !previewData)
 
-  return previewData ? { data: previewData, loading: false, error: null, retry: undefined } : live
+  return previewData ? { data: previewData, loading: false } : live
 }
 
 const LiveParticipantOkrContent = ({ participantId }: { participantId: number }) => {
   const state = useParticipantOkr(participantId)
 
-  return (
-    <OkrReferenceContent
-      data={state.data}
-      loading={state.loading}
-      error={state.error}
-      onRetry={state.retry}
-    />
-  )
+  return <OkrReferenceContent data={state.data} loading={state.loading} />
 }
 
 export const ParticipantOkrContent = ({
