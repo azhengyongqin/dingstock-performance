@@ -952,6 +952,8 @@ export type PerfPeerEvaluationContext = {
   submitted: PerfEvaluationSubmissionRecord | null
   draft: PerfEvaluationSubmissionRecord | null
   state: PerfPeerEvaluationState
+  /** 被评估人已生效自评，供左侧参考区只读展示 */
+  selfEvaluation: PerfEvaluationSubmissionRecord | null
 }
 
 export type SavePeerEvaluationInput = {

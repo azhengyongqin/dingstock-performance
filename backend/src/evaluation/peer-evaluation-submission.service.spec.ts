@@ -132,7 +132,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
   const prisma = {
     perfParticipant: { findFirst: jest.fn() },
     perfReviewerAssignment: { findFirst: jest.fn() },
-    perfEvaluationSubmission: { findMany: jest.fn() },
+    perfEvaluationSubmission: { findMany: jest.fn(), findFirst: jest.fn() },
     larkUser: { findUnique: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -147,6 +147,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
     jest.clearAllMocks();
     prisma.perfReviewerAssignment.findFirst.mockResolvedValue(assignment);
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([]);
+    prisma.perfEvaluationSubmission.findFirst.mockResolvedValue(null);
     prisma.larkUser.findUnique.mockResolvedValue({
       open_id: 'ou_employee',
       name: '员工甲',
@@ -196,6 +197,15 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       open_id: 'ou_employee',
       name: '员工甲',
     });
+    expect(context.selfEvaluation).toBeNull();
+    expect(prisma.perfEvaluationSubmission.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          stage: 'SELF',
+          status: 'SUBMITTED',
+        }),
+      }),
+    );
 
     prisma.perfReviewerAssignment.findFirst.mockResolvedValueOnce(null);
     await expect(service.getPeerContext('ou_old_reviewer', 11)).rejects.toThrow(

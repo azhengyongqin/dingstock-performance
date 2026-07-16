@@ -7,17 +7,17 @@ import { Edit3Icon, Loader2Icon, SaveIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import PageHeader from '@/components/shared/PageHeader'
-import { UserAvatar } from '@/components/shared/lark'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api'
 import {
-  avatarUrlOf,
   getManagerEvaluationContext,
   saveManagerEvaluationDraft,
   submitManagerEvaluation,
-  type PerfEvaluationItemResult,
   type PerfManagerEvaluationContext,
   type PerfManagerStageResult
 } from '@/lib/perf-api'
@@ -30,6 +30,8 @@ import {
   type EvaluationItemAnswer
 } from '@/views/self-review/evaluation-form-types'
 
+import ManagerReferencePanel from './manager-reference-panel'
+
 type ManagerReviewFillProps = {
   participantId: number
 
@@ -41,16 +43,6 @@ const STATE_LABEL: Record<Exclude<PerfManagerEvaluationContext['state'], null>, 
   DRAFT: '草稿',
   EFFECTIVE: '已生效',
   PENDING_RESUBMIT: '待重新提交'
-}
-
-const resultValue = (item: PerfEvaluationItemResult) => {
-  if (item.rawLevel) return item.rawLevel
-  if (item.rawScore != null) return String(item.rawScore)
-  if (typeof item.value === 'string') return item.value
-  if (Array.isArray(item.value)) return item.value.map(String).join('、')
-  if (item.value != null) return JSON.stringify(item.value)
-
-  return '—'
 }
 
 /** Ticket 09：Leader 动态上级评估流程，初始/阶段等级完全由后端计算。 */
@@ -67,6 +59,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
   const [loading, setLoading] = useState(!previewContext)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [referenceCollapsed, setReferenceCollapsed] = useState(false)
 
   const [calculatedResult, setCalculatedResult] = useState<PerfManagerStageResult | null>(
     previewContext?.managerResult ?? null
@@ -192,7 +185,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
   const ratings = context.cycle.currentConfigVersion?.ratings ?? []
 
   return (
-    <div className='flex flex-col gap-6'>
+    <div className='flex flex-col gap-6 pb-20'>
       <PageHeader
         title='上级评估'
         description={`${context.cycle.name} · 被评估人：${context.employee?.name ?? '-'}`}
@@ -209,121 +202,84 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
           </CardHeader>
         </Card>
       ) : (
-        <div className='grid gap-6 lg:grid-cols-[minmax(300px,2fr)_3fr]'>
-          <div className='flex flex-col gap-4'>
-            <Card>
-              <CardContent className='flex items-center gap-3'>
-                <UserAvatar
-                  openId={context.employee?.open_id}
-                  name={context.employee?.name}
-                  avatarUrl={avatarUrlOf(context.employee)}
-                  size='lg'
-                />
-                <div className='flex flex-col'>
-                  <span className='font-semibold'>{context.employee?.name ?? '-'}</span>
-                  <span className='text-muted-foreground text-sm'>{context.employee?.job_title ?? ''}</span>
-                </div>
-              </CardContent>
-            </Card>
+        <>
+          {state === 'PENDING_RESUBMIT' && (
+            <Alert>
+              <AlertTitle>待重新提交</AlertTitle>
+              <AlertDescription>
+                当前修改仍是草稿，权威等级继续使用上一次生效提交；重新提交后才会替换并重算。
+              </AlertDescription>
+            </Alert>
+          )}
 
-            <Card>
-              <CardHeader>
-                <CardTitle>员工自评参考</CardTitle>
-                <CardDescription>员工材料仅供参考，不参与上级阶段二次加权。</CardDescription>
-              </CardHeader>
-              <CardContent className='flex flex-col gap-2 text-sm'>
-                {context.selfEvaluation?.items.length ? (
-                  context.selfEvaluation.items.map(item => (
-                    <div key={item.id} className='rounded-md border p-2 whitespace-pre-wrap'>
-                      {resultValue(item)}
-                    </div>
-                  ))
-                ) : (
-                  <span className='text-muted-foreground'>员工尚无生效自评</span>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>360°阶段参考</CardTitle>
-                <CardDescription>仅展示汇总结果，不把 360°等级再次合入权威等级。</CardDescription>
-              </CardHeader>
-              <CardContent className='flex flex-col gap-2 text-sm'>
-                {context.peerResult?.status === 'READY' ? (
-                  <>
-                    <div className='flex flex-wrap gap-2'>
-                      <Badge variant='outline'>综合分 {context.peerResult.compositeScore}</Badge>
-                      <Badge variant='outline'>阶段等级 {context.peerResult.stageLevel}</Badge>
-                      <Badge variant='outline'>{context.peerResult.reviewerCount} 人有效</Badge>
-                    </div>
-                    {context.peerResult.dimensions.map(dimension => (
-                      <div key={dimension.id} className='flex justify-between'>
-                        <span>{dimension.name}</span>
-                        <span className='text-muted-foreground'>
-                          {dimension.score} · {dimension.level}
-                        </span>
-                      </div>
-                    ))}
-                  </>
-                ) : (
-                  <span className='text-muted-foreground'>暂无有效 360°结果</span>
-                )}
-              </CardContent>
-            </Card>
-
-            {calculatedResult?.status === 'READY' && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>系统计算结果</CardTitle>
-                  <CardDescription>MANAGER 阶段等级是首次校准前的权威等级。</CardDescription>
-                </CardHeader>
-                <CardContent className='flex flex-wrap gap-2'>
-                  <Badge variant='outline'>综合分 {calculatedResult.compositeScore}</Badge>
-                  <Badge variant='outline'>初始等级 {calculatedResult.initialLevel}</Badge>
-                  <Badge>阶段等级 {calculatedResult.stageLevel}</Badge>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <div className='flex flex-col gap-4'>
-            {state === 'PENDING_RESUBMIT' && (
-              <Card className='border-amber-500/40 bg-amber-500/5'>
-                <CardContent className='text-sm'>
-                  当前修改仍是草稿，权威等级继续使用上一次生效提交；重新提交后才会替换并重算。
-                </CardContent>
-              </Card>
-            )}
-            <EvaluationForm
-              subforms={context.form.subforms}
-              answers={answers}
-              onAnswerChange={updateAnswer}
-              errors={errors}
-              disabled={!editing || saving}
-              ratings={ratings}
-            />
-            <div className='flex justify-end gap-2'>
-              {!editing ? (
-                <Button onClick={() => setEditing(true)}>
-                  <Edit3Icon />
-                  编辑并重新提交
-                </Button>
-              ) : (
-                <>
-                  <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}>
-                    <SaveIcon />
-                    保存草稿
-                  </Button>
-                  <Button disabled={saving} onClick={() => void submit()}>
-                    {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SendIcon />}
-                    {context.submitted ? '重新提交上级评估' : '提交上级评估'}
-                  </Button>
-                </>
+          {/* 单 Card：左参考区 | 分割线 | 右表单（与员工自评同构） */}
+          <Card className='gap-0 overflow-hidden py-0'>
+            <div
+              className={cn(
+                'flex items-stretch',
+                referenceCollapsed ? 'flex-row' : 'flex-col lg:flex-row'
               )}
+            >
+              <aside
+                className={cn(
+                  'shrink-0',
+                  referenceCollapsed ? 'w-12' : 'w-full min-w-0 lg:w-[38%] lg:min-w-[280px] lg:max-w-md'
+                )}
+              >
+                <ManagerReferencePanel
+                  employee={context.employee}
+                  selfItems={context.selfEvaluation?.items ?? []}
+                  peerResult={context.peerResult}
+                  managerResult={calculatedResult}
+                  history={context.history}
+                  collapsed={referenceCollapsed}
+                  onCollapsedChange={setReferenceCollapsed}
+                />
+              </aside>
+
+              {!referenceCollapsed && <Separator className='lg:hidden' />}
+              <Separator orientation='vertical' className='hidden lg:block' />
+
+              <section className='min-w-0 flex-1 px-5 py-5 sm:px-6 sm:py-6'>
+                <EvaluationForm
+                  subforms={context.form.subforms}
+                  answers={answers}
+                  onAnswerChange={updateAnswer}
+                  errors={errors}
+                  disabled={!editing || saving}
+                  ratings={ratings}
+                />
+              </section>
+            </div>
+          </Card>
+
+          <div className='bg-card fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 sm:px-6'>
+            <div className='mx-auto flex max-w-360 items-center justify-between gap-4'>
+              <span className='text-muted-foreground text-sm'>
+                左侧参考员工自评与 360°汇总，右侧填写上级评估后提交生效
+              </span>
+              <div className='flex items-center gap-3'>
+                {!editing ? (
+                  <Button onClick={() => setEditing(true)}>
+                    <Edit3Icon />
+                    编辑并重新提交
+                  </Button>
+                ) : (
+                  <>
+                    <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}>
+                      <SaveIcon />
+                      保存草稿
+                    </Button>
+                    <Button disabled={saving} onClick={() => void submit()}>
+                      {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SendIcon />}
+                      {context.submitted ? '重新提交上级评估' : '提交上级评估'}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   )

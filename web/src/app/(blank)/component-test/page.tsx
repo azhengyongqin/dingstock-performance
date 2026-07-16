@@ -1078,7 +1078,26 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     ]
   },
   draft: null,
-  state: 'EFFECTIVE'
+  state: 'EFFECTIVE',
+  selfEvaluation: {
+    id: 90,
+    cycleId: 1,
+    participantId: 7,
+    stage: 'SELF',
+    reviewerOpenId: 'ou_preview_employee',
+    status: 'SUBMITTED',
+    items: [
+      {
+        id: 901,
+        submissionId: 90,
+        subformKey: 'subform:SELF',
+        dimensionKey: 'dimension:SELF:EMPLOYEE:0',
+        itemKey: 'item:self-summary',
+        itemType: 'MARKDOWN',
+        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+      }
+    ]
+  }
 } satisfies PerfPeerEvaluationContext
 
 const PeerEvaluationFormPreview = () => (

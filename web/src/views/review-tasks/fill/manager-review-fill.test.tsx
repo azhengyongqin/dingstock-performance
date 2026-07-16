@@ -142,7 +142,7 @@ describe('ManagerReviewFill 关键流程', () => {
     render(<ManagerReviewFill participantId={7} />)
 
     expect(await screen.findByText('完成核心项目')).toBeInTheDocument()
-    expect(screen.getByText('360°阶段参考')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '360°评估' })).toBeInTheDocument()
     expect(screen.getByText('晋升评估（Leader 填写）')).toBeInTheDocument()
     expect(screen.queryByText(/初步绩效评级/)).not.toBeInTheDocument()
 

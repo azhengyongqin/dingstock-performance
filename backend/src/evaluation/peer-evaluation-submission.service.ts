@@ -91,29 +91,41 @@ export class PeerEvaluationSubmissionService {
         submitted: null,
         draft: null,
         state: null,
+        selfEvaluation: null,
       };
     }
 
     const content = this.submissionPolicy.requireSnapshotContent(participant);
     // 提交唯一性按“参与者 + 阶段 + 评审员”约束；重新指派同一人时继续读取其有效答卷。
-    const submissions = await this.prisma.perfEvaluationSubmission.findMany({
-      where: {
-        participantId: participant.id,
-        stage: PerfEvaluationTaskType.PEER,
-        reviewerOpenId,
-      },
-      include: { items: true },
-    });
+    const [submissions, selfEvaluation, employee] = await Promise.all([
+      this.prisma.perfEvaluationSubmission.findMany({
+        where: {
+          participantId: participant.id,
+          stage: PerfEvaluationTaskType.PEER,
+          reviewerOpenId,
+        },
+        include: { items: true },
+      }),
+      // 左侧参考区展示员工已生效自评摘要（只读，不参与 360° 计分）
+      this.prisma.perfEvaluationSubmission.findFirst({
+        where: {
+          participantId: participant.id,
+          stage: PerfEvaluationTaskType.SELF,
+          status: PerfReviewStatus.SUBMITTED,
+        },
+        include: { items: true },
+      }),
+      this.prisma.larkUser.findUnique({
+        where: { open_id: participant.employeeOpenId },
+        select: { open_id: true, name: true, avatar: true, job_title: true },
+      }),
+    ]);
     const submitted =
       submissions.find((item) => item.status === PerfReviewStatus.SUBMITTED) ??
       null;
     const draft =
       submissions.find((item) => item.status === PerfReviewStatus.DRAFT) ??
       null;
-    const employee = await this.prisma.larkUser.findUnique({
-      where: { open_id: participant.employeeOpenId },
-      select: { open_id: true, name: true, avatar: true, job_title: true },
-    });
 
     return {
       assignment: this.toPublicAssignment(assignment),
@@ -128,6 +140,7 @@ export class PeerEvaluationSubmissionService {
       submitted,
       draft,
       state: submitted ? (draft ? 'PENDING_RESUBMIT' : 'EFFECTIVE') : 'DRAFT',
+      selfEvaluation,
     };
   }
 

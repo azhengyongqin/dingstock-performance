@@ -91,7 +91,26 @@ const context = {
     ]
   },
   draft: null,
-  state: 'EFFECTIVE'
+  state: 'EFFECTIVE',
+  selfEvaluation: {
+    id: 90,
+    cycleId: 1,
+    participantId: 7,
+    stage: 'SELF',
+    reviewerOpenId: 'ou_employee',
+    status: 'SUBMITTED',
+    items: [
+      {
+        id: 901,
+        submissionId: 90,
+        subformKey: 'subform:SELF',
+        dimensionKey: 'dimension:SELF:EMPLOYEE:0',
+        itemKey: 'item:self:summary',
+        itemType: 'MARKDOWN',
+        value: '完成核心项目协作落地'
+      }
+    ]
+  }
 } as const
 
 describe('PeerReviewFill 关键流程', () => {
@@ -105,6 +124,8 @@ describe('PeerReviewFill 关键流程', () => {
     render(<PeerReviewFill assignmentId={11} />)
 
     expect(await screen.findByText('360°可观察行为评估')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '员工自评' })).toBeInTheDocument()
+    expect(screen.getByText('完成核心项目协作落地')).toBeInTheDocument()
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()
 
