@@ -87,7 +87,48 @@ const snapshot = (overrides: Partial<ParticipantOkrSnapshot> = {}): ParticipantO
   ...overrides
 })
 
+const cycleWithObjective = (id: string, startTime: string, title: string) => ({
+  ...snapshot().cycles[0],
+  id,
+  tenantCycleId: `tenant-${id}`,
+  startTime,
+  objectives: [
+    {
+      ...snapshot().cycles[0].objectives[0],
+      id: `objective-${id}`,
+      content: {
+        blocks: [
+          {
+            block_element_type: 'paragraph' as const,
+            paragraph: {
+              elements: [{ paragraph_element_type: 'textRun' as const, text_run: { text: title } }]
+            }
+          }
+        ]
+      }
+    }
+  ]
+})
+
 describe('OkrReferenceContent 状态展示', () => {
+  it('按开始时间倒序只展示最近两个 OKR 周期', () => {
+    render(
+      <OkrReferenceContent
+        data={snapshot({
+          cycles: [
+            cycleWithObjective('middle', '1735689600000', '中间周期目标'),
+            cycleWithObjective('oldest', '1704067200000', '最早周期目标'),
+            cycleWithObjective('latest', '1767225600000', '最新周期目标')
+          ]
+        })}
+      />
+    )
+
+    expect(screen.getByText('最新周期目标')).toBeInTheDocument()
+    expect(screen.getByText('中间周期目标')).toBeInTheDocument()
+    expect(screen.queryByText('最早周期目标')).not.toBeInTheDocument()
+  })
+
   it('有数据和无数据状态都保留同步 OKR 按钮', () => {
     const onSync = vi.fn()
     const { rerender } = render(<OkrReferenceContent data={snapshot()} onSync={onSync} />)

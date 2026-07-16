@@ -19,6 +19,7 @@ import {
 } from '@/lib/perf-api'
 
 const POLL_INTERVAL_MS = 1500
+const RECENT_CYCLE_LIMIT = 2
 
 type OkrReferenceContentProps = {
   data?: ParticipantOkrSnapshot | null
@@ -77,13 +78,19 @@ const progressPercent = (
   return clampPercent(score <= 1 ? score * 100 : score)
 }
 
-const formatEpochDate = (value: string) => {
+const parseTimestamp = (value: string) => {
   const milliseconds = Number(value)
   const date = new Date(Number.isFinite(milliseconds) ? milliseconds : value)
 
-  if (Number.isNaN(date.getTime())) return '日期未知'
+  return Number.isNaN(date.getTime()) ? null : date.getTime()
+}
 
-  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(date)
+const formatEpochDate = (value: string) => {
+  const timestamp = parseTimestamp(value)
+
+  if (timestamp == null) return '日期未知'
+
+  return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(timestamp)
 }
 
 const formatSyncedAt = (value: string | null) => {
@@ -98,6 +105,10 @@ const formatSyncedAt = (value: string | null) => {
     hour: '2-digit',
     minute: '2-digit'
   }).format(date)
+}
+
+const cycleStartTimestamp = (value: string) => {
+  return parseTimestamp(value) ?? Number.NEGATIVE_INFINITY
 }
 
 const OkrSkeleton = () => (
@@ -206,7 +217,12 @@ const OkrObjective = ({ objective, index }: { objective: OkrObjectiveView; index
 
 /** 纯展示组件，组件实验台可直接注入各种状态；真实页面由 ParticipantOkrContent 负责取数。 */
 export const OkrReferenceContent = ({ data, loading = false, onSync }: OkrReferenceContentProps) => {
-  const hasObjectives = Boolean(data?.cycles?.some(cycle => cycle.objectives.length > 0))
+  // 评估参考区只展示最近两个周期；复制后排序，避免修改接口缓存对象。
+  const displayedCycles = [...(data?.cycles ?? [])]
+    .sort((left, right) => cycleStartTimestamp(right.startTime) - cycleStartTimestamp(left.startTime))
+    .slice(0, RECENT_CYCLE_LIMIT)
+
+  const hasObjectives = displayedCycles.some(cycle => cycle.objectives.length > 0)
 
   if (!hasObjectives && (loading || data?.sync?.status === 'running')) return <OkrSkeleton />
 
@@ -228,7 +244,7 @@ export const OkrReferenceContent = ({ data, loading = false, onSync }: OkrRefere
         <SyncOkrButton onSync={onSync} syncing={loading || data?.sync?.status === 'running'} />
       </div>
 
-      {data?.cycles?.map(cycle => (
+      {displayedCycles.map(cycle => (
         <section key={cycle.id} className='space-y-4'>
           <div className='flex items-center justify-between gap-3 border-b pb-2'>
             <p className='text-xs font-medium'>
