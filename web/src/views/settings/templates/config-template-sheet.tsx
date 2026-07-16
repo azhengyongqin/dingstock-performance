@@ -24,12 +24,8 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import { ApiError } from '@/lib/api'
 import type {
   ConfigTemplateValidationIssue,
@@ -47,11 +43,13 @@ import {
   validatePerfConfigTemplateVersion
 } from '@/lib/perf-api'
 
-import ConfigCalculationPreview from './config-calculation-preview'
-import ConfigTemplateEditor from './config-template-editor'
+import { ConfigTemplateNav, type ConfigNavDestination } from './config-template-nav'
 import { CONFIG_TEMPLATE_STATUS_LABEL } from './config-template-table-columns'
-import type { ConfigTemplateSection } from './config-template-utils'
-import { getConfigTemplateActions, issueSectionForPath, mergeConfigTemplateIssues } from './config-template-utils'
+import {
+  getConfigTemplateActions,
+  issueSectionForPath,
+  mergeConfigTemplateIssues
+} from './config-template-utils'
 
 const readIssues = (error: unknown): ConfigTemplateValidationIssue[] => {
   if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return []
@@ -90,8 +88,7 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [issues, setIssues] = useState<ConfigTemplateValidationIssue[]>([])
-  const [mainTab, setMainTab] = useState<'basic' | 'configuration' | 'preview' | 'history'>('basic')
-  const [editorSection, setEditorSection] = useState<ConfigTemplateSection>('ratings')
+  const [destination, setDestination] = useState<ConfigNavDestination>('basic')
   const [publishOpen, setPublishOpen] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
 
@@ -127,7 +124,7 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
 
     const initialLoad = setTimeout(() => {
       setActiveVersionId(selected.id)
-      setMainTab('basic')
+      setDestination('basic')
       void loadVersion(selected.id)
       void loadHistory(selected.templateId)
     }, 0)
@@ -231,7 +228,7 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
 
       setDetail(draft)
       setActiveVersionId(draft.id)
-      setMainTab('basic')
+      setDestination('basic')
       toast.success(`已从 v${detail.version} 创建新草稿`)
       await loadHistory(draft.templateId)
       onChanged()
@@ -263,14 +260,7 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
   }
 
   const locateIssue = (issue: ConfigTemplateValidationIssue) => {
-    const section = issueSectionForPath(issue.path)
-
-    if (section === 'basic') {
-      setMainTab('basic')
-    } else {
-      setEditorSection(section)
-      setMainTab('configuration')
-    }
+    setDestination(issueSectionForPath(issue.path))
   }
 
   const actions = detail ? getConfigTemplateActions(detail.status, isAdmin) : null
@@ -319,65 +309,20 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
                     </Alert>
                   )}
 
-                  <Tabs value={mainTab} onValueChange={next => setMainTab(next as typeof mainTab)}>
-                    <TabsList>
-                      <TabsTrigger value='basic'>基本与来源</TabsTrigger>
-                      <TabsTrigger value='configuration'>规则配置</TabsTrigger>
-                      <TabsTrigger value='preview'>计算预览</TabsTrigger>
-                      <TabsTrigger value='history'>版本历史</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value='basic' className='mt-4 grid gap-4 md:grid-cols-2'>
-                      <Field className='gap-2'>
-                        <FieldLabel>模板名称</FieldLabel>
-                        <Input value={detail.name} disabled={!actions?.canEdit} onChange={event => setDetail({ ...detail, name: event.target.value })} />
-                      </Field>
-                      <Field className='gap-2'>
-                        <FieldLabel>来源版本</FieldLabel>
-                        <Input value={detail.sourceVersionId ? `#${detail.sourceVersionId}` : '初始版本'} disabled />
-                      </Field>
-                      <Field className='gap-2 md:col-span-2'>
-                        <FieldLabel>模板说明</FieldLabel>
-                        <Textarea value={detail.description ?? ''} disabled={!actions?.canEdit} onChange={event => setDetail({ ...detail, description: event.target.value })} />
-                      </Field>
-                      <div className='text-muted-foreground grid gap-1 rounded-lg border p-4 text-sm md:col-span-2'>
-                        <span>稳定模板 ID：#{detail.templateId}</span>
-                        <span>当前版本 ID：#{detail.id}</span>
-                        <span>创建人：{detail.createdByOpenId ?? '-'}</span>
-                        <span>发布人：{detail.publishedByOpenId ?? '-'}</span>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value='configuration' className='mt-4'>
-                      <ConfigTemplateEditor
-                        value={detail}
-                        candidates={candidates}
-                        editable={Boolean(actions?.canEdit)}
-                        onChange={setDetail}
-                        section={editorSection}
-                        onSectionChange={setEditorSection}
-                      />
-                    </TabsContent>
-                    <TabsContent value='preview' className='mt-4'>
-                      <ConfigCalculationPreview version={detail} candidates={candidates} />
-                    </TabsContent>
-                    <TabsContent value='history' className='mt-4 flex flex-col gap-2'>
-                      {versions.length === 0 ? (
-                        <p className='text-muted-foreground py-8 text-center text-sm'>当前角色没有可查看的其他版本</p>
-                      ) : versions.map(version => (
-                        <Button
-                          key={version.id}
-                          variant={version.id === activeVersionId ? 'secondary' : 'outline'}
-                          className='h-auto justify-between py-3'
-                          onClick={() => {
-                            setActiveVersionId(version.id)
-                            void loadVersion(version.id)
-                          }}
-                        >
-                          <span>v{version.version} · {CONFIG_TEMPLATE_STATUS_LABEL[version.status]}</span>
-                          <span className='text-muted-foreground'>{version.sourceVersionId ? `来源 #${version.sourceVersionId}` : '初始版本'}</span>
-                        </Button>
-                      ))}
-                    </TabsContent>
-                  </Tabs>
+                  <ConfigTemplateNav
+                    detail={detail}
+                    candidates={candidates}
+                    versions={versions}
+                    activeVersionId={activeVersionId}
+                    canEdit={Boolean(actions?.canEdit)}
+                    destination={destination}
+                    onDestinationChange={setDestination}
+                    onDetailChange={setDetail}
+                    onSelectVersion={versionId => {
+                      setActiveVersionId(versionId)
+                      void loadVersion(versionId)
+                    }}
+                  />
                 </div>
               </ScrollArea>
 
