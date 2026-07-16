@@ -22,7 +22,7 @@ import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
 import { LarkMemberPickerDialog, MemberPill, type LarkPickerMember } from '@/components/shared/lark'
-import { MarkdownContent, MarkdownEditor } from '@/components/shared/markdown'
+import { MarkdownEditor } from '@/components/shared/markdown'
 import {
   DatePicker,
   DateRangePicker,
@@ -412,7 +412,7 @@ const MarkdownPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>Tiptap 编辑态</CardTitle>
-          <CardDescription>工具栏修改会实时回写为 Markdown 字符串。</CardDescription>
+          <CardDescription>支持格式化与图片链接插入，修改会实时回写为 Markdown 字符串。</CardDescription>
         </CardHeader>
         <CardContent>
           <MarkdownEditor ariaLabel='Markdown 示例编辑器' value={content} onChange={setContent} />
@@ -421,10 +421,10 @@ const MarkdownPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>总结只读态</CardTitle>
-          <CardDescription>与评审参考区和结果页使用同一个安全渲染组件。</CardDescription>
+          <CardDescription>使用纯 Markdown 渲染组件，不显示工具栏或可编辑区域。</CardDescription>
         </CardHeader>
         <CardContent className='space-y-4'>
-          <MarkdownContent content={content} />
+          <MarkdownEditor ariaLabel='Markdown 只读示例' value={content} onChange={() => {}} disabled />
           <pre className='bg-muted max-h-48 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>{content}</pre>
         </CardContent>
       </Card>

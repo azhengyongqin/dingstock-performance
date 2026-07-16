@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Image } from '@tiptap/extension-image'
 import { Placeholder } from '@tiptap/extension-placeholder'
@@ -14,6 +14,7 @@ import {
   BoldIcon,
   Code2Icon,
   Heading2Icon,
+  ImageIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
@@ -25,8 +26,20 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+
+import MarkdownContent from './markdown-content'
 
 type ToolbarAction = {
   label: string
@@ -37,6 +50,11 @@ type ToolbarAction = {
 
 /** 工具栏状态直接订阅编辑器事务，确保光标切换段落时按钮高亮同步更新。 */
 const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: boolean }) => {
+  const [imageDialogOpen, setImageDialogOpen] = useState(false)
+  const [imageUrl, setImageUrl] = useState('')
+  const [imageAlt, setImageAlt] = useState('')
+  const [imageError, setImageError] = useState('')
+
   const state = useEditorState({
     editor,
     selector: ({ editor: current }) => ({
@@ -104,51 +122,143 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
     }
   ]
 
-  return (
-    <div className='bg-muted/30 flex min-h-10 items-center gap-0.5 overflow-x-auto border-b p-1'>
-      {actions.map(action => {
-        const Icon = action.icon
+  const handleImageDialogChange = (open: boolean) => {
+    setImageDialogOpen(open)
+    if (open) return
+    setImageUrl('')
+    setImageAlt('')
+    setImageError('')
+  }
 
-        return (
-          <Button
-            key={action.label}
-            type='button'
-            size='icon-sm'
-            variant={action.active ? 'secondary' : 'ghost'}
-            aria-label={action.label}
-            aria-pressed={action.active}
-            title={action.label}
-            disabled={disabled}
-            onClick={action.run}
-          >
-            <Icon className='size-4' />
-          </Button>
-        )
-      })}
-      <Separator orientation='vertical' className='mx-1 h-6' />
-      <Button
-        type='button'
-        size='icon-sm'
-        variant='ghost'
-        aria-label='撤销'
-        title='撤销'
-        disabled={disabled || !state.canUndo}
-        onClick={() => editor.chain().focus().undo().run()}
+  const insertImage = () => {
+    const src = imageUrl.trim()
+
+    try {
+      const parsedUrl = new URL(src)
+
+      if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('unsupported protocol')
+    } catch {
+      setImageError('请输入有效的 http 或 https 图片地址')
+
+      return
+    }
+
+    // 评审答案仍保存 Markdown 字符串，图片节点会由 Tiptap 序列化为 ![描述](地址)。
+    editor
+      .chain()
+      .focus()
+      .setImage({ src, alt: imageAlt.trim() || '图片' })
+      .run()
+    handleImageDialogChange(false)
+  }
+
+  return (
+    <>
+      <div
+        data-slot='markdown-toolbar'
+        className='bg-muted/30 flex min-h-10 items-center gap-0.5 overflow-x-auto border-b p-1'
       >
-        <Undo2Icon className='size-4' />
-      </Button>
-      <Button
-        type='button'
-        size='icon-sm'
-        variant='ghost'
-        aria-label='重做'
-        title='重做'
-        disabled={disabled || !state.canRedo}
-        onClick={() => editor.chain().focus().redo().run()}
-      >
-        <Redo2Icon className='size-4' />
-      </Button>
-    </div>
+        {actions.map(action => {
+          const Icon = action.icon
+
+          return (
+            <Button
+              key={action.label}
+              type='button'
+              size='icon-sm'
+              variant={action.active ? 'secondary' : 'ghost'}
+              aria-label={action.label}
+              aria-pressed={action.active}
+              title={action.label}
+              disabled={disabled}
+              onClick={action.run}
+            >
+              <Icon className='size-4' />
+            </Button>
+          )
+        })}
+        <Separator orientation='vertical' className='mx-1 h-6' />
+        <Button
+          type='button'
+          size='icon-sm'
+          variant='ghost'
+          aria-label='插入图片'
+          title='插入图片'
+          disabled={disabled}
+          onClick={() => setImageDialogOpen(true)}
+        >
+          <ImageIcon className='size-4' />
+        </Button>
+        <Separator orientation='vertical' className='mx-1 h-6' />
+        <Button
+          type='button'
+          size='icon-sm'
+          variant='ghost'
+          aria-label='撤销'
+          title='撤销'
+          disabled={disabled || !state.canUndo}
+          onClick={() => editor.chain().focus().undo().run()}
+        >
+          <Undo2Icon className='size-4' />
+        </Button>
+        <Button
+          type='button'
+          size='icon-sm'
+          variant='ghost'
+          aria-label='重做'
+          title='重做'
+          disabled={disabled || !state.canRedo}
+          onClick={() => editor.chain().focus().redo().run()}
+        >
+          <Redo2Icon className='size-4' />
+        </Button>
+      </div>
+
+      <Dialog open={imageDialogOpen} onOpenChange={handleImageDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>插入图片</DialogTitle>
+            <DialogDescription>填写可公开访问的图片地址，保存后会以 Markdown 图片语法持久化。</DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field data-invalid={imageError ? true : undefined}>
+              <FieldLabel htmlFor='markdown-image-url'>图片地址</FieldLabel>
+              <Input
+                id='markdown-image-url'
+                aria-label='图片地址'
+                value={imageUrl}
+                placeholder='https://example.com/image.png'
+                aria-invalid={imageError ? true : undefined}
+                onChange={event => {
+                  setImageUrl(event.target.value)
+                  setImageError('')
+                }}
+              />
+              {imageError && <FieldDescription className='text-destructive'>{imageError}</FieldDescription>}
+            </Field>
+            <Field>
+              <FieldLabel htmlFor='markdown-image-alt'>图片描述</FieldLabel>
+              <Input
+                id='markdown-image-alt'
+                aria-label='图片描述'
+                value={imageAlt}
+                placeholder='例如：绩效结果趋势图'
+                onChange={event => setImageAlt(event.target.value)}
+              />
+              <FieldDescription>用于无障碍阅读；不填写时默认为“图片”。</FieldDescription>
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button type='button' variant='outline' onClick={() => handleImageDialogChange(false)}>
+              取消
+            </Button>
+            <Button type='button' onClick={insertImage}>
+              确认插入
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -226,6 +336,9 @@ const MarkdownEditor = ({
     // 草稿加载或父级重置时从 Markdown 重新解析，不触发一次多余的 onChange。
     editor.commands.setContent(value, { contentType: 'markdown', emitUpdate: false })
   }, [editor, value])
+
+  // 已提交或无编辑权限时直接走纯展示组件，避免把禁用工具栏误当成只读内容的一部分。
+  if (disabled) return <MarkdownContent content={value} className={className} />
 
   return (
     <div
