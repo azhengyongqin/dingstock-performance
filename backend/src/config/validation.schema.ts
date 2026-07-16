@@ -24,6 +24,8 @@ export const validationSchema = Joi.object({
   LARK_NOTIFICATION_ENABLED: Joi.string(),
   AUTH_JWT_SECRET: Joi.string(),
   AUTH_JWT_EXPIRES_IN: Joi.string(),
+  // 默认管理员飞书 open_id；可在部署环境覆盖 YAML。
+  AUTH_DEFAULT_ADMIN_OPEN_ID: Joi.string().pattern(/^ou_[A-Za-z0-9]+$/),
   // 开发环境快速登录开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时非生产默认开启。
   AUTH_DEV_LOGIN_ENABLED: Joi.string(),
   // AI 报告通过可配置的内部 HTTP 网关生成；密钥只允许环境变量注入。

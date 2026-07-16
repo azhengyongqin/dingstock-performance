@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PerfRole } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 
@@ -11,6 +12,7 @@ import { PrismaService } from '../shared/database/prisma.service';
  *
  * 角色分两类：
  * - 显式授权角色（HR/ADMIN）：存 role_grants 表；
+ * - 配置默认管理员（ADMIN）：由 auth.defaultAdminOpenId 配置；
  * - 派生角色（EMPLOYEE/REVIEWER/LEADER）：由 participant/assignment/leader 快照推导，不入表。
  *
  * 兜底：飞书租户超级管理员（lark_users.is_tenant_manager）自动视为 ADMIN，
@@ -18,7 +20,10 @@ import { PrismaService } from '../shared/database/prisma.service';
  */
 @Injectable()
 export class RbacService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /** 解析用户的显式角色集合（含租户管理员兜底） */
   async getExplicitRoles(openId: string): Promise<PerfRole[]> {
@@ -31,6 +36,13 @@ export class RbacService {
     ]);
 
     const roles = new Set<PerfRole>(grants.map((grant) => grant.role));
+    // 配置管理员不依赖数据库授权，可直接解除空库首次组织同步的启动死锁。
+    const defaultAdminOpenId = this.configService.get<string>(
+      'auth.defaultAdminOpenId',
+    );
+    if (defaultAdminOpenId && openId === defaultAdminOpenId) {
+      roles.add(PerfRole.ADMIN);
+    }
     if (larkUser?.is_tenant_manager) {
       roles.add(PerfRole.ADMIN);
     }

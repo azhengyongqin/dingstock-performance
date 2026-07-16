@@ -25,6 +25,7 @@ describe('configuration loader', () => {
     delete process.env.DATABASE_URL;
     delete process.env.POSTGRES_URI;
     delete process.env.LARK_NOTIFICATION_ENABLED;
+    delete process.env.AUTH_DEFAULT_ADMIN_OPEN_ID;
     delete process.env.AI_REPORT_ENABLED;
     delete process.env.AI_REPORT_ENDPOINT;
     delete process.env.AI_REPORT_API_KEY;
@@ -122,6 +123,27 @@ describe('configuration loader', () => {
         'lark:\n  notification:\n    enabled: true\n',
       );
       expect(loadAppConfig().lark.notification.enabled).toBe(false);
+    });
+  });
+
+  describe('default administrator', () => {
+    it('loads the default administrator open_id from yaml', () => {
+      writeFileSync(
+        join(tempDir, 'config', 'app.yaml'),
+        'auth:\n  defaultAdminOpenId: ou_yaml_admin\n',
+      );
+
+      expect(loadAppConfig().auth.defaultAdminOpenId).toBe('ou_yaml_admin');
+    });
+
+    it('allows environment variable to override yaml', () => {
+      process.env.AUTH_DEFAULT_ADMIN_OPEN_ID = 'ou_env_admin';
+      writeFileSync(
+        join(tempDir, 'config', 'app.yaml'),
+        'auth:\n  defaultAdminOpenId: ou_yaml_admin\n',
+      );
+
+      expect(loadAppConfig().auth.defaultAdminOpenId).toBe('ou_env_admin');
     });
   });
 

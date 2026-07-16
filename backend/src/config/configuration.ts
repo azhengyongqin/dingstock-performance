@@ -22,6 +22,7 @@ export type RawConfig = {
     };
   };
   auth?: {
+    defaultAdminOpenId?: string;
     jwt?: Record<string, unknown>;
     devLogin?: {
       enabled?: boolean;
@@ -67,6 +68,8 @@ export type AppConfig = {
     };
   };
   auth: {
+    /** 配置指定的默认管理员飞书 open_id；命中用户始终拥有 ADMIN。 */
+    defaultAdminOpenId: string;
     jwt: {
       secret: string;
       expiresIn: string;
@@ -211,6 +214,10 @@ export const loadAppConfig = (): AppConfig => {
       },
     },
     auth: {
+      defaultAdminOpenId:
+        process.env.AUTH_DEFAULT_ADMIN_OPEN_ID ??
+        yamlConfig.auth?.defaultAdminOpenId ??
+        '',
       jwt: {
         // 生产环境务必通过 AUTH_JWT_SECRET 覆盖默认密钥。
         secret:

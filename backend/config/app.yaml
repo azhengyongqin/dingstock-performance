@@ -30,6 +30,9 @@ lark:
     webRedirectUrl: http://localhost:3001/auth/callback
 
 auth:
+  # 默认管理员：登录用户 open_id 命中后始终拥有 ADMIN，包括空库首次组织同步场景。
+  # 生产部署可通过 AUTH_DEFAULT_ADMIN_OPEN_ID 覆盖。
+  defaultAdminOpenId: ou_d081669b3d00fa5912f3c0928cd5bef8
   jwt:
     # 应用会话 JWT 密钥；生产环境务必用 AUTH_JWT_SECRET 环境变量覆盖
     secret: dingstock-performance-dev-secret

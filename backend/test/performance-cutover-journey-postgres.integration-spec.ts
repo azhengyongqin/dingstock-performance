@@ -97,6 +97,10 @@ describe('Ticket 21 PostgreSQL + Nest 最终模型旅程', () => {
 
     moduleRef = await Test.createTestingModule({
       providers: [
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(undefined) },
+        },
         { provide: PrismaService, useValue: prisma },
         { provide: REDIS_CLIENT, useValue: {} },
         {
