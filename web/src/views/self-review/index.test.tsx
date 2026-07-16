@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -27,15 +27,25 @@ vi.mock('@/lib/perf-api', async importOriginal => {
     ...actual,
     getSelfEvaluationContext: vi.fn(),
     saveSelfEvaluationDraft: vi.fn(),
-    submitSelfEvaluation: vi.fn()
+    submitSelfEvaluation: vi.fn(),
+    getParticipantOkr: vi.fn(),
+    triggerParticipantOkrSync: vi.fn()
   }
 })
 
-const { getSelfEvaluationContext, saveSelfEvaluationDraft, submitSelfEvaluation } = await import('@/lib/perf-api')
+const {
+  getSelfEvaluationContext,
+  saveSelfEvaluationDraft,
+  submitSelfEvaluation,
+  getParticipantOkr,
+  triggerParticipantOkrSync
+} = await import('@/lib/perf-api')
 
 const mockedGetContext = vi.mocked(getSelfEvaluationContext)
 const mockedSaveDraft = vi.mocked(saveSelfEvaluationDraft)
 const mockedSubmit = vi.mocked(submitSelfEvaluation)
+const mockedGetOkr = vi.mocked(getParticipantOkr)
+const mockedTriggerOkrSync = vi.mocked(triggerParticipantOkrSync)
 
 const ratingItemResult = (itemKey: string, rawLevel: string | null): PerfEvaluationItemResult => ({
   id: 1,
@@ -89,6 +99,14 @@ const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSe
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockedGetOkr.mockResolvedValue({
+    participantId: 7,
+    employeeOpenId: 'ou_me',
+    lastSyncedAt: null,
+    sync: { status: 'success' },
+    cycles: []
+  })
+  mockedTriggerOkrSync.mockResolvedValue({ ok: true, status: 'success' })
 })
 
 describe('SelfReview 加载自评上下文并渲染动态表单', () => {
@@ -103,6 +121,7 @@ describe('SelfReview 加载自评上下文并渲染动态表单', () => {
     expect(screen.getAllByText('员工自评')).toHaveLength(2)
     expect(screen.getAllByRole('radio')).toHaveLength(4)
     expect(screen.getByText('草稿')).toBeInTheDocument()
+    await waitFor(() => expect(mockedTriggerOkrSync).toHaveBeenCalledWith(7))
   })
 })
 

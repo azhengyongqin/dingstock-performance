@@ -13,6 +13,7 @@ import {
   ListChecksIcon,
   PanelLeftIcon,
   SlidersHorizontalIcon,
+  TargetIcon,
   UsersIcon
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -56,6 +57,7 @@ import CycleProgressDashboard from '@/views/cycles/detail/cycle-progress-dashboa
 import SnapshotProvenanceCard from '@/views/cycles/detail/snapshot-provenance-card'
 import CycleSetupEditor, { type CycleSetupDraft } from '@/views/cycles/edit/cycle-setup-editor'
 import ActiveConfigImpactDialog from '@/views/cycles/edit/active-config-impact-dialog'
+import OkrReferencePreview from '@/views/component-test/okr-reference-preview'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
@@ -69,6 +71,7 @@ type ComponentKey =
   | 'buttons'
   | 'form-controls'
   | 'feedback'
+  | 'okr-reference'
   | 'member-picker'
   | 'member-pill'
   | 'form-template'
@@ -110,6 +113,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '反馈与占位',
     description: 'Progress / Skeleton',
     icon: Layers3Icon
+  },
+  {
+    key: 'okr-reference',
+    title: 'OKR 参考区',
+    description: '缓存刷新 / 骨架 / 空态 / 错误态',
+    icon: TargetIcon
   },
   {
     key: 'member-picker',
@@ -1372,6 +1381,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
+  if (activeComponent === 'okr-reference') return <OkrReferencePreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
   if (activeComponent === 'member-pill') return <MemberPillPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />

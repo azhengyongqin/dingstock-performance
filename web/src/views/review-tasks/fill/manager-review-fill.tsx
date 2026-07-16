@@ -7,6 +7,7 @@ import { Edit3Icon, Loader2Icon, SaveIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import EvaluationSplitLayout from '@/components/shared/EvaluationSplitLayout'
+import { ParticipantOkrWarmup } from '@/components/shared/okr'
 import PageHeader from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -205,18 +206,33 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
       </div>
 
       {!context.form ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>任务尚未开放</CardTitle>
-            <CardDescription>到达任务开始时间后才能查看参考信息和填写表单。</CardDescription>
-          </CardHeader>
-        </Card>
+        <>
+          <ParticipantOkrWarmup participantId={context.participant.id} />
+          <Card>
+            <CardHeader>
+              <CardTitle>任务尚未开放</CardTitle>
+              <CardDescription>到达任务开始时间后才能查看参考信息和填写表单。</CardDescription>
+            </CardHeader>
+          </Card>
+        </>
       ) : (
         <>
           <EvaluationSplitLayout
             collapsed={referenceCollapsed}
             left={
               <ManagerReferencePanel
+                participantId={context.participant.id}
+                okrPreviewData={
+                  previewContext
+                    ? {
+                        participantId: context.participant.id,
+                        employeeOpenId: context.employee?.open_id ?? '',
+                        lastSyncedAt: null,
+                        sync: { status: 'success' },
+                        cycles: []
+                      }
+                    : undefined
+                }
                 employee={context.employee}
                 selfItems={context.selfEvaluation?.items ?? []}
                 peerResult={context.peerResult}

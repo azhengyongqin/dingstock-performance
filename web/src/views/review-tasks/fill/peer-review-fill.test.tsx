@@ -5,11 +5,20 @@ import type * as PerfApi from '@/lib/perf-api'
 
 import PeerReviewFill from './peer-review-fill'
 
-const { routerPush, getPeerEvaluationContext, savePeerEvaluationDraft, submitPeerEvaluation } = vi.hoisted(() => ({
+const {
+  routerPush,
+  getPeerEvaluationContext,
+  savePeerEvaluationDraft,
+  submitPeerEvaluation,
+  getParticipantOkr,
+  triggerParticipantOkrSync
+} = vi.hoisted(() => ({
   routerPush: vi.fn(),
   getPeerEvaluationContext: vi.fn(),
   savePeerEvaluationDraft: vi.fn(),
-  submitPeerEvaluation: vi.fn()
+  submitPeerEvaluation: vi.fn(),
+  getParticipantOkr: vi.fn(),
+  triggerParticipantOkrSync: vi.fn()
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
@@ -21,7 +30,9 @@ vi.mock('@/lib/perf-api', async importOriginal => {
     ...actual,
     getPeerEvaluationContext,
     savePeerEvaluationDraft,
-    submitPeerEvaluation
+    submitPeerEvaluation,
+    getParticipantOkr,
+    triggerParticipantOkrSync
   }
 })
 
@@ -118,6 +129,14 @@ describe('PeerReviewFill 关键流程', () => {
     vi.clearAllMocks()
     getPeerEvaluationContext.mockResolvedValue(context)
     submitPeerEvaluation.mockResolvedValue({ ok: true })
+    getParticipantOkr.mockResolvedValue({
+      participantId: 7,
+      employeeOpenId: 'ou_employee',
+      lastSyncedAt: null,
+      sync: { status: 'success' },
+      cycles: []
+    })
+    triggerParticipantOkrSync.mockResolvedValue({ ok: true, status: 'success' })
   })
 
   it('已提交答卷先只读，进入编辑后可按 PEER 动态表单原子重新提交，页面没有晋升或无法评价入口', async () => {
@@ -128,6 +147,7 @@ describe('PeerReviewFill 关键流程', () => {
     expect(screen.getByText('完成核心项目协作落地')).toBeInTheDocument()
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()
+    await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))
 
     fireEvent.click(screen.getByRole('button', { name: '编辑并重新提交' }))
     fireEvent.click(screen.getByRole('radio', { name: /B · 良好/ }))

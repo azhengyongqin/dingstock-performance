@@ -360,6 +360,43 @@ describe('OkrSyncService', () => {
     );
   });
 
+  it('单人同步幂等触发，并在成功后写入独立状态和清理该员工陈旧数据', async () => {
+    await expect(service.triggerUserSync('ou-1')).resolves.toMatchObject({
+      status: 'running',
+      users: 1,
+    });
+    await flushAsync();
+
+    const userWrites = redisMock.set.mock.calls.filter(
+      (call) => call[0] === 'okr:sync:user:status:ou-1',
+    );
+    const status = JSON.parse(userWrites.at(-1)?.[1] as string) as {
+      status: string;
+      processedUsers: number;
+      cycles: number;
+    };
+    expect(status).toMatchObject({
+      status: 'success',
+      processedUsers: 1,
+      cycles: 1,
+    });
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    expect(redisMock.del).toHaveBeenCalledWith('okr:sync:user:lock:ou-1');
+  });
+
+  it('同一员工已有同步任务时返回现有状态，不重复访问飞书', async () => {
+    redisMock.set.mockResolvedValueOnce(null);
+    redisMock.get.mockResolvedValueOnce(
+      JSON.stringify({ status: 'running', startedAt: '2026-07-16T10:00:00Z' }),
+    );
+
+    await expect(service.triggerUserSync('ou-1')).resolves.toEqual({
+      status: 'running',
+      startedAt: '2026-07-16T10:00:00Z',
+    });
+    expect(cycleListMock).not.toHaveBeenCalled();
+  });
+
   it('未同步过时状态为 idle', async () => {
     await expect(service.getStatus()).resolves.toEqual({ status: 'idle' });
   });

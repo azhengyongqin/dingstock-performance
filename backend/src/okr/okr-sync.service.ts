@@ -78,8 +78,13 @@ type OkrIndicatorItem = NonNullable<
 
 const SYNC_LOCK_KEY = 'okr:sync:lock';
 const SYNC_STATUS_KEY = 'okr:sync:status';
+const USER_SYNC_LOCK_PREFIX = 'okr:sync:user:lock:';
+const USER_SYNC_STATUS_PREFIX = 'okr:sync:user:status:';
 // 员工量较大时会串行访问多层分页接口，锁保留 2 小时防止重复全量同步。
 const SYNC_LOCK_TTL_SECONDS = 7200;
+// 单人同步同样可能遍历多个周期和子资源，30 分钟内不重复向飞书发起同一员工同步。
+const USER_SYNC_LOCK_TTL_SECONDS = 1800;
+const USER_SYNC_STATUS_TTL_SECONDS = 86400;
 const PAGE_SIZE = 100;
 const MAX_STATUS_ERRORS = 50;
 
@@ -146,8 +151,89 @@ export class OkrSyncService {
     return raw ? (JSON.parse(raw) as OkrSyncStatus) : { status: 'idle' };
   }
 
+  /**
+   * 触发指定员工的增量式全量刷新。接口幂等：已有同人任务时返回其 running 状态，
+   * 供员工自评、360°和上级评估页面同时复用。
+   */
+  async triggerUserSync(openId: string): Promise<OkrSyncStatus> {
+    const lockKey = this.userLockKey(openId);
+    const locked = await this.redis.set(
+      lockKey,
+      new Date().toISOString(),
+      'EX',
+      USER_SYNC_LOCK_TTL_SECONDS,
+      'NX',
+    );
+    if (!locked) {
+      const current = await this.getUserStatus(openId);
+      return current.status === 'idle' ? { status: 'running' } : current;
+    }
+
+    const status: OkrSyncStatus = {
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      users: 1,
+      processedUsers: 0,
+      failedUsers: 0,
+    };
+    await this.writeUserStatus(openId, status);
+
+    void this.runUserSync(openId, status).finally(() => {
+      void this.redis.del(lockKey);
+    });
+    return status;
+  }
+
+  async getUserStatus(openId: string): Promise<OkrSyncStatus> {
+    const raw = await this.redis.get(this.userStatusKey(openId));
+    return raw ? (JSON.parse(raw) as OkrSyncStatus) : { status: 'idle' };
+  }
+
   private async writeStatus(status: OkrSyncStatus) {
     await this.redis.set(SYNC_STATUS_KEY, JSON.stringify(status));
+  }
+
+  private async writeUserStatus(openId: string, status: OkrSyncStatus) {
+    await this.redis.set(
+      this.userStatusKey(openId),
+      JSON.stringify(status),
+      'EX',
+      USER_SYNC_STATUS_TTL_SECONDS,
+    );
+  }
+
+  private userLockKey(openId: string) {
+    return `${USER_SYNC_LOCK_PREFIX}${encodeURIComponent(openId)}`;
+  }
+
+  private userStatusKey(openId: string) {
+    return `${USER_SYNC_STATUS_PREFIX}${encodeURIComponent(openId)}`;
+  }
+
+  /** 单人所有 SDK 层级成功后才清陈旧快照；失败时继续保留页面可展示的缓存。 */
+  private async runUserSync(openId: string, status: OkrSyncStatus) {
+    const syncStartedAt = new Date(status.startedAt ?? Date.now());
+    try {
+      const counts = await this.syncUser(openId);
+      await this.cleanupStaleUserData(openId, syncStartedAt);
+      Object.assign(status, counts, {
+        status: 'success',
+        processedUsers: 1,
+        finishedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      Object.assign(status, {
+        status: 'failed',
+        failedUsers: 1,
+        error: message,
+        userErrors: [{ openId, error: message }],
+        finishedAt: new Date().toISOString(),
+      });
+      this.logger.warn(`员工 ${openId} 的页面 OKR 同步失败：${message}`);
+    } finally {
+      await this.writeUserStatus(openId, status);
+    }
   }
 
   /**

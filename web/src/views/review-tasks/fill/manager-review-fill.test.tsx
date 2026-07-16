@@ -5,14 +5,21 @@ import type * as PerfApi from '@/lib/perf-api'
 
 import ManagerReviewFill from './manager-review-fill'
 
-const { routerPush, getManagerEvaluationContext, saveManagerEvaluationDraft, submitManagerEvaluation } = vi.hoisted(
-  () => ({
+const {
+  routerPush,
+  getManagerEvaluationContext,
+  saveManagerEvaluationDraft,
+  submitManagerEvaluation,
+  getParticipantOkr,
+  triggerParticipantOkrSync
+} = vi.hoisted(() => ({
     routerPush: vi.fn(),
     getManagerEvaluationContext: vi.fn(),
     saveManagerEvaluationDraft: vi.fn(),
-    submitManagerEvaluation: vi.fn()
-  })
-)
+    submitManagerEvaluation: vi.fn(),
+    getParticipantOkr: vi.fn(),
+    triggerParticipantOkrSync: vi.fn()
+  }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
@@ -23,7 +30,9 @@ vi.mock('@/lib/perf-api', async importOriginal => {
     ...actual,
     getManagerEvaluationContext,
     saveManagerEvaluationDraft,
-    submitManagerEvaluation
+    submitManagerEvaluation,
+    getParticipantOkr,
+    triggerParticipantOkrSync
   }
 })
 
@@ -136,6 +145,14 @@ describe('ManagerReviewFill 关键流程', () => {
         dimensions: []
       }
     })
+    getParticipantOkr.mockResolvedValue({
+      participantId: 7,
+      employeeOpenId: 'ou_employee',
+      lastSyncedAt: null,
+      sync: { status: 'success' },
+      cycles: []
+    })
+    triggerParticipantOkrSync.mockResolvedValue({ ok: true, status: 'success' })
   })
 
   it('展示自评和 360°参考，用 Leader 晋升子表单提交，并只展示系统计算等级', async () => {
@@ -145,6 +162,7 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByRole('tab', { name: '360°评估' })).toBeInTheDocument()
     expect(screen.getByText('晋升评估（Leader 填写）')).toBeInTheDocument()
     expect(screen.queryByText(/初步绩效评级/)).not.toBeInTheDocument()
+    await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))
 
     fireEvent.change(screen.getByLabelText('业绩分数'), { target: { value: '88' } })
     fireEvent.click(screen.getByRole('combobox', { name: '晋升建议' }))

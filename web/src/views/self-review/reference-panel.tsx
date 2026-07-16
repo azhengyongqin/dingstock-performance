@@ -4,23 +4,25 @@
 import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
+import { OkrReferenceContent, useParticipantOkr } from '@/components/shared/okr'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-import { REFERENCE_LOGS, REFERENCE_OKR, REFERENCE_REVIEWS } from './reference-mock-data'
+import { REFERENCE_LOGS, REFERENCE_REVIEWS } from './reference-mock-data'
 import { useEmployeeBrief } from './use-employee-brief'
 
 export type ReferencePanelProps = {
+  participantId: number
   employeeOpenId: string
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
 }
 
-const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: ReferencePanelProps) => {
+const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedChange }: ReferencePanelProps) => {
   const { brief, loading } = useEmployeeBrief(employeeOpenId)
+  const okr = useParticipantOkr(participantId)
 
   if (collapsed) {
     return (
@@ -76,38 +78,7 @@ const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: Refere
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='okr' className='space-y-5 px-4 py-4'>
-            {REFERENCE_OKR.map(objective => (
-              <div key={objective.id} className='space-y-3'>
-                <div className='flex items-start gap-2.5'>
-                  <span className='bg-primary text-primary-foreground mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold'>
-                    {objective.label}
-                  </span>
-                  <div className='min-w-0 flex-1 space-y-2'>
-                    <div className='flex items-start justify-between gap-2'>
-                      <p className='text-sm font-medium'>{objective.title}</p>
-                      <span className='text-muted-foreground shrink-0 text-xs'>总权重：{objective.totalWeight}%</span>
-                    </div>
-                    <Progress value={objective.progress} className='w-full' />
-                  </div>
-                </div>
-                <ul className='divide-border ml-8 divide-y'>
-                  {objective.keyResults.map(kr => (
-                    <li key={kr.id} className='flex items-start justify-between gap-3 py-2.5 text-sm'>
-                      <p className='text-muted-foreground min-w-0'>
-                        <span className='text-foreground font-medium'>{kr.label}</span> {kr.content}
-                        {kr.mentions?.map(name => (
-                          <span key={name} className='text-primary ml-1'>
-                            @{name}
-                          </span>
-                        ))}
-                      </p>
-                      <span className='text-muted-foreground shrink-0 text-xs'>{kr.weight}%</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-            <p className='text-muted-foreground text-center text-[11px]'>暂为占位数据，接入飞书 OKR 后替换</p>
+            <OkrReferenceContent data={okr.data} loading={okr.loading} error={okr.error} onRetry={okr.retry} />
           </TabsContent>
 
           <TabsContent value='review' className='space-y-3 px-4 py-4'>

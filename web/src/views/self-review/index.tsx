@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 
 // Component Imports
 import EvaluationSplitLayout from '@/components/shared/EvaluationSplitLayout'
+import { ParticipantOkrWarmup } from '@/components/shared/okr'
 import PageHeader from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -194,6 +195,7 @@ const SelfReview = () => {
   if (!data?.form) {
     return (
       <div className='flex flex-col gap-6'>
+        <ParticipantOkrWarmup participantId={participant.id} />
         <PageHeader
           title='员工自评'
           description={`${participant.cycle.name} · 自评任务尚未开放`}
@@ -257,6 +259,7 @@ const SelfReview = () => {
         collapsed={referenceCollapsed}
         left={
           <ReferencePanel
+            participantId={participant.id}
             employeeOpenId={participant.employeeOpenId}
             collapsed={referenceCollapsed}
             onCollapsedChange={setReferenceCollapsed}

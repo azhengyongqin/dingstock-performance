@@ -1,21 +1,4 @@
-// 左侧参考区（OKR / 复盘 / 日志）占位数据；接飞书 OKR / 复盘 / 日志接口后替换。
-
-export type ReferenceOkrKr = {
-  id: string
-  label: string
-  content: string
-  weight: number
-  mentions?: string[]
-}
-
-export type ReferenceOkrObjective = {
-  id: string
-  label: string
-  title: string
-  progress: number
-  totalWeight: number
-  keyResults: ReferenceOkrKr[]
-}
+// 左侧参考区的复盘 / 日志占位数据；OKR 已接入飞书真实同步数据。
 
 export type ReferenceReviewEntry = {
   id: string
@@ -32,59 +15,6 @@ export type ReferenceLogEntry = {
   snippet: string
   date: string
 }
-
-export const REFERENCE_OKR: ReferenceOkrObjective[] = [
-  {
-    id: 'o1',
-    label: 'O1',
-    title: '创新方向调研',
-    progress: 72,
-    totalWeight: 100,
-    keyResults: [
-      {
-        id: 'kr1',
-        label: 'KR1',
-        content: '截止 12月中旬与合作伙伴进行产品培训',
-        weight: 60,
-        mentions: ['李健', '张锐']
-      },
-      {
-        id: 'kr2',
-        label: 'KR2',
-        content: '完成竞品能力矩阵与差异化机会清单',
-        weight: 20
-      },
-      {
-        id: 'kr3',
-        label: 'KR3',
-        content: '输出下一季度创新试点方案并评审通过',
-        weight: 20
-      }
-    ]
-  },
-  {
-    id: 'o2',
-    label: 'O2',
-    title: '客户成功体系搭建',
-    progress: 45,
-    totalWeight: 100,
-    keyResults: [
-      {
-        id: 'kr4',
-        label: 'KR1',
-        content: '完成重点客户健康度看板与预警规则',
-        weight: 50,
-        mentions: ['王芳']
-      },
-      {
-        id: 'kr5',
-        label: 'KR2',
-        content: '沉淀 3 份可复用的客户成功 Playbook',
-        weight: 50
-      }
-    ]
-  }
-]
 
 export const REFERENCE_REVIEWS: ReferenceReviewEntry[] = [
   {

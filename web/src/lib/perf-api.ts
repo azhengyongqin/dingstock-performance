@@ -952,6 +952,7 @@ export type PerfPeerEvaluationContext = {
   submitted: PerfEvaluationSubmissionRecord | null
   draft: PerfEvaluationSubmissionRecord | null
   state: PerfPeerEvaluationState
+
   /** 被评估人已生效自评，供左侧参考区只读展示 */
   selfEvaluation: PerfEvaluationSubmissionRecord | null
 }
@@ -1043,6 +1044,95 @@ export const submitManagerEvaluation = (input: SaveManagerEvaluationInput) =>
     method: 'POST',
     body: JSON.stringify(input)
   })
+
+// ===== 评估参考区：飞书 OKR 本地快照 + 单人异步刷新 =====
+
+export type OkrSyncStatus = {
+  status: 'idle' | 'running' | 'success' | 'partial_success' | 'failed'
+  startedAt?: string
+  finishedAt?: string
+  error?: string
+}
+
+export type OkrRichText = {
+  blocks?: Array<{
+    block_element_type?: 'paragraph' | 'gallery'
+    paragraph?: {
+      elements?: Array<{
+        paragraph_element_type?: 'textRun' | 'docsLink' | 'mention'
+        text_run?: { text?: string }
+        docs_link?: { url?: string; title?: string }
+        mention?: { user_id?: string }
+      }>
+    }
+    gallery?: { images?: Array<{ src?: string }> }
+  }>
+}
+
+export type OkrIndicatorView = {
+  id: string
+  status: number
+  startValue: number | null
+  targetValue: number | null
+  currentValue: number | null
+  unit: unknown
+} | null
+
+export type OkrProgressView = {
+  id: string
+  content: OkrRichText | null
+  progressPercent: number | null
+  status: number | null
+  createTime: string
+  updateTime: string
+} | null
+
+export type OkrKeyResultView = {
+  id: string
+  position: number
+  content: OkrRichText | null
+  score: number | null
+  weight: number | null
+  deadline: string | null
+  indicator: OkrIndicatorView
+  latestProgress: OkrProgressView
+}
+
+export type OkrObjectiveView = {
+  id: string
+  position: number
+  content: OkrRichText | null
+  notes: OkrRichText | null
+  score: number | null
+  weight: number | null
+  deadline: string | null
+  category: { id: string; name: { zh?: string; en?: string; ja?: string }; color: string } | null
+  indicator: OkrIndicatorView
+  latestProgress: OkrProgressView
+  keyResults: OkrKeyResultView[]
+}
+
+export type ParticipantOkrSnapshot = {
+  participantId: number
+  employeeOpenId: string
+  lastSyncedAt: string | null
+  sync: OkrSyncStatus
+  cycles: Array<{
+    id: string
+    tenantCycleId: string
+    startTime: string
+    endTime: string
+    status: number | null
+    score: number | null
+    objectives: OkrObjectiveView[]
+  }>
+}
+
+export const getParticipantOkr = (participantId: number) =>
+  apiFetch<ParticipantOkrSnapshot>(`/okr/participants/${participantId}`)
+
+export const triggerParticipantOkrSync = (participantId: number) =>
+  apiFetch<{ ok: true } & OkrSyncStatus>(`/okr/participants/${participantId}/sync`, { method: 'POST' })
 
 // ===== 小工具 =====
 
