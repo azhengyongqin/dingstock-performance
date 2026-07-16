@@ -6,13 +6,12 @@ import { useRouter } from 'next/navigation'
 import { Edit3Icon, Loader2Icon, SaveIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
+import EvaluationSplitLayout from '@/components/shared/EvaluationSplitLayout'
 import PageHeader from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ApiError } from '@/lib/api'
 import {
   getManagerEvaluationContext,
@@ -185,14 +184,25 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
   const ratings = context.cycle.currentConfigVersion?.ratings ?? []
 
   return (
-    <div className='flex flex-col gap-6 pb-20'>
-      <PageHeader
-        title='上级评估'
-        description={`${context.cycle.name} · 被评估人：${context.employee?.name ?? '-'}`}
-        backHref='/review-tasks'
-        backLabel='评审任务'
-        actions={state ? <Badge variant='outline'>{STATE_LABEL[state]}</Badge> : undefined}
-      />
+    <div className='flex h-full min-h-0 flex-col gap-3 overflow-hidden'>
+      <div className='shrink-0 space-y-3'>
+        <PageHeader
+          title='上级评估'
+          description={`${context.cycle.name} · 被评估人：${context.employee?.name ?? '-'}`}
+          backHref='/review-tasks'
+          backLabel='评审任务'
+          actions={state ? <Badge variant='outline'>{STATE_LABEL[state]}</Badge> : undefined}
+        />
+
+        {!context.form ? null : state === 'PENDING_RESUBMIT' ? (
+          <Alert>
+            <AlertTitle>待重新提交</AlertTitle>
+            <AlertDescription>
+              当前修改仍是草稿，权威等级继续使用上一次生效提交；重新提交后才会替换并重算。
+            </AlertDescription>
+          </Alert>
+        ) : null}
+      </div>
 
       {!context.form ? (
         <Card>
@@ -203,80 +213,53 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
         </Card>
       ) : (
         <>
-          {state === 'PENDING_RESUBMIT' && (
-            <Alert>
-              <AlertTitle>待重新提交</AlertTitle>
-              <AlertDescription>
-                当前修改仍是草稿，权威等级继续使用上一次生效提交；重新提交后才会替换并重算。
-              </AlertDescription>
-            </Alert>
-          )}
+          <EvaluationSplitLayout
+            collapsed={referenceCollapsed}
+            left={
+              <ManagerReferencePanel
+                employee={context.employee}
+                selfItems={context.selfEvaluation?.items ?? []}
+                peerResult={context.peerResult}
+                managerResult={calculatedResult}
+                history={context.history}
+                collapsed={referenceCollapsed}
+                onCollapsedChange={setReferenceCollapsed}
+              />
+            }
+            right={
+              <EvaluationForm
+                subforms={context.form.subforms}
+                answers={answers}
+                onAnswerChange={updateAnswer}
+                errors={errors}
+                disabled={!editing || saving}
+                ratings={ratings}
+              />
+            }
+          />
 
-          {/* 单 Card：左参考区 | 分割线 | 右表单（与员工自评同构） */}
-          <Card className='gap-0 overflow-hidden py-0'>
-            <div
-              className={cn(
-                'flex items-stretch',
-                referenceCollapsed ? 'flex-row' : 'flex-col lg:flex-row'
-              )}
-            >
-              <aside
-                className={cn(
-                  'shrink-0',
-                  referenceCollapsed ? 'w-12' : 'w-full min-w-0 lg:w-[38%] lg:min-w-[280px] lg:max-w-md'
-                )}
-              >
-                <ManagerReferencePanel
-                  employee={context.employee}
-                  selfItems={context.selfEvaluation?.items ?? []}
-                  peerResult={context.peerResult}
-                  managerResult={calculatedResult}
-                  history={context.history}
-                  collapsed={referenceCollapsed}
-                  onCollapsedChange={setReferenceCollapsed}
-                />
-              </aside>
-
-              {!referenceCollapsed && <Separator className='lg:hidden' />}
-              <Separator orientation='vertical' className='hidden lg:block' />
-
-              <section className='min-w-0 flex-1 px-5 py-5 sm:px-6 sm:py-6'>
-                <EvaluationForm
-                  subforms={context.form.subforms}
-                  answers={answers}
-                  onAnswerChange={updateAnswer}
-                  errors={errors}
-                  disabled={!editing || saving}
-                  ratings={ratings}
-                />
-              </section>
-            </div>
-          </Card>
-
-          <div className='bg-card fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 sm:px-6'>
-            <div className='mx-auto flex max-w-360 items-center justify-between gap-4'>
-              <span className='text-muted-foreground text-sm'>
-                左侧参考员工自评与 360°汇总，右侧填写上级评估后提交生效
-              </span>
-              <div className='flex items-center gap-3'>
-                {!editing ? (
-                  <Button onClick={() => setEditing(true)}>
-                    <Edit3Icon />
-                    编辑并重新提交
+          <div className='flex shrink-0 items-center justify-between gap-4 py-1'>
+            <span className='text-muted-foreground text-sm'>
+              左侧参考员工自评与 360°汇总，右侧填写上级评估后提交生效
+            </span>
+            <div className='flex items-center gap-3'>
+              {!editing ? (
+                <Button onClick={() => setEditing(true)}>
+                  <Edit3Icon />
+                  编辑并重新提交
+                </Button>
+              ) : (
+                <>
+                  <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}>
+                    <SaveIcon />
+                    保存草稿
                   </Button>
-                ) : (
-                  <>
-                    <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}>
-                      <SaveIcon />
-                      保存草稿
-                    </Button>
-                    <Button disabled={saving} onClick={() => void submit()}>
-                      {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SendIcon />}
-                      {context.submitted ? '重新提交上级评估' : '提交上级评估'}
-                    </Button>
-                  </>
-                )}
-              </div>
+                  <Button disabled={saving} onClick={() => void submit()}>
+                    {saving ? <Loader2Icon className='size-4 animate-spin' /> : <SendIcon />}
+                    {context.submitted ? '重新提交上级评估' : '提交上级评估'}
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </>

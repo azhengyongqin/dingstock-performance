@@ -49,7 +49,7 @@ const PeerReferencePanel = ({
 
   if (collapsed) {
     return (
-      <div className='flex h-full min-h-72 w-12 flex-col items-center gap-3 py-4'>
+      <div className='flex h-full w-12 flex-col items-center gap-3 py-4'>
         <Button
           type='button'
           size='icon'
@@ -68,8 +68,8 @@ const PeerReferencePanel = ({
   }
 
   return (
-    <div className='flex h-full flex-col'>
-      <div className='flex items-center gap-3 px-4 py-4'>
+    <div className='flex h-full min-h-0 flex-col'>
+      <div className='flex shrink-0 items-center gap-3 px-4 py-4'>
         <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
         <div className='min-w-0 flex-1'>
           <p className='truncate text-base font-semibold'>{name}</p>
@@ -90,8 +90,8 @@ const PeerReferencePanel = ({
         </Button>
       </div>
 
-      <Tabs defaultValue='self' className='gap-0'>
-        <div className='flex items-center justify-between gap-2 border-y px-3 pt-2'>
+      <Tabs defaultValue='self' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
           <TabsList variant='line' className='h-10'>
             <TabsTrigger value='self'>员工自评</TabsTrigger>
             <TabsTrigger value='okr'>OKR</TabsTrigger>
@@ -102,7 +102,7 @@ const PeerReferencePanel = ({
           </Button>
         </div>
 
-        <ScrollArea className='h-[min(62vh,560px)]'>
+        <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='self' className='space-y-3 px-4 py-4'>
             <p className='text-muted-foreground text-xs'>仅展示员工已生效自评摘要，供填写 360° 时对照参考。</p>
             {selfItems.length > 0 ? (

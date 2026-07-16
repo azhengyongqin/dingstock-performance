@@ -50,7 +50,7 @@ const ManagerReferencePanel = ({
 
   if (collapsed) {
     return (
-      <div className='flex h-full min-h-72 w-12 flex-col items-center gap-3 py-4'>
+      <div className='flex h-full w-12 flex-col items-center gap-3 py-4'>
         <Button
           type='button'
           size='icon'
@@ -69,8 +69,8 @@ const ManagerReferencePanel = ({
   }
 
   return (
-    <div className='flex h-full flex-col'>
-      <div className='flex items-center gap-3 px-4 py-4'>
+    <div className='flex h-full min-h-0 flex-col'>
+      <div className='flex shrink-0 items-center gap-3 px-4 py-4'>
         <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
         <div className='min-w-0 flex-1'>
           <p className='truncate text-base font-semibold'>{name}</p>
@@ -89,15 +89,15 @@ const ManagerReferencePanel = ({
 
       {/* 系统计算结果始终可见，避免藏在 Tab 内影响提交后反馈 */}
       {managerResult?.status === 'READY' && (
-        <div className='flex flex-wrap gap-2 border-t px-4 py-3'>
+        <div className='flex shrink-0 flex-wrap gap-2 border-t px-4 py-3'>
           <Badge variant='outline'>综合分 {managerResult.compositeScore}</Badge>
           <Badge variant='outline'>初始等级 {managerResult.initialLevel}</Badge>
           <Badge>阶段等级 {managerResult.stageLevel}</Badge>
         </div>
       )}
 
-      <Tabs defaultValue='self' className='gap-0'>
-        <div className='flex items-center justify-between gap-2 border-y px-3 pt-2'>
+      <Tabs defaultValue='self' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
           <TabsList variant='line' className='h-10'>
             <TabsTrigger value='self'>员工自评</TabsTrigger>
             <TabsTrigger value='okr'>OKR</TabsTrigger>
@@ -110,7 +110,7 @@ const ManagerReferencePanel = ({
           </Button>
         </div>
 
-        <ScrollArea className='h-[min(62vh,560px)]'>
+        <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='self' className='space-y-3 px-4 py-4'>
             <p className='text-muted-foreground text-xs'>员工材料仅供参考，不参与上级阶段二次加权。</p>
             {selfItems.length > 0 ? (

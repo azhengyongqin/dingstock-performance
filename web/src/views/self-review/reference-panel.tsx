@@ -1,6 +1,6 @@
 'use client'
 
-// 自评页左侧参考区：员工信息 + OKR / 复盘 / 日志 Tab，支持收起为窄轨。
+// 自评页左侧参考区：员工信息 + OKR / 复盘 / 日志 Tab；Tab 内容区独立滚动。
 import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
@@ -24,7 +24,7 @@ const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: Refere
 
   if (collapsed) {
     return (
-      <div className='flex h-full min-h-72 w-12 flex-col items-center gap-3 py-4'>
+      <div className='flex h-full w-12 flex-col items-center gap-3 py-4'>
         <Button
           type='button'
           size='icon'
@@ -43,8 +43,8 @@ const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: Refere
   }
 
   return (
-    <div className='flex h-full flex-col'>
-      <div className='flex items-center gap-3 px-4 py-4'>
+    <div className='flex h-full min-h-0 flex-col'>
+      <div className='flex shrink-0 items-center gap-3 px-4 py-4'>
         <UserAvatar openId={employeeOpenId} name={brief?.name} avatarUrl={brief?.avatarUrl} size='lg' />
         <div className='min-w-0 flex-1'>
           <p className='truncate text-base font-semibold'>{loading ? '加载中…' : (brief?.name ?? '员工')}</p>
@@ -61,8 +61,8 @@ const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: Refere
         </Button>
       </div>
 
-      <Tabs defaultValue='okr' className='gap-0'>
-        <div className='flex items-center justify-between gap-2 border-y px-3 pt-2'>
+      <Tabs defaultValue='okr' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
           <TabsList variant='line' className='h-10'>
             <TabsTrigger value='okr'>OKR 内容</TabsTrigger>
             <TabsTrigger value='review'>复盘记录</TabsTrigger>
@@ -74,7 +74,7 @@ const ReferencePanel = ({ employeeOpenId, collapsed, onCollapsedChange }: Refere
           </Button>
         </div>
 
-        <ScrollArea className='h-[min(62vh,560px)]'>
+        <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='okr' className='space-y-5 px-4 py-4'>
             {REFERENCE_OKR.map(objective => (
               <div key={objective.id} className='space-y-3'>

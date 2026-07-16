@@ -8,14 +8,13 @@ import { AlertCircleIcon, ClockIcon, InfoIcon, Loader2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
+import EvaluationSplitLayout from '@/components/shared/EvaluationSplitLayout'
 import PageHeader from '@/components/shared/PageHeader'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
 
 // Util Imports
 import {
@@ -217,92 +216,75 @@ const SelfReview = () => {
   const ratings = participant.cycle.currentConfigVersion?.ratings
 
   return (
-    <div className='flex flex-col gap-6 pb-20'>
-      <PageHeader
-        title='员工自评'
-        description={participant.cycle.name}
-        backHref='/workbench'
-        backLabel='工作台'
-        actions={
-          state && (
-            <Badge className={STATE_BADGE[state]}>
-              {STATE_LABEL[state]}
-              {state === 'EFFECTIVE' && data.submitted?.submittedAt
-                ? ` · ${formatDateTime(data.submitted.submittedAt)}`
-                : ''}
-            </Badge>
-          )
+    <div className='flex h-full min-h-0 flex-col gap-3 overflow-hidden'>
+      <div className='shrink-0 space-y-3'>
+        <PageHeader
+          title='员工自评'
+          description={participant.cycle.name}
+          backHref='/workbench'
+          backLabel='工作台'
+          actions={
+            state && (
+              <Badge className={STATE_BADGE[state]}>
+                {STATE_LABEL[state]}
+                {state === 'EFFECTIVE' && data.submitted?.submittedAt
+                  ? ` · ${formatDateTime(data.submitted.submittedAt)}`
+                  : ''}
+              </Badge>
+            )
+          }
+        />
+
+        {/* 有生效版本又有草稿：明确提示重新提交前生效版本仍参与计算，避免误以为草稿已经替换结果 */}
+        {state === 'PENDING_RESUBMIT' && (
+          <Alert>
+            <InfoIcon />
+            <AlertTitle>待重新提交</AlertTitle>
+            <AlertDescription>已生效版本仍参与计算，完整重新提交后才会替换</AlertDescription>
+          </Alert>
+        )}
+
+        {Object.keys(errors).length > 0 && (
+          <Alert variant='destructive'>
+            <AlertCircleIcon />
+            <AlertTitle>还有必填项未完成或内容格式有误</AlertTitle>
+            <AlertDescription>请检查下方标红的评估项后再提交</AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      <EvaluationSplitLayout
+        collapsed={referenceCollapsed}
+        left={
+          <ReferencePanel
+            employeeOpenId={participant.employeeOpenId}
+            collapsed={referenceCollapsed}
+            onCollapsedChange={setReferenceCollapsed}
+          />
+        }
+        right={
+          <EvaluationForm
+            subforms={data.form.subforms}
+            answers={answers}
+            onAnswerChange={handleAnswerChange}
+            errors={errors}
+            ratings={ratings}
+          />
         }
       />
 
-      {/* 有生效版本又有草稿：明确提示重新提交前生效版本仍参与计算，避免误以为草稿已经替换结果 */}
-      {state === 'PENDING_RESUBMIT' && (
-        <Alert>
-          <InfoIcon />
-          <AlertTitle>待重新提交</AlertTitle>
-          <AlertDescription>已生效版本仍参与计算，完整重新提交后才会替换</AlertDescription>
-        </Alert>
-      )}
-
-      {Object.keys(errors).length > 0 && (
-        <Alert variant='destructive'>
-          <AlertCircleIcon />
-          <AlertTitle>还有必填项未完成或内容格式有误</AlertTitle>
-          <AlertDescription>请检查下方标红的评估项后再提交</AlertDescription>
-        </Alert>
-      )}
-
-      {/* 单 Card：左参考区 | 分割线 | 右表单 */}
-      <Card className='gap-0 overflow-hidden py-0'>
-        <div
-          className={cn(
-            'flex items-stretch',
-            referenceCollapsed ? 'flex-row' : 'flex-col lg:flex-row'
-          )}
-        >
-          <aside
-            className={cn(
-              'shrink-0',
-              referenceCollapsed ? 'w-12' : 'w-full min-w-0 lg:w-[38%] lg:min-w-[280px] lg:max-w-md'
-            )}
-          >
-            <ReferencePanel
-              employeeOpenId={participant.employeeOpenId}
-              collapsed={referenceCollapsed}
-              onCollapsedChange={setReferenceCollapsed}
-            />
-          </aside>
-
-          {/* 中间分割线：展开时移动端横向、桌面纵向；收起时仅桌面纵向（窄轨与表单之间） */}
-          {!referenceCollapsed && <Separator className='lg:hidden' />}
-          <Separator orientation='vertical' className='hidden lg:block' />
-
-          <section className='min-w-0 flex-1 px-5 py-5 sm:px-6 sm:py-6'>
-            <EvaluationForm
-              subforms={data.form.subforms}
-              answers={answers}
-              onAnswerChange={handleAnswerChange}
-              errors={errors}
-              ratings={ratings}
-            />
-          </section>
-        </div>
-      </Card>
-
-      {/* 底部操作栏：保存草稿 / 提交 */}
-      <div className='bg-card fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 sm:px-6'>
-        <div className='mx-auto flex max-w-360 items-center justify-between gap-4'>
-          <span className='text-muted-foreground text-sm'>可先保存草稿，完整填写后再提交生效</span>
-          <div className='flex items-center gap-3'>
-            <Button variant='outline' disabled={saving || submitting} onClick={() => void handleSaveDraft()}>
-              {saving && <Loader2Icon className='size-4 animate-spin' />}
-              保存草稿
-            </Button>
-            <Button disabled={saving || submitting} onClick={() => void handleSubmit()}>
-              {submitting && <Loader2Icon className='size-4 animate-spin' />}
-              提交自评
-            </Button>
-          </div>
+      {/* 底部操作栏：流式紧贴 Card，不再 fixed + 预留大块底距 */}
+      <div className='flex shrink-0 items-center justify-between gap-4 py-1'>
+        <span className='text-muted-foreground text-sm'>可先保存草稿，完整填写后再提交生效</span>
+        <div className='flex items-center gap-3'>
+          <Button variant='outline' disabled={saving || submitting} onClick={() => void handleSaveDraft()}>
+            {saving && <Loader2Icon className='size-4 animate-spin' />}
+            保存草稿
+          </Button>
+          <Button disabled={saving || submitting} onClick={() => void handleSubmit()}>
+            {submitting && <Loader2Icon className='size-4 animate-spin' />}
+            提交自评
+          </Button>
         </div>
       </div>
     </div>
