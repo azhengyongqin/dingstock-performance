@@ -233,9 +233,8 @@ describe('EvaluationForm 禁用态', () => {
   it('disabled 时所有控件不可交互', () => {
     render(<Harness subforms={[ALL_TYPES_SUBFORM]} disabled />)
 
-    // RadioGroupItem/Checkbox 渲染为 <span role="radio|checkbox">，禁用态只反映在 aria-disabled 上，
-    // jest-dom 的 toBeDisabled 只识别原生可禁用元素（button/input/select 等），此处按 aria-disabled 断言。
-    for (const radio of screen.getAllByRole('radio')) expect(radio).toHaveAttribute('aria-disabled', 'true')
+    // RatingSelector 用原生 button[role=radio]，可用 toBeDisabled；Checkbox 仍是 span，看 aria-disabled。
+    for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled()
     expect(screen.getByRole('checkbox', { name: '跨团队协作' })).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('spinbutton', { name: '目标完成度' })).toBeDisabled()
     expect(screen.getByRole('textbox', { name: '一句话总结' })).toBeDisabled()

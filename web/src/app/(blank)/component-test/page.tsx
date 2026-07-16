@@ -13,6 +13,7 @@ import {
   ListChecksIcon,
   PanelLeftIcon,
   SlidersHorizontalIcon,
+  StarIcon,
   TargetIcon,
   UsersIcon
 } from 'lucide-react'
@@ -61,6 +62,7 @@ import OkrReferencePreview from '@/views/component-test/okr-reference-preview'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
+import RatingSelectorPreview from './rating-selector-preview'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
@@ -81,6 +83,7 @@ type ComponentKey =
   | 'active-config-impact'
   | 'snapshot-provenance'
   | 'evaluation-form'
+  | 'rating-selector'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -173,6 +176,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '动态评估表单',
     description: '9 种评估项类型 / 必填校验 / 禁用态',
     icon: ListChecksIcon
+  },
+  {
+    key: 'rating-selector',
+    title: '评分选择器',
+    description: 'RatingSelector · 时间轴胶囊',
+    icon: StarIcon
   }
 ]
 
@@ -1391,6 +1400,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'active-config-impact') return <ActiveConfigImpactPreview />
   if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
+  if (activeComponent === 'rating-selector') return <RatingSelectorPreview />
 
   return <DateTimePreview />
 }
