@@ -17,6 +17,7 @@ import { ActiveCycleConfigChangeController } from './active-cycle-config-change.
 import { ActiveCycleConfigChangeService } from './active-cycle-config-change.service';
 import { CycleFormChangeController } from './cycle-form-change.controller';
 import { CycleFormChangeService } from './cycle-form-change.service';
+import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
 
 /**
  * 统一评估提交域（ADR-0009）：SELF/PEER/MANAGER 人工答卷统一落
@@ -39,6 +40,7 @@ import { CycleFormChangeService } from './cycle-form-change.service';
     CycleFormChangeController,
   ],
   providers: [
+    EvaluationEmployeeProfileService,
     EvaluationSubmissionService,
     PeerEvaluationSubmissionService,
     PeerStageResultService,

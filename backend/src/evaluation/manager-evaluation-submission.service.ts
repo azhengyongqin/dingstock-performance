@@ -17,6 +17,7 @@ import { ManagerStageResultService } from './manager-stage-result.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
+import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
 
 /**
  * 上级评估提交服务：以参与者的当前 Leader 快照作为唯一写入权限，复用统一
@@ -33,6 +34,7 @@ export class ManagerEvaluationSubmissionService {
     private readonly managerStageResultService: ManagerStageResultService,
     private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
+    private readonly employeeProfileService: EvaluationEmployeeProfileService,
   ) {}
 
   /** 必须先完成对象级 Leader 鉴权，才允许触发任务开放等有副作用的读取。 */
@@ -130,15 +132,7 @@ export class ManagerEvaluationSubmissionService {
           submission.status === PerfReviewStatus.SUBMITTED,
       ) ?? null;
     const [employee, peerResult, history] = await Promise.all([
-      this.prisma.larkUser.findUnique({
-        where: { open_id: participant.employeeOpenId },
-        select: {
-          open_id: true,
-          name: true,
-          avatar: true,
-          job_title: true,
-        },
-      }),
+      this.employeeProfileService.getDetailed(participant.employeeOpenId),
       this.peerStageResultService.recalculate(participant.id),
       this.prisma.perfResultVersion.findMany({
         where: {

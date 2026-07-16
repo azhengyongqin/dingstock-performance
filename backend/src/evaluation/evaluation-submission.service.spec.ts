@@ -225,6 +225,7 @@ describe('EvaluationSubmissionService 员工自评', () => {
   const taskAccess = { ensureWritable: jest.fn(), openIfDue: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = new ParticipantEvaluationLockService();
+  const employeeProfile = { getDetailed: jest.fn() };
   let service: EvaluationSubmissionService;
 
   beforeEach(() => {
@@ -251,12 +252,21 @@ describe('EvaluationSubmissionService 员工自评', () => {
       id: 21,
       openedAt: new Date(),
     });
+    employeeProfile.getDetailed.mockResolvedValue({
+      open_id: 'ou_me',
+      name: '测试员工',
+      departmentPath: '集团 / 研发部',
+      jobTitle: '工程师',
+      jobLevel: 'D5',
+      effectiveDate: '2022-05-06',
+    });
     service = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
       taskAccess as never,
       aiReport as never,
       participantEvaluationLock,
+      employeeProfile as never,
     );
   });
 

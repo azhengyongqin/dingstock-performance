@@ -52,7 +52,12 @@ const context = {
       ]
     }
   },
-  employee: { open_id: 'ou_employee', name: '员工甲', job_title: '产品经理' },
+  employee: {
+    open_id: 'ou_employee',
+    name: '员工甲',
+    departmentPath: '集团 / 产品中心',
+    jobTitle: '产品经理'
+  },
   task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: {
     formSnapshotId: 88,
@@ -143,7 +148,12 @@ describe('PeerReviewFill 关键流程', () => {
     render(<PeerReviewFill assignmentId={11} />)
 
     expect(await screen.findByText('360°可观察行为评估')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '基本信息', selected: true })).toBeInTheDocument()
+    expect(screen.getByText('集团 / 产品中心')).toBeInTheDocument()
+    expect(screen.queryByText('职级：')).not.toBeInTheDocument()
+    expect(screen.queryByText('入职日期：')).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '员工自评' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
     expect(screen.getByText('完成核心项目协作落地')).toBeInTheDocument()
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()

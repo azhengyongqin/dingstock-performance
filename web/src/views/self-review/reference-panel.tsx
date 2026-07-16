@@ -4,25 +4,27 @@
 import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
+import EmployeeBasicInfo from '@/components/shared/EmployeeBasicInfo'
 import { OkrReferenceContent, useParticipantOkr } from '@/components/shared/okr'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { avatarUrlOf, type PerfDetailedEmployeeProfile } from '@/lib/perf-api'
 
 import { REFERENCE_LOGS, REFERENCE_REVIEWS } from './reference-mock-data'
-import { useEmployeeBrief } from './use-employee-brief'
 
 export type ReferencePanelProps = {
   participantId: number
-  employeeOpenId: string
+  employee: PerfDetailedEmployeeProfile | null
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
 }
 
-const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedChange }: ReferencePanelProps) => {
-  const { brief, loading } = useEmployeeBrief(employeeOpenId)
+const ReferencePanel = ({ participantId, employee, collapsed, onCollapsedChange }: ReferencePanelProps) => {
   const okr = useParticipantOkr(participantId)
+  const openId = employee?.open_id
+  const name = employee?.name ?? '员工'
 
   if (collapsed) {
     return (
@@ -36,7 +38,7 @@ const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedC
         >
           <ChevronRightIcon className='size-4' />
         </Button>
-        <UserAvatar openId={employeeOpenId} name={brief?.name} avatarUrl={brief?.avatarUrl} size='sm' />
+        <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='sm' />
         <span className='text-muted-foreground text-[10px] tracking-widest' style={{ writingMode: 'vertical-rl' }}>
           参考资料
         </span>
@@ -47,10 +49,9 @@ const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedC
   return (
     <div className='flex h-full min-h-0 flex-col'>
       <div className='flex shrink-0 items-center gap-3 px-4 py-4'>
-        <UserAvatar openId={employeeOpenId} name={brief?.name} avatarUrl={brief?.avatarUrl} size='lg' />
+        <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
         <div className='min-w-0 flex-1'>
-          <p className='truncate text-base font-semibold'>{loading ? '加载中…' : (brief?.name ?? '员工')}</p>
-          <p className='text-muted-foreground truncate text-xs'>{brief?.jobTitle || employeeOpenId}</p>
+          <p className='truncate text-base font-semibold'>{name}</p>
         </div>
         <Button
           type='button'
@@ -63,9 +64,10 @@ const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedC
         </Button>
       </div>
 
-      <Tabs defaultValue='okr' className='flex min-h-0 flex-1 flex-col gap-0'>
-        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
-          <TabsList variant='line' className='h-10'>
+      <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-y px-3 pt-2'>
+          <TabsList variant='line' className='h-10 w-max min-w-full flex-nowrap'>
+            <TabsTrigger value='info' className='shrink-0'>基本信息</TabsTrigger>
             <TabsTrigger value='okr'>OKR 内容</TabsTrigger>
             <TabsTrigger value='review'>复盘记录</TabsTrigger>
             <TabsTrigger value='log'>绩效日志</TabsTrigger>
@@ -77,6 +79,10 @@ const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedC
         </div>
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
+          <TabsContent value='info' className='px-4 py-5'>
+            <EmployeeBasicInfo variant='detailed' employee={employee} />
+          </TabsContent>
+
           <TabsContent value='okr' className='space-y-5 px-4 py-4'>
             <OkrReferenceContent data={okr.data} loading={okr.loading} onSync={okr.sync} />
           </TabsContent>

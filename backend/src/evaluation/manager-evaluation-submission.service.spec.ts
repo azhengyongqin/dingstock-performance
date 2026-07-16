@@ -174,6 +174,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
   };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = { lockHumanWrite: jest.fn() };
+  const employeeProfile = { getDetailed: jest.fn() };
   let service: ManagerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -188,9 +189,13 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
         items: [{ itemKey: 'item:self:summary', value: '本期总结' }],
       },
     ]);
-    prisma.larkUser.findUnique.mockResolvedValue({
+    employeeProfile.getDetailed.mockResolvedValue({
       open_id: 'ou_employee',
       name: '员工甲',
+      departmentPath: '集团 / 研发部',
+      jobTitle: '工程师',
+      jobLevel: 'D5',
+      effectiveDate: '2022-05-06',
     });
     prisma.perfResultVersion.findMany.mockResolvedValue([]);
     prisma.$transaction.mockImplementation(
@@ -238,6 +243,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       taskAccess as never,
       aiReport as never,
       {} as never,
+      {} as never,
     );
     service = new ManagerEvaluationSubmissionService(
       prisma as never,
@@ -248,6 +254,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       managerStageResult as never,
       aiReport as never,
       participantEvaluationLock as never,
+      employeeProfile as never,
     );
   });
 

@@ -51,7 +51,14 @@ const context = {
       ]
     }
   },
-  employee: { open_id: 'ou_employee', name: '员工甲', job_title: '产品经理' },
+  employee: {
+    open_id: 'ou_employee',
+    name: '员工甲',
+    departmentPath: '集团 / 产品中心',
+    jobTitle: '产品经理',
+    jobLevel: 'M2',
+    effectiveDate: '2021-03-15'
+  },
   task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: {
     formSnapshotId: 88,
@@ -158,8 +165,12 @@ describe('ManagerReviewFill 关键流程', () => {
   it('展示自评和 360°参考，用 Leader 晋升子表单提交，并只展示系统计算等级', async () => {
     render(<ManagerReviewFill participantId={7} />)
 
-    expect(await screen.findByText('完成核心项目')).toBeInTheDocument()
+    expect(await screen.findByText('集团 / 产品中心')).toBeInTheDocument()
+    expect(screen.getByText('M2')).toBeInTheDocument()
+    expect(screen.getByText('2021-03-15')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '360°评估' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
+    expect(screen.getByText('完成核心项目')).toBeInTheDocument()
     expect(screen.getByText('晋升评估（Leader 填写）')).toBeInTheDocument()
     expect(screen.queryByText(/初步绩效评级/)).not.toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))

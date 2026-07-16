@@ -4,13 +4,15 @@
 import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
+import EmployeeBasicInfo from '@/components/shared/EmployeeBasicInfo'
 import { OkrReferenceContent, useParticipantOkrReference } from '@/components/shared/okr'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   avatarUrlOf,
-  type LarkUserBrief,
+  type PerfConfigReviewerRelation,
+  type PerfPeerSafeEmployeeProfile,
   type ParticipantOkrSnapshot,
   type PerfEvaluationItemResult
 } from '@/lib/perf-api'
@@ -18,18 +20,11 @@ import {
 export type PeerReferencePanelProps = {
   participantId: number
   okrPreviewData?: ParticipantOkrSnapshot
-  employee: LarkUserBrief | null
-  relation?: string | null
+  employee: PerfPeerSafeEmployeeProfile | null
+  relation?: PerfConfigReviewerRelation | null
   selfItems: PerfEvaluationItemResult[]
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
-}
-
-const RELATION_LABEL: Record<string, string> = {
-  ORG_OWNER: '组织负责人',
-  PROJECT_OWNER: '项目负责人',
-  PEER: '同部门同事',
-  CROSS_DEPT: '跨部门协作方'
 }
 
 const resultValue = (item: PerfEvaluationItemResult) => {
@@ -53,7 +48,6 @@ const PeerReferencePanel = ({
 }: PeerReferencePanelProps) => {
   const openId = employee?.open_id
   const name = employee?.name ?? '被评估人'
-  const relationLabel = relation ? (RELATION_LABEL[relation] ?? relation) : null
   const okr = useParticipantOkrReference(participantId, okrPreviewData)
 
   if (collapsed) {
@@ -82,11 +76,6 @@ const PeerReferencePanel = ({
         <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
         <div className='min-w-0 flex-1'>
           <p className='truncate text-base font-semibold'>{name}</p>
-          <p className='text-muted-foreground truncate text-xs'>
-            {[employee?.job_title, relationLabel ? `关系：${relationLabel}` : null].filter(Boolean).join(' · ') ||
-              openId ||
-              '—'}
-          </p>
         </div>
         <Button
           type='button'
@@ -99,9 +88,10 @@ const PeerReferencePanel = ({
         </Button>
       </div>
 
-      <Tabs defaultValue='self' className='flex min-h-0 flex-1 flex-col gap-0'>
-        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
-          <TabsList variant='line' className='h-10'>
+      <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-y px-3 pt-2'>
+          <TabsList variant='line' className='h-10 w-max min-w-full flex-nowrap'>
+            <TabsTrigger value='info' className='shrink-0'>基本信息</TabsTrigger>
             <TabsTrigger value='self'>员工自评</TabsTrigger>
             <TabsTrigger value='okr'>OKR</TabsTrigger>
           </TabsList>
@@ -112,6 +102,10 @@ const PeerReferencePanel = ({
         </div>
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
+          <TabsContent value='info' className='px-4 py-5'>
+            <EmployeeBasicInfo variant='peer' employee={employee} relation={relation} />
+          </TabsContent>
+
           <TabsContent value='self' className='space-y-3 px-4 py-4'>
             <p className='text-muted-foreground text-xs'>仅展示员工已生效自评摘要，供填写 360° 时对照参考。</p>
             {selfItems.length > 0 ? (

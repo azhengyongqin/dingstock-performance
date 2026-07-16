@@ -109,6 +109,20 @@ export type LarkUserBrief = {
   job_title?: string | null
 }
 
+/** 评估填写页专用员工资料；360°响应不会包含可选的敏感字段。 */
+export type PerfPeerSafeEmployeeProfile = {
+  open_id: string
+  name: string
+  avatar?: LarkUserBrief['avatar']
+  departmentPath: string | null
+  jobTitle: string | null
+}
+
+export type PerfDetailedEmployeeProfile = PerfPeerSafeEmployeeProfile & {
+  jobLevel: string | null
+  effectiveDate: string | null
+}
+
 export type EvaluationRating = {
   symbol: string
   name: string
@@ -903,6 +917,7 @@ export type PerfSelfEvaluationParticipant = {
 
 export type PerfSelfEvaluationContext = {
   participant: PerfSelfEvaluationParticipant
+  employee: PerfDetailedEmployeeProfile | null
   task: PerfSelfEvaluationTask
   form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
   submitted: PerfEvaluationSubmissionRecord | null
@@ -938,7 +953,7 @@ export const submitSelfEvaluation = (input: SaveSelfEvaluationInput) =>
 export type PerfPeerEvaluationState = PerfSelfEvaluationState
 
 export type PerfPeerEvaluationContext = {
-  assignment: { id: number; relation: string; status: 'PENDING' | 'SUBMITTED' } | null
+  assignment: { id: number; relation: PerfConfigReviewerRelation; status: 'PENDING' | 'SUBMITTED' } | null
   participant: { id: number; cycleId: number } | null
   cycle: {
     id: number
@@ -946,7 +961,7 @@ export type PerfPeerEvaluationContext = {
     status: PerfCycleStatus
     currentConfigVersion?: { ratings: PerfConfigTemplateRating[] } | null
   } | null
-  employee: LarkUserBrief | null
+  employee: PerfPeerSafeEmployeeProfile | null
   task: PerfSelfEvaluationTask
   form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
   submitted: PerfEvaluationSubmissionRecord | null
@@ -1009,7 +1024,7 @@ export type PerfManagerEvaluationContext = {
     status: PerfCycleStatus
     currentConfigVersion?: { ratings: PerfConfigTemplateRating[] } | null
   }
-  employee: LarkUserBrief | null
+  employee: PerfDetailedEmployeeProfile | null
   task: PerfSelfEvaluationTask
   form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
   submitted: PerfEvaluationSubmissionRecord | null

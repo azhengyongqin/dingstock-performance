@@ -141,6 +141,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
   const peerStageResult = { recalculate: jest.fn() };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = { lockHumanWrite: jest.fn() };
+  const employeeProfile = { getPeerSafe: jest.fn() };
   let service: PeerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -148,9 +149,11 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
     prisma.perfReviewerAssignment.findFirst.mockResolvedValue(assignment);
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([]);
     prisma.perfEvaluationSubmission.findFirst.mockResolvedValue(null);
-    prisma.larkUser.findUnique.mockResolvedValue({
+    employeeProfile.getPeerSafe.mockResolvedValue({
       open_id: 'ou_employee',
       name: '员工甲',
+      departmentPath: '集团 / 研发部',
+      jobTitle: '工程师',
     });
     prisma.$transaction.mockImplementation(
       (fn: (client: typeof tx) => unknown) => fn(tx),
@@ -175,6 +178,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       taskAccess as never,
       aiReport as never,
       {} as never,
+      {} as never,
     );
     service = new PeerEvaluationSubmissionService(
       prisma as never,
@@ -184,6 +188,7 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
       peerStageResult as never,
       aiReport as never,
       participantEvaluationLock as never,
+      employeeProfile as never,
     );
   });
 
@@ -196,7 +201,11 @@ describe('PeerEvaluationSubmissionService 360°动态评估', () => {
     expect(context.employee).toEqual({
       open_id: 'ou_employee',
       name: '员工甲',
+      departmentPath: '集团 / 研发部',
+      jobTitle: '工程师',
     });
+    expect(context.employee).not.toHaveProperty('jobLevel');
+    expect(context.employee).not.toHaveProperty('effectiveDate');
     expect(context.selfEvaluation).toBeNull();
     expect(prisma.perfEvaluationSubmission.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({

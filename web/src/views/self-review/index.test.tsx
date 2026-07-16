@@ -70,6 +70,14 @@ const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSe
     formSnapshotId: 88,
     cycle: { id: 1, name: '2026 上半年绩效评定', status: 'ACTIVE' }
   },
+  employee: {
+    open_id: 'ou_me',
+    name: '测试员工',
+    departmentPath: '集团 / 研发中心 / 后端组',
+    jobTitle: '后端工程师',
+    jobLevel: 'D5',
+    effectiveDate: '2022-05-06'
+  },
   task: { id: 21, startAt: '2026-08-01T01:00:00.000Z', openedAt: '2026-08-01T01:00:00.000Z' },
   form: {
     formSnapshotId: 88,
@@ -121,6 +129,8 @@ describe('SelfReview 加载自评上下文并渲染动态表单', () => {
     expect(screen.getAllByText('员工自评')).toHaveLength(2)
     expect(screen.getAllByRole('radio')).toHaveLength(4)
     expect(screen.getByText('草稿')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '基本信息', selected: true })).toBeInTheDocument()
+    expect(screen.getByText('集团 / 研发中心 / 后端组')).toBeInTheDocument()
     await waitFor(() => expect(mockedTriggerOkrSync).toHaveBeenCalledWith(7))
   })
 })

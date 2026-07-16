@@ -4,6 +4,7 @@
 import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
+import EmployeeBasicInfo from '@/components/shared/EmployeeBasicInfo'
 import { OkrReferenceContent, useParticipantOkrReference } from '@/components/shared/okr'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,7 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   avatarUrlOf,
-  type LarkUserBrief,
+  type PerfDetailedEmployeeProfile,
   type ParticipantOkrSnapshot,
   type PerfEvaluationItemResult,
   type PerfManagerStageResult
@@ -20,7 +21,7 @@ import {
 export type ManagerReferencePanelProps = {
   participantId: number
   okrPreviewData?: ParticipantOkrSnapshot
-  employee: LarkUserBrief | null
+  employee: PerfDetailedEmployeeProfile | null
   selfItems: PerfEvaluationItemResult[]
   peerResult: (PerfManagerStageResult & { inputSummary?: unknown }) | null
   managerResult: PerfManagerStageResult | null
@@ -84,7 +85,6 @@ const ManagerReferencePanel = ({
         <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
         <div className='min-w-0 flex-1'>
           <p className='truncate text-base font-semibold'>{name}</p>
-          <p className='text-muted-foreground truncate text-xs'>{employee?.job_title || openId || '—'}</p>
         </div>
         <Button
           type='button'
@@ -106,9 +106,10 @@ const ManagerReferencePanel = ({
         </div>
       )}
 
-      <Tabs defaultValue='self' className='flex min-h-0 flex-1 flex-col gap-0'>
-        <div className='flex shrink-0 items-center justify-between gap-2 border-y px-3 pt-2'>
-          <TabsList variant='line' className='h-10'>
+      <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0'>
+        <div className='flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-y px-3 pt-2'>
+          <TabsList variant='line' className='h-10 w-max min-w-full flex-nowrap'>
+            <TabsTrigger value='info' className='shrink-0'>基本信息</TabsTrigger>
             <TabsTrigger value='self'>员工自评</TabsTrigger>
             <TabsTrigger value='okr'>OKR</TabsTrigger>
             <TabsTrigger value='peer'>360°评估</TabsTrigger>
@@ -121,6 +122,10 @@ const ManagerReferencePanel = ({
         </div>
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
+          <TabsContent value='info' className='px-4 py-5'>
+            <EmployeeBasicInfo variant='detailed' employee={employee} />
+          </TabsContent>
+
           <TabsContent value='self' className='space-y-3 px-4 py-4'>
             <p className='text-muted-foreground text-xs'>员工材料仅供参考，不参与上级阶段二次加权。</p>
             {selfItems.length > 0 ? (

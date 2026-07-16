@@ -1110,7 +1110,12 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     status: 'ACTIVE',
     currentConfigVersion: { ratings: EVALUATION_FORM_RATINGS }
   },
-  employee: { open_id: 'ou_preview_employee', name: '示例员工', job_title: '产品经理' },
+  employee: {
+    open_id: 'ou_preview_employee',
+    name: '示例员工',
+    departmentPath: '盯潮集团 / 产品中心 / 平台产品部',
+    jobTitle: '产品经理'
+  },
   task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: { formSnapshotId: 88, subforms: PEER_EVALUATION_SUBFORMS },
   submitted: {
@@ -1169,7 +1174,14 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
     status: 'ACTIVE',
     currentConfigVersion: { ratings: EVALUATION_FORM_RATINGS }
   },
-  employee: { open_id: 'ou_preview_employee', name: '示例员工', job_title: '产品经理' },
+  employee: {
+    open_id: 'ou_preview_employee',
+    name: '示例员工',
+    departmentPath: '盯潮集团 / 产品中心 / 平台产品部',
+    jobTitle: '产品经理',
+    jobLevel: 'M2',
+    effectiveDate: '2021-03-15'
+  },
   task: { id: 22, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: {
     formSnapshotId: 88,

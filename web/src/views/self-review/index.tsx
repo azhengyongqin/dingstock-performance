@@ -260,7 +260,7 @@ const SelfReview = () => {
         left={
           <ReferencePanel
             participantId={participant.id}
-            employeeOpenId={participant.employeeOpenId}
+            employee={data.employee}
             collapsed={referenceCollapsed}
             onCollapsedChange={setReferenceCollapsed}
           />

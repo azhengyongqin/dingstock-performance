@@ -25,6 +25,7 @@ import type {
   FormSnapshotItem,
   FormSnapshotSubform,
 } from './evaluation.service-types';
+import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
 
 /** 自评提交状态标记：无 SUBMITTED=草稿；有 SUBMITTED 无 DRAFT=已生效；两者都有=待重新提交 */
 export type SelfEvaluationState = 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT';
@@ -48,6 +49,7 @@ export class EvaluationSubmissionService {
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
+    private readonly employeeProfileService: EvaluationEmployeeProfileService,
   ) {}
 
   /** 找到我在指定周期（或最近一个进行中周期）的参与记录，附表单快照与周期评级配置 */
@@ -83,6 +85,7 @@ export class EvaluationSubmissionService {
     if (!participant) {
       return {
         participant: null,
+        employee: null,
         task: null,
         form: null,
         submitted: null,
@@ -100,6 +103,7 @@ export class EvaluationSubmissionService {
       // 开始前只展示任务预告，不下发表单结构与已填内容。
       return {
         participant,
+        employee: null,
         task,
         form: null,
         submitted: null,
@@ -109,14 +113,17 @@ export class EvaluationSubmissionService {
     }
 
     const content = this.requireSnapshotContent(participant);
-    const submissions = await this.prisma.perfEvaluationSubmission.findMany({
-      where: {
-        participantId: participant.id,
-        stage: PerfEvaluationTaskType.SELF,
-        reviewerOpenId: employeeOpenId,
-      },
-      include: { items: true },
-    });
+    const [submissions, employee] = await Promise.all([
+      this.prisma.perfEvaluationSubmission.findMany({
+        where: {
+          participantId: participant.id,
+          stage: PerfEvaluationTaskType.SELF,
+          reviewerOpenId: employeeOpenId,
+        },
+        include: { items: true },
+      }),
+      this.employeeProfileService.getDetailed(employeeOpenId),
+    ]);
     const submitted =
       submissions.find(
         (submission) => submission.status === PerfReviewStatus.SUBMITTED,
@@ -133,6 +140,7 @@ export class EvaluationSubmissionService {
 
     return {
       participant,
+      employee,
       task,
       form: {
         formSnapshotId: participant.formSnapshotId,

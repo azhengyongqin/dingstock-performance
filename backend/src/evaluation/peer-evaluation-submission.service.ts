@@ -16,6 +16,7 @@ import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
+import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
 
 /**
  * 360°评估提交服务：负责评审指派鉴权、PEER 上下文和答卷生命周期。
@@ -31,6 +32,7 @@ export class PeerEvaluationSubmissionService {
     private readonly peerStageResultService: PeerStageResultService,
     private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
+    private readonly employeeProfileService: EvaluationEmployeeProfileService,
   ) {}
 
   /** 先做对象级鉴权，再允许触发任务开放等有副作用的操作。 */
@@ -115,10 +117,7 @@ export class PeerEvaluationSubmissionService {
         },
         include: { items: true },
       }),
-      this.prisma.larkUser.findUnique({
-        where: { open_id: participant.employeeOpenId },
-        select: { open_id: true, name: true, avatar: true, job_title: true },
-      }),
+      this.employeeProfileService.getPeerSafe(participant.employeeOpenId),
     ]);
     const submitted =
       submissions.find((item) => item.status === PerfReviewStatus.SUBMITTED) ??
