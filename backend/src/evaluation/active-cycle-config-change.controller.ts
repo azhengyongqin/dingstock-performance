@@ -23,7 +23,7 @@ import { ActiveCycleConfigChangeService } from './active-cycle-config-change.ser
  * 路由仍归属 cycles，但 provider 放在 EvaluationModule，复用 PEER/MANAGER 重算服务，
  * 避免 CycleModule 与 EvaluationModule 形成循环依赖。
  */
-@ApiTags('cycle')
+@ApiTags('绩效周期')
 @Controller('cycles/:id/active-config')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

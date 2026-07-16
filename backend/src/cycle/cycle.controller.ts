@@ -40,7 +40,7 @@ import { ActiveCycleRollbackService } from './active-cycle-rollback.service';
 import { CycleArchiveService } from './cycle-archive.service';
 
 // 周期管理为 HR/ADMIN 专属操作域（产品 §3.7）；员工/评审员侧走 self-reviews、review-tasks 等接口
-@ApiTags('cycle')
+@ApiTags('绩效周期')
 @Controller('cycles')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

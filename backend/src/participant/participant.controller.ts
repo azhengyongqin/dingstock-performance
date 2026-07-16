@@ -59,7 +59,7 @@ class ParticipantReasonDto {
   reason!: string;
 }
 
-@ApiTags('participant')
+@ApiTags('考核人员')
 @Controller('cycles/:cycleId/participants')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

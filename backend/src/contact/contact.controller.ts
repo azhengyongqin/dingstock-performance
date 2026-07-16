@@ -21,7 +21,7 @@ import { ContactService } from './contact.service';
 import { ContactSyncService } from './contact-sync.service';
 
 // 登录后才能访问组织数据；同步类操作进一步限制 HR/ADMIN（研发文档 §11 技术债 #2）。
-@ApiTags('contact')
+@ApiTags('通讯录')
 @Controller('contact')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

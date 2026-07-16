@@ -3,7 +3,7 @@ import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AppService } from './app.service';
 import { SkipPerformanceCutoverGate } from './cutover/performance-cutover.decorator';
 
-@ApiTags('health')
+@ApiTags('健康检查')
 @SkipPerformanceCutoverGate()
 @Controller()
 export class AppController {

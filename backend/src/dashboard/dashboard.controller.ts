@@ -12,7 +12,7 @@ import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import { DashboardService } from './dashboard.service';
 
-@ApiTags('dashboard')
+@ApiTags('数据看板')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

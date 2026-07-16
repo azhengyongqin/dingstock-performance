@@ -41,7 +41,7 @@ class CreateRoleGrantDto {
   orgScope?: string[];
 }
 
-@ApiTags('rbac')
+@ApiTags('角色权限')
 @Controller('role-grants')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

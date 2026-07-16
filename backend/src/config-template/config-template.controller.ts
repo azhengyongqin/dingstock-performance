@@ -22,7 +22,7 @@ import {
 } from './config-template.dto';
 import { ConfigTemplateService } from './config-template.service';
 
-@ApiTags('config-template')
+@ApiTags('配置模板')
 @Controller('config-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

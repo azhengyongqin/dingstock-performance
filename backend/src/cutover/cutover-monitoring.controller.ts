@@ -7,7 +7,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { CutoverMonitoringService } from './cutover-monitoring.service';
 import { SkipPerformanceCutoverGate } from './performance-cutover.decorator';
 
-@ApiTags('performance-cutover')
+@ApiTags('绩效切换监控')
 @ApiBearerAuth()
 @SkipPerformanceCutoverGate()
 @Controller('performance-cutover')

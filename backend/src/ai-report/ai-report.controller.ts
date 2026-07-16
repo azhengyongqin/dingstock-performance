@@ -14,7 +14,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { AiReportService } from './ai-report.service';
 
 /** AI 参考管理接口；对象级 Leader/HR 组织范围权限统一由 service 校验。 */
-@ApiTags('ai-report')
+@ApiTags('AI报告')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('participants/:participantId/ai-report')

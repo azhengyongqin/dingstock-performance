@@ -102,7 +102,7 @@ class ConfirmResultDto {
   resultVersionId!: number;
 }
 
-@ApiTags('calibration')
+@ApiTags('绩效校准')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

@@ -22,7 +22,7 @@ import {
 } from './form-template.dto';
 import { FormTemplateService } from './form-template.service';
 
-@ApiTags('form-template')
+@ApiTags('表单模板')
 @Controller('form-templates')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

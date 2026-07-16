@@ -21,7 +21,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import type { AuthenticatedRequest } from './jwt-auth.guard';
 import { SkipPerformanceCutoverGate } from '../cutover/performance-cutover.decorator';
 
-@ApiTags('auth')
+@ApiTags('认证')
 @SkipPerformanceCutoverGate()
 @Controller('auth')
 export class AuthController {

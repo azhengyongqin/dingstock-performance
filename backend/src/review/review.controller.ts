@@ -24,7 +24,7 @@ import { ReviewService } from './review.service';
 import { ReviewerService } from './reviewer.service';
 
 /** 评审员指派：数据范围（Leader/HR）在 service 层校验 */
-@ApiTags('review')
+@ApiTags('评审')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

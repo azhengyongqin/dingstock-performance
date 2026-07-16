@@ -85,7 +85,7 @@ class ResolveAppealDto {
   reason?: string;
 }
 
-@ApiTags('appeal')
+@ApiTags('申诉')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

@@ -33,7 +33,7 @@ import { PeerEvaluationSubmissionService } from './peer-evaluation-submission.se
 import { PeerStageResultService } from './peer-stage-result.service';
 
 /** 统一评估提交（ADR-0009）：当前开放员工自评；身份取自 JWT，对象级鉴权在 service 层 */
-@ApiTags('evaluation')
+@ApiTags('评估')
 @Controller('evaluations')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

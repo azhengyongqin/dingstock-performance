@@ -41,7 +41,7 @@ class RemindDto {
   payload?: Record<string, unknown>;
 }
 
-@ApiTags('notification')
+@ApiTags('通知')
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)

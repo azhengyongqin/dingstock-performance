@@ -11,7 +11,7 @@ import { Roles } from '../rbac/roles.decorator';
 import { RolesGuard } from '../rbac/roles.guard';
 import { AuditService } from './audit.service';
 
-@ApiTags('audit')
+@ApiTags('审计日志')
 @Controller('audit-logs')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()

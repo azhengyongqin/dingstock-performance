@@ -20,7 +20,7 @@ import { RolesGuard } from '../rbac/roles.guard';
 import { CycleFormChangeService } from './cycle-form-change.service';
 
 /** 周期表单结构变更 API：分类、影响确认与应用共用同一领域服务。 */
-@ApiTags('cycle')
+@ApiTags('绩效周期')
 @Controller('cycles/:id/form-change')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(PerfRole.HR, PerfRole.ADMIN)
