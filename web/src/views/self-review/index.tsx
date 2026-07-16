@@ -13,7 +13,9 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 // Util Imports
 import {
@@ -33,6 +35,7 @@ import {
   type EvaluationAnswers,
   type EvaluationItemAnswer
 } from './evaluation-form-types'
+import ReferencePanel from './reference-panel'
 
 const STATE_LABEL: Record<Exclude<PerfSelfEvaluationState, null>, string> = {
   DRAFT: '草稿',
@@ -47,8 +50,8 @@ const STATE_BADGE: Record<Exclude<PerfSelfEvaluationState, null>, string> = {
 }
 
 /**
- * 员工自评（统一提交，ADR-0009）：动态渲染周期表单快照中 SELF（+ 启用晋升评估时附带 PROMOTION 员工区段）
- * 子表单，支持草稿保存与提交，任务未到开始时间时禁用并提示开放时间。
+ * 员工自评（统一提交，ADR-0009）：左侧参考区（OKR/复盘/日志，可折叠）+ 右侧动态表单，
+ * 同处一张 Card，中间分割线分隔；支持草稿保存与提交。
  */
 const SelfReview = () => {
   const [data, setData] = useState<PerfSelfEvaluationContext | null>(null)
@@ -59,6 +62,7 @@ const SelfReview = () => {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [referenceCollapsed, setReferenceCollapsed] = useState(false)
 
   // 拉取自评上下文：任务开放状态 + 表单快照 + 生效/草稿明细 + 状态标记
   const fetchContext = useCallback(async () => {
@@ -248,13 +252,42 @@ const SelfReview = () => {
         </Alert>
       )}
 
-      <EvaluationForm
-        subforms={data.form.subforms}
-        answers={answers}
-        onAnswerChange={handleAnswerChange}
-        errors={errors}
-        ratings={ratings}
-      />
+      {/* 单 Card：左参考区 | 分割线 | 右表单 */}
+      <Card className='gap-0 overflow-hidden py-0'>
+        <div
+          className={cn(
+            'flex items-stretch',
+            referenceCollapsed ? 'flex-row' : 'flex-col lg:flex-row'
+          )}
+        >
+          <aside
+            className={cn(
+              'shrink-0',
+              referenceCollapsed ? 'w-12' : 'w-full min-w-0 lg:w-[38%] lg:min-w-[280px] lg:max-w-md'
+            )}
+          >
+            <ReferencePanel
+              employeeOpenId={participant.employeeOpenId}
+              collapsed={referenceCollapsed}
+              onCollapsedChange={setReferenceCollapsed}
+            />
+          </aside>
+
+          {/* 中间分割线：展开时移动端横向、桌面纵向；收起时仅桌面纵向（窄轨与表单之间） */}
+          {!referenceCollapsed && <Separator className='lg:hidden' />}
+          <Separator orientation='vertical' className='hidden lg:block' />
+
+          <section className='min-w-0 flex-1 px-5 py-5 sm:px-6 sm:py-6'>
+            <EvaluationForm
+              subforms={data.form.subforms}
+              answers={answers}
+              onAnswerChange={handleAnswerChange}
+              errors={errors}
+              ratings={ratings}
+            />
+          </section>
+        </div>
+      </Card>
 
       {/* 底部操作栏：保存草稿 / 提交 */}
       <div className='bg-card fixed inset-x-0 bottom-0 z-40 border-t px-4 py-3 sm:px-6'>

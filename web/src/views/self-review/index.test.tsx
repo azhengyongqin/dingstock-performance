@@ -7,6 +7,19 @@ import type { PerfEvaluationItemResult, PerfSelfEvaluationContext } from '@/lib/
 
 import SelfReview from './index'
 
+vi.mock('@/lib/api', () => ({
+  apiFetch: vi.fn().mockResolvedValue({ open_id: 'ou_me', name: '测试员工', job_title: '工程师' }),
+  ApiError: class ApiError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  },
+  clearAuth: vi.fn(),
+  getToken: vi.fn()
+}))
+
 vi.mock('@/lib/perf-api', async importOriginal => {
   const actual = await importOriginal<typeof PerfApi>()
 
