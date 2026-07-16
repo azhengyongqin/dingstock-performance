@@ -116,7 +116,7 @@ describe('SelfReview 保存草稿', () => {
     render(<SelfReview />)
     await screen.findByText('2026 上半年绩效评定')
 
-    await user.click(screen.getByRole('radio', { name: 'A 档' }))
+    await user.click(screen.getByRole('radio', { name: 'A · 优秀' }))
     await user.click(screen.getByRole('button', { name: '保存草稿' }))
 
     expect(mockedSaveDraft).toHaveBeenCalledWith({
@@ -205,7 +205,7 @@ describe('SelfReview 提交', () => {
     render(<SelfReview />)
     await screen.findByText('2026 上半年绩效评定')
 
-    await user.click(screen.getByRole('radio', { name: 'B 档' }))
+    await user.click(screen.getByRole('radio', { name: 'B · 良好' }))
     await user.click(screen.getByRole('button', { name: '提交自评' }))
 
     expect(mockedSubmit).toHaveBeenCalledWith({
