@@ -18,6 +18,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 import { FormTemplateModule } from './form-template/form-template.module';
 import { NotificationModule } from './notification/notification.module';
+import { OkrModule } from './okr/okr.module';
 import { ParticipantModule } from './participant/participant.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ReviewModule } from './review/review.module';
@@ -46,6 +47,7 @@ import { SharedModule } from './shared/shared.module';
     CalibrationModule,
     AppealModule,
     NotificationModule,
+    OkrModule,
     DashboardModule,
     FormTemplateModule,
     ConfigTemplateModule,
