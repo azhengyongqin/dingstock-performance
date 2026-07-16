@@ -18,7 +18,7 @@ import {
 import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
-import { LarkMemberPickerDialog, type LarkPickerMember } from '@/components/shared/lark'
+import { LarkMemberPickerDialog, MemberPill, type LarkPickerMember } from '@/components/shared/lark'
 import {
   DatePicker,
   DateRangePicker,
@@ -70,6 +70,7 @@ type ComponentKey =
   | 'form-controls'
   | 'feedback'
   | 'member-picker'
+  | 'member-pill'
   | 'form-template'
   | 'config-template'
   | 'cycle-setup'
@@ -114,6 +115,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     key: 'member-picker',
     title: '人员选择弹窗',
     description: 'LarkMemberPickerDialog',
+    icon: UsersIcon
+  },
+  {
+    key: 'member-pill',
+    title: '人员胶囊',
+    description: 'MemberPill 头像 + 姓名',
     icon: UsersIcon
   },
   {
@@ -461,6 +468,37 @@ const MemberPickerPreview = () => {
     </div>
   )
 }
+
+const MemberPillPreview = () => (
+  <div className='grid gap-4 xl:grid-cols-2'>
+    <Card>
+      <CardHeader>
+        <CardTitle>已知姓名</CardTitle>
+        <CardDescription>传入 name 时直接展示，无需再打通讯录</CardDescription>
+      </CardHeader>
+      <CardContent className='flex flex-wrap gap-3'>
+        <MemberPill openId='ou_d081669b3d00fa5912f3c0928cd5bef8' name='郑亮' />
+        <MemberPill openId='ou_216b190da89a53a1d84a0e25886f8c41' name='彭巧丽' />
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>仅 openId / 空值</CardTitle>
+        <CardDescription>缺省姓名时按通讯录补齐；无 openId 显示占位</CardDescription>
+      </CardHeader>
+      <CardContent className='flex flex-col gap-3'>
+        <div className='flex flex-wrap items-center gap-2 text-sm'>
+          <span>创建人：</span>
+          <MemberPill openId='ou_d081669b3d00fa5912f3c0928cd5bef8' />
+        </div>
+        <div className='flex flex-wrap items-center gap-2 text-sm'>
+          <span>发布人：</span>
+          <MemberPill openId={null} />
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+)
 
 const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
   id: 9001,
@@ -1316,6 +1354,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
+  if (activeComponent === 'member-pill') return <MemberPillPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
   if (activeComponent === 'cycle-setup') return <CycleSetupPreview />
