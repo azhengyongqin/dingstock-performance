@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from 'sonner'
+
 import { OkrReferenceContent } from '@/components/shared/okr'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { ParticipantOkrSnapshot } from '@/lib/perf-api'
@@ -74,6 +76,8 @@ const OKR_REFERENCE_SAMPLE = {
   ]
 } satisfies ParticipantOkrSnapshot
 
+const handlePreviewSync = () => toast.success('组件示例：已触发 OKR 同步')
+
 const OkrReferencePreview = () => (
   <div className='grid items-start gap-4 xl:grid-cols-2'>
     <Card>
@@ -92,7 +96,7 @@ const OkrReferencePreview = () => (
         <CardDescription>立即展示数据库快照，同时提示正在更新。</CardDescription>
       </CardHeader>
       <CardContent>
-        <OkrReferenceContent data={OKR_REFERENCE_SAMPLE} />
+        <OkrReferenceContent data={OKR_REFERENCE_SAMPLE} onSync={handlePreviewSync} />
       </CardContent>
     </Card>
 
@@ -104,6 +108,7 @@ const OkrReferencePreview = () => (
       <CardContent>
         <OkrReferenceContent
           data={{ ...OKR_REFERENCE_SAMPLE, sync: { status: 'success' }, cycles: [], lastSyncedAt: null }}
+          onSync={handlePreviewSync}
         />
       </CardContent>
     </Card>
@@ -121,6 +126,7 @@ const OkrReferencePreview = () => (
             cycles: [],
             lastSyncedAt: null
           }}
+          onSync={handlePreviewSync}
         />
       </CardContent>
     </Card>

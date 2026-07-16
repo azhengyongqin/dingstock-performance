@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { RefreshCwIcon, TargetIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -22,6 +23,7 @@ const POLL_INTERVAL_MS = 1500
 type OkrReferenceContentProps = {
   data?: ParticipantOkrSnapshot | null
   loading?: boolean
+  onSync?: () => void
 }
 
 /** SDK 富文本只做安全的纯文本投影；链接和人员提及保留可识别文案，不注入 HTML。 */
@@ -118,13 +120,27 @@ const OkrSkeleton = () => (
   </div>
 )
 
-const EmptyOkr = () => (
+const SyncOkrButton = ({ onSync, syncing = false }: { onSync?: () => void; syncing?: boolean }) => {
+  if (!onSync) return null
+
+  return (
+    <Button type='button' variant='ghost' size='sm' disabled={syncing} onClick={onSync}>
+      <RefreshCwIcon className={syncing ? 'animate-spin' : undefined} />
+      {syncing ? '同步中' : '同步 OKR'}
+    </Button>
+  )
+}
+
+const EmptyOkr = ({ onSync }: { onSync?: () => void }) => (
   <div className='flex flex-col items-center rounded-xl border border-dashed px-5 py-12 text-center'>
     <div className='bg-muted mb-3 flex size-10 items-center justify-center rounded-full'>
       <TargetIcon className='text-muted-foreground size-5' />
     </div>
     <p className='text-sm font-medium'>暂无 OKR</p>
     <p className='text-muted-foreground mt-1 max-w-64 text-xs'>该员工当前没有可展示的 OKR</p>
+    <div className='mt-3'>
+      <SyncOkrButton onSync={onSync} />
+    </div>
   </div>
 )
 
@@ -189,12 +205,12 @@ const OkrObjective = ({ objective, index }: { objective: OkrObjectiveView; index
 }
 
 /** 纯展示组件，组件实验台可直接注入各种状态；真实页面由 ParticipantOkrContent 负责取数。 */
-export const OkrReferenceContent = ({ data, loading = false }: OkrReferenceContentProps) => {
+export const OkrReferenceContent = ({ data, loading = false, onSync }: OkrReferenceContentProps) => {
   const hasObjectives = Boolean(data?.cycles?.some(cycle => cycle.objectives.length > 0))
 
   if (!hasObjectives && (loading || data?.sync?.status === 'running')) return <OkrSkeleton />
 
-  if (!hasObjectives) return <EmptyOkr />
+  if (!hasObjectives) return <EmptyOkr onSync={onSync} />
 
   const syncedAt = formatSyncedAt(data?.lastSyncedAt ?? null)
 
@@ -209,6 +225,7 @@ export const OkrReferenceContent = ({ data, loading = false }: OkrReferenceConte
         ) : (
           <span>{syncedAt ? `更新于 ${syncedAt}` : '本地 OKR 快照'}</span>
         )}
+        <SyncOkrButton onSync={onSync} syncing={loading || data?.sync?.status === 'running'} />
       </div>
 
       {data?.cycles?.map(cycle => (
@@ -244,6 +261,7 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
   const [data, setData] = useState<ParticipantOkrSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [startingSync, setStartingSync] = useState(true)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     if (!enabled) return
@@ -301,11 +319,12 @@ export const useParticipantOkr = (participantId: number, enabled = true) => {
       active = false
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [enabled, participantId])
+  }, [enabled, participantId, reloadKey])
 
   return {
     data,
-    loading: loading || startingSync
+    loading: loading || startingSync,
+    sync: () => setReloadKey(previous => previous + 1)
   }
 }
 
@@ -315,13 +334,13 @@ export const useParticipantOkrReference = (
 ) => {
   const live = useParticipantOkr(participantId, !previewData)
 
-  return previewData ? { data: previewData, loading: false } : live
+  return previewData ? { data: previewData, loading: false, sync: undefined } : live
 }
 
 const LiveParticipantOkrContent = ({ participantId }: { participantId: number }) => {
   const state = useParticipantOkr(participantId)
 
-  return <OkrReferenceContent data={state.data} loading={state.loading} />
+  return <OkrReferenceContent data={state.data} loading={state.loading} onSync={state.sync} />
 }
 
 export const ParticipantOkrContent = ({

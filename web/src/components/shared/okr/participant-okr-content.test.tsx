@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PerfApi from '@/lib/perf-api'
@@ -88,6 +88,18 @@ const snapshot = (overrides: Partial<ParticipantOkrSnapshot> = {}): ParticipantO
 })
 
 describe('OkrReferenceContent 状态展示', () => {
+  it('有数据和无数据状态都保留同步 OKR 按钮', () => {
+    const onSync = vi.fn()
+    const { rerender } = render(<OkrReferenceContent data={snapshot()} onSync={onSync} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '同步 OKR' }))
+    expect(onSync).toHaveBeenCalledTimes(1)
+
+    rerender(<OkrReferenceContent data={snapshot({ cycles: [] })} onSync={onSync} />)
+    fireEvent.click(screen.getByRole('button', { name: '同步 OKR' }))
+    expect(onSync).toHaveBeenCalledTimes(2)
+  })
+
   it('有缓存且正在刷新时立即展示旧数据与更新状态', () => {
     render(<OkrReferenceContent data={snapshot({ sync: { status: 'running' } })} />)
 
@@ -202,6 +214,23 @@ describe('ParticipantOkrContent 缓存直出与异步刷新', () => {
     })
     expect(screen.getByText('同步后的最新目标')).toBeInTheDocument()
     expect(getParticipantOkr).toHaveBeenCalledTimes(2)
+  })
+
+  it('点击同步 OKR 会重新触发单人同步，并继续保留已有数据', async () => {
+    getParticipantOkr.mockResolvedValue(snapshot())
+    triggerParticipantOkrSync.mockResolvedValue({ ok: true, status: 'success' })
+
+    render(<ParticipantOkrContent participantId={7} />)
+
+    const syncButton = await screen.findByRole('button', { name: '同步 OKR' })
+
+    expect(triggerParticipantOkrSync).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('提升客户成功率')).toBeInTheDocument()
+
+    fireEvent.click(syncButton)
+
+    await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('提升客户成功率')).toBeInTheDocument()
   })
 
   it('读取与同步接口都失败时仍只展示无数据，不泄露 HTTP 错误', async () => {

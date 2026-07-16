@@ -78,7 +78,7 @@ const ReferencePanel = ({ participantId, employeeOpenId, collapsed, onCollapsedC
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='okr' className='space-y-5 px-4 py-4'>
-            <OkrReferenceContent data={okr.data} loading={okr.loading} />
+            <OkrReferenceContent data={okr.data} loading={okr.loading} onSync={okr.sync} />
           </TabsContent>
 
           <TabsContent value='review' className='space-y-3 px-4 py-4'>
