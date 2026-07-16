@@ -9,8 +9,7 @@ import { ApiError } from '@/lib/api'
 import type {
   FormTemplateValidationIssue,
   PerfFormTemplateVersion,
-  PerfFormTemplateVersionSummary,
-  PerfJobLevelPrefix
+  PerfFormTemplateVersionSummary
 } from '@/lib/perf-api'
 import {
   archivePerfFormTemplateVersion,
@@ -32,23 +31,12 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 
-import FormTemplateEditor from './form-template-editor'
-import FormTemplatePreview from './form-template-preview'
 import { FORM_TEMPLATE_STATUS_LABEL, JOB_LEVEL_PREFIX_LABEL } from './form-template-constants'
+import { FormTemplateNav, type FormNavDestination } from './form-template-nav'
 import { getFormTemplateActions } from './form-template-utils'
-
-const JOB_LEVEL_OPTIONS: { value: PerfJobLevelPrefix; label: string }[] = [
-  { value: 'D', label: JOB_LEVEL_PREFIX_LABEL.D },
-  { value: 'M', label: JOB_LEVEL_PREFIX_LABEL.M }
-]
 
 const readValidationIssues = (error: unknown): FormTemplateValidationIssue[] => {
   if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return []
@@ -88,6 +76,7 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
   const [saving, setSaving] = useState(false)
   const [issues, setIssues] = useState<FormTemplateValidationIssue[]>([])
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [destination, setDestination] = useState<FormNavDestination>('basic')
 
   const loadVersion = useCallback(async (versionId: number) => {
     setLoading(true)
@@ -118,17 +107,13 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
 
     const initialLoad = setTimeout(() => {
       setActiveVersionId(selected.id)
+      setDestination('basic')
       void loadVersion(selected.id)
       void loadHistory(selected.templateId)
     }, 0)
 
     return () => clearTimeout(initialLoad)
   }, [selected, loadVersion, loadHistory])
-
-  const switchVersion = (versionId: number) => {
-    setActiveVersionId(versionId)
-    void loadVersion(versionId)
-  }
 
   const saveDraft = async (): Promise<PerfFormTemplateVersion | null> => {
     if (!detail) return null
@@ -205,6 +190,7 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
 
       setDetail(draft)
       setActiveVersionId(draft.id)
+      setDestination('basic')
       toast.success(`已从 v${detail.version} 创建新草稿`)
       await loadHistory(draft.templateId)
       onChanged()
@@ -239,7 +225,7 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
   return (
     <>
       <Sheet open={selected != null} onOpenChange={open => !open && onClose()}>
-        <SheetContent className='gap-0 data-[side=right]:sm:max-w-5xl'>
+        <SheetContent className='gap-0 data-[side=right]:sm:max-w-6xl'>
           <SheetHeader className='border-b px-6 py-4'>
             <SheetTitle>{detail ? `${detail.name} · v${detail.version}` : '评估表单模板'}</SheetTitle>
           </SheetHeader>
@@ -256,47 +242,12 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge>{FORM_TEMPLATE_STATUS_LABEL[detail.status]}</Badge>
                     <Badge variant='outline'>{JOB_LEVEL_PREFIX_LABEL[detail.jobLevelPrefix]}</Badge>
-                    {detail.sourceVersionId && <Badge variant='outline'>来源 #{detail.sourceVersionId}</Badge>}
-                    {!actions?.canEdit && <span className='text-muted-foreground text-sm'>当前版本只读</span>}
-                  </div>
-
-                  <div className='grid gap-4 md:grid-cols-2'>
-                    <Field className='gap-2'>
-                      <FieldLabel>模板名称</FieldLabel>
-                      <Input
-                        value={detail.name}
-                        disabled={!actions?.canEdit}
-                        onChange={event => setDetail({ ...detail, name: event.target.value })}
-                      />
-                    </Field>
-                    <Field className='gap-2'>
-                      <FieldLabel>职级前缀</FieldLabel>
-                      <Select
-                        value={detail.jobLevelPrefix}
-                        items={JOB_LEVEL_OPTIONS}
-                        disabled={!actions?.canEdit}
-                        onValueChange={value => setDetail({ ...detail, jobLevelPrefix: value as PerfJobLevelPrefix })}
-                      >
-                        <SelectTrigger className='w-full'>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {JOB_LEVEL_OPTIONS.map(option => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </Field>
-                    <Field className='gap-2 md:col-span-2'>
-                      <FieldLabel>模板说明</FieldLabel>
-                      <Textarea
-                        value={detail.description ?? ''}
-                        disabled={!actions?.canEdit}
-                        onChange={event => setDetail({ ...detail, description: event.target.value })}
-                      />
-                    </Field>
+                    {detail.sourceVersionId && (
+                      <Badge variant='outline'>来源 #{detail.sourceVersionId}</Badge>
+                    )}
+                    {!actions?.canEdit && (
+                      <span className='text-muted-foreground text-sm'>当前版本只读</span>
+                    )}
                   </div>
 
                   {issues.length > 0 && (
@@ -313,40 +264,19 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
                     </Alert>
                   )}
 
-                  <Tabs defaultValue='design'>
-                    <TabsList>
-                      <TabsTrigger value='design'>表单设计</TabsTrigger>
-                      <TabsTrigger value='preview'>填写预览</TabsTrigger>
-                      <TabsTrigger value='history'>版本历史</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value='design' className='mt-4'>
-                      <FormTemplateEditor value={detail} editable={Boolean(actions?.canEdit)} onChange={setDetail} />
-                    </TabsContent>
-                    <TabsContent value='preview' className='mt-4'>
-                      <FormTemplatePreview value={detail} />
-                    </TabsContent>
-                    <TabsContent value='history' className='mt-4 flex flex-col gap-2'>
-                      {versions.length === 0 ? (
-                        <p className='text-muted-foreground py-6 text-center text-sm'>当前角色没有可查看的其他版本</p>
-                      ) : (
-                        versions.map(version => (
-                          <Button
-                            key={version.id}
-                            variant={version.id === activeVersionId ? 'secondary' : 'outline'}
-                            className='h-auto justify-between py-3'
-                            onClick={() => switchVersion(version.id)}
-                          >
-                            <span>
-                              v{version.version} · {FORM_TEMPLATE_STATUS_LABEL[version.status]}
-                            </span>
-                            <span className='text-muted-foreground'>
-                              {JOB_LEVEL_PREFIX_LABEL[version.jobLevelPrefix]}
-                            </span>
-                          </Button>
-                        ))
-                      )}
-                    </TabsContent>
-                  </Tabs>
+                  <FormTemplateNav
+                    detail={detail}
+                    versions={versions}
+                    activeVersionId={activeVersionId}
+                    canEdit={Boolean(actions?.canEdit)}
+                    destination={destination}
+                    onDestinationChange={setDestination}
+                    onDetailChange={setDetail}
+                    onSelectVersion={versionId => {
+                      setActiveVersionId(versionId)
+                      void loadVersion(versionId)
+                    }}
+                  />
                 </div>
               </ScrollArea>
 
@@ -387,7 +317,9 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
         <DialogContent>
           <DialogHeader>
             <DialogTitle>归档当前版本</DialogTitle>
-            <DialogDescription>归档后该版本不能再用于新的配置模板，但历史引用仍会保留。确定继续吗？</DialogDescription>
+            <DialogDescription>
+              归档后该版本不能再用于新的配置模板，但历史引用仍会保留。确定继续吗？
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant='outline' onClick={() => setArchiveOpen(false)}>

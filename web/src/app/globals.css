@@ -220,3 +220,14 @@ input[type='number']::-webkit-outer-spin-button {
   --spacing: 0.262222rem;
 }
 
+/* 评估表单模板换序：关闭整页淡入淡出，保留具名元素的位移动画 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+::view-transition-group(*) {
+  animation-duration: 0.35s;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
