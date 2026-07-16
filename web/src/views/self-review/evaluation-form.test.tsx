@@ -139,7 +139,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
     expect(screen.getByRole('textbox', { name: '一句话总结' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '详细说明' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '复盘总结' })).toBeInTheDocument()
-    expect(screen.getByText('支持 Markdown 语法')).toBeInTheDocument()
+    expect(screen.getByText('富文本编辑，内容以 Markdown 格式保存')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '晋升意愿' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '跨团队协作' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '导师带教' })).toBeInTheDocument()

@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
+import { EvaluationAnswerContent } from '@/components/shared/markdown'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -87,9 +88,11 @@ const renderAnswerItems = (items: VisibleAnswer[]) => (
     {items.map(item => (
       <div key={`${item.itemKey}-${item.title}`} className='rounded-lg border p-4 text-sm'>
         <p className='font-medium'>{item.title}</p>
-        <p className='text-muted-foreground mt-1 whitespace-pre-wrap'>
-          {String(item.value ?? item.rawLevel ?? item.rawScore ?? '')}
-        </p>
+        <EvaluationAnswerContent
+          type={item.type}
+          value={String(item.value ?? item.rawLevel ?? item.rawScore ?? '')}
+          className='text-muted-foreground mt-1'
+        />
       </div>
     ))}
   </>
@@ -126,9 +129,7 @@ const Results = () => {
   const appeals = data?.appeals ?? []
 
   // 可操作：结果已发布待确认 / 申诉处理后待再次确认
-  const actionable =
-    participant?.status === 'RESULT_PUBLISHED' ||
-    participant?.status === 'RE_CONFIRMING'
+  const actionable = participant?.status === 'RESULT_PUBLISHED' || participant?.status === 'RE_CONFIRMING'
 
   // 拉取当前周期结果
   const fetchCurrent = useCallback(async () => {

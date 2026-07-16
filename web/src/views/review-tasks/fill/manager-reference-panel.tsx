@@ -5,6 +5,7 @@ import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
 import EmployeeBasicInfo from '@/components/shared/EmployeeBasicInfo'
+import { EvaluationAnswerContent } from '@/components/shared/markdown'
 import { OkrReferenceContent, useParticipantOkrReference } from '@/components/shared/okr'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -109,7 +110,9 @@ const ManagerReferencePanel = ({
       <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0'>
         <div className='flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-y px-3 pt-2'>
           <TabsList variant='line' className='h-10 w-max min-w-full flex-nowrap'>
-            <TabsTrigger value='info' className='shrink-0'>基本信息</TabsTrigger>
+            <TabsTrigger value='info' className='shrink-0'>
+              基本信息
+            </TabsTrigger>
             <TabsTrigger value='self'>员工自评</TabsTrigger>
             <TabsTrigger value='okr'>OKR</TabsTrigger>
             <TabsTrigger value='peer'>360°评估</TabsTrigger>
@@ -132,7 +135,7 @@ const ManagerReferencePanel = ({
               selfItems.map(item => (
                 <article key={item.id} className='rounded-lg border px-3 py-3'>
                   <p className='text-muted-foreground mb-1 text-[11px]'>{item.itemKey}</p>
-                  <p className='text-sm whitespace-pre-wrap'>{resultValue(item)}</p>
+                  <EvaluationAnswerContent type={item.itemType} value={resultValue(item)} />
                 </article>
               ))
             ) : (
@@ -174,7 +177,10 @@ const ManagerReferencePanel = ({
             {history.length > 0 ? (
               <ul className='divide-border divide-y'>
                 {history.map(item => (
-                  <li key={item.participant.cycle.id} className='flex items-center justify-between gap-3 py-2.5 text-sm'>
+                  <li
+                    key={item.participant.cycle.id}
+                    className='flex items-center justify-between gap-3 py-2.5 text-sm'
+                  >
                     <span className='truncate'>{item.participant.cycle.name}</span>
                     <div className='flex shrink-0 items-center gap-2'>
                       <Badge variant='outline'>{item.finalLevel}</Badge>

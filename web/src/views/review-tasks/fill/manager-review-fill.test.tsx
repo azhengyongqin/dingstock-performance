@@ -124,7 +124,7 @@ const context = {
   state: 'DRAFT',
   selfEvaluation: {
     id: 90,
-    items: [{ id: 1, itemKey: 'item:self:summary', itemType: 'MARKDOWN', value: '完成核心项目' }]
+    items: [{ id: 1, itemKey: 'item:self:summary', itemType: 'MARKDOWN', value: '## 完成核心项目' }]
   },
   peerResult: {
     status: 'READY',
@@ -170,7 +170,7 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByText('2021-03-15')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '360°评估' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
-    expect(screen.getByText('完成核心项目')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '完成核心项目', level: 2 })).toBeInTheDocument()
     expect(screen.getByText('晋升评估（Leader 填写）')).toBeInTheDocument()
     expect(screen.queryByText(/初步绩效评级/)).not.toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))

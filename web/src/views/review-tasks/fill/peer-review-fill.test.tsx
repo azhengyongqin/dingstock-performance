@@ -123,7 +123,7 @@ const context = {
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
         itemKey: 'item:self:summary',
         itemType: 'MARKDOWN',
-        value: '完成核心项目协作落地'
+        value: '## 完成核心项目\n\n- 协作落地'
       }
     ]
   }
@@ -154,7 +154,8 @@ describe('PeerReviewFill 关键流程', () => {
     expect(screen.queryByText('入职日期：')).not.toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '员工自评' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
-    expect(screen.getByText('完成核心项目协作落地')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '完成核心项目', level: 2 })).toBeInTheDocument()
+    expect(screen.getByRole('list')).toHaveTextContent('协作落地')
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))

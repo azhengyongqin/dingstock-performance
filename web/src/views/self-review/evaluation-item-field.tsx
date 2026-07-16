@@ -4,6 +4,7 @@
 import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { RatingSelector } from '@/components/shared/RatingSelector'
+import { MarkdownEditor } from '@/components/shared/markdown'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldDescription, FieldError, FieldTitle } from '@/components/ui/field'
@@ -77,17 +78,17 @@ const LongTextField = ({ item, answer, onChange, disabled }: FieldProps) => (
   />
 )
 
-const MarkdownField = ({ item, answer, onChange, disabled }: FieldProps) => (
+const MarkdownField = ({ item, answer, onChange, disabled, invalid }: FieldProps & { invalid?: boolean }) => (
   <div className='flex flex-col gap-1'>
-    <Textarea
-      aria-label={item.title}
-      rows={6}
+    <MarkdownEditor
+      ariaLabel={item.title}
       placeholder={item.placeholder ?? undefined}
       value={typeof answer?.value === 'string' ? answer.value : ''}
       disabled={disabled}
-      onChange={event => onChange({ value: event.target.value })}
+      invalid={invalid}
+      onChange={value => onChange({ value })}
     />
-    <FieldDescription>支持 Markdown 语法</FieldDescription>
+    <FieldDescription>富文本编辑，内容以 Markdown 格式保存</FieldDescription>
   </div>
 )
 
@@ -240,7 +241,9 @@ const EvaluationItemField = ({ item, answer, onChange, disabled, error, ratings 
     {item.type === 'SCORE' && <ScoreField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
     {item.type === 'SHORT_TEXT' && <ShortTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
     {item.type === 'LONG_TEXT' && <LongTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'MARKDOWN' && <MarkdownField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+    {item.type === 'MARKDOWN' && (
+      <MarkdownField item={item} answer={answer} onChange={onChange} disabled={disabled} invalid={!!error} />
+    )}
     {item.type === 'SINGLE_SELECT' && (
       <SingleSelectField item={item} answer={answer} onChange={onChange} disabled={disabled} />
     )}

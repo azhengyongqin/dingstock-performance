@@ -7,6 +7,7 @@ import {
   CheckCircle2Icon,
   ClipboardCheckIcon,
   ComponentIcon,
+  FileTextIcon,
   FileStackIcon,
   HistoryIcon,
   Layers3Icon,
@@ -21,6 +22,7 @@ import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
 import { LarkMemberPickerDialog, MemberPill, type LarkPickerMember } from '@/components/shared/lark'
+import { MarkdownContent, MarkdownEditor } from '@/components/shared/markdown'
 import {
   DatePicker,
   DateRangePicker,
@@ -82,6 +84,7 @@ type ComponentKey =
   | 'cycle-progress'
   | 'active-config-impact'
   | 'snapshot-provenance'
+  | 'markdown'
   | 'evaluation-form'
   | 'rating-selector'
 
@@ -134,6 +137,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '人员胶囊',
     description: 'MemberPill 头像 + 姓名',
     icon: UsersIcon
+  },
+  {
+    key: 'markdown',
+    title: 'Markdown 编辑器',
+    description: 'Tiptap 编辑 / Markdown 渲染',
+    icon: FileTextIcon
   },
   {
     key: 'form-template',
@@ -386,6 +395,37 @@ const FormControlsPreview = () => {
         <CardContent className='text-muted-foreground flex min-h-38 flex-col justify-center gap-2 text-sm'>
           <CheckCircle2Icon className='text-primary size-5' />
           <span>当前角色：{role === 'hr' ? 'HR 管理员' : role === 'manager' ? '直属上级' : '普通员工'}</span>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+/** 共享 Markdown 能力示例：左侧富文本编辑，右侧实时验证持久化字符串的只读渲染结果。 */
+const MarkdownPreview = () => {
+  const [content, setContent] = useState(
+    '## 本周期总结\n\n完成了 **关键目标**，并沉淀以下成果：\n\n- 交付绩效评审流程\n- 优化跨团队协作\n\n> 下一周期继续提升交付效率。'
+  )
+
+  return (
+    <div className='grid gap-4 xl:grid-cols-2'>
+      <Card>
+        <CardHeader>
+          <CardTitle>Tiptap 编辑态</CardTitle>
+          <CardDescription>工具栏修改会实时回写为 Markdown 字符串。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MarkdownEditor ariaLabel='Markdown 示例编辑器' value={content} onChange={setContent} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>总结只读态</CardTitle>
+          <CardDescription>与评审参考区和结果页使用同一个安全渲染组件。</CardDescription>
+        </CardHeader>
+        <CardContent className='space-y-4'>
+          <MarkdownContent content={content} />
+          <pre className='bg-muted max-h-48 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>{content}</pre>
         </CardContent>
       </Card>
     </div>
@@ -1411,6 +1451,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'cycle-progress') return <CycleProgressPreview />
   if (activeComponent === 'active-config-impact') return <ActiveConfigImpactPreview />
   if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
+  if (activeComponent === 'markdown') return <MarkdownPreview />
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
   if (activeComponent === 'rating-selector') return <RatingSelectorPreview />
 
