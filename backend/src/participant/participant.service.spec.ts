@@ -377,6 +377,49 @@ describe('ParticipantService', () => {
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
   });
 
+  it('SCHEDULED 增员使用组织架构成员表格展示的职级名称匹配表单', async () => {
+    txMock.perfCycle.findFirst.mockResolvedValue({
+      id: 100,
+      status: 'SCHEDULED',
+    });
+    txMock.larkUser.findMany
+      .mockResolvedValueOnce([{ open_id: 'ou_new' }])
+      .mockResolvedValueOnce([{ open_id: 'ou_new', department_ids: ['d1'] }]);
+    txMock.perfParticipant.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 9, employeeOpenId: 'ou_new' }]);
+    txMock.larkCorehrEmployee.findMany.mockResolvedValue([
+      {
+        open_id: 'ou_new',
+        department_id: 'd1',
+        direct_manager_id: 'ou_leader',
+        // 真实租户的成员表格通过多语言 name 展示 D3-1，code 可能未返回。
+        job_level: {
+          name: [
+            { lang: 'zh-CN', value: 'D3-1' },
+            { lang: 'en-US', value: 'D3-1' },
+          ],
+        },
+      },
+    ]);
+    txMock.perfCycle.findUnique.mockResolvedValue({
+      currentConfigVersion: {
+        formSnapshots: [{ id: 88, jobLevelPrefix: 'D' }],
+      },
+    });
+    txMock.perfParticipant.createMany.mockResolvedValue({ count: 1 });
+
+    await service.addByOpenIds('ou_hr', 100, ['ou_new']);
+
+    expect(txMock.perfParticipant.update).toHaveBeenCalledWith({
+      where: { id: 9 },
+      data: expect.objectContaining({
+        jobLevelPrefixSnapshot: 'D',
+        formSnapshotId: 88,
+      }),
+    });
+  });
+
   it('ADMIN 移除已产生结果数据的考核人员被拒绝', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({

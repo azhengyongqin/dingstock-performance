@@ -9,20 +9,54 @@ describe('participant-prefix', () => {
       [{ code: 'D3' }, 'D'],
       [{ code: ' m2 ' }, 'M'],
       [{ code: 'M-1' }, 'M'],
-    ])('从 CoreHR job_level.code 解析受控前缀', (jobLevel, expected) => {
+    ])('兼容从 CoreHR job_level.code 解析受控前缀', (jobLevel, expected) => {
       expect(resolveJobLevelPrefix(jobLevel)).toEqual({
-        code: jobLevel.code.trim(),
+        levelValue: jobLevel.code.trim(),
         prefix: expected,
         status: 'MATCHED',
       });
     });
 
     it.each([
+      [
+        {
+          name: [
+            { lang: 'en-US', value: 'M2-1' },
+            { lang: 'zh-CN', value: 'D3-1' },
+          ],
+        },
+        'D3-1',
+        'D',
+      ],
+    ])(
+      '优先按组织架构成员表格的职级名称解析前缀',
+      (jobLevel, levelValue, prefix) => {
+        expect(resolveJobLevelPrefix(jobLevel)).toEqual({
+          levelValue,
+          prefix,
+          status: 'MATCHED',
+        });
+      },
+    );
+
+    it.each([
       [null, 'MISSING_JOB_LEVEL'],
       [{}, 'MISSING_JOB_LEVEL'],
       [{ code: 'P5' }, 'UNSUPPORTED_PREFIX'],
       [{ code: 3 }, 'MISSING_JOB_LEVEL'],
-    ])('不提供岗位名称或人工兜底：%p', (jobLevel, status) => {
+      [{ name: 'D3-1', code: 'D3' }, 'MISSING_JOB_LEVEL'],
+      [{ name: [], code: 'D3' }, 'MISSING_JOB_LEVEL'],
+      [{ name: null, code: 'D3' }, 'MISSING_JOB_LEVEL'],
+      [
+        {
+          name: [
+            { lang: 'zh-CN', value: '' },
+            { lang: 'en-US', value: 'M2-1' },
+          ],
+        },
+        'MISSING_JOB_LEVEL',
+      ],
+    ])('不使用职级之外的岗位或人工值兜底：%p', (jobLevel, status) => {
       expect(resolveJobLevelPrefix(jobLevel).status).toBe(status);
     });
   });
