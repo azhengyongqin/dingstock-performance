@@ -4,6 +4,7 @@
 import { PlusIcon, Trash2Icon } from 'lucide-react'
 
 import { RatingSelector } from '@/components/shared/RatingSelector'
+import { ScoreSelector } from '@/components/shared/ScoreSelector'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldDescription, FieldError, FieldTitle } from '@/components/ui/field'
@@ -39,18 +40,20 @@ const RatingItemField = ({
   />
 )
 
-const ScoreField = ({ item, answer, onChange, disabled }: FieldProps) => (
-  <Input
+/** SCORE：整数打分 + 命中等级；标题由外层横排 Label 渲染 */
+const ScoreField = ({
+  item,
+  answer,
+  onChange,
+  disabled,
+  ratings
+}: FieldProps & { ratings?: PerfConfigTemplateRating[] }) => (
+  <ScoreSelector
     aria-label={item.title}
-    type='number'
-    inputMode='decimal'
-    min={0}
-    max={100}
-    step={0.01}
-    placeholder={item.placeholder || '请输入 0-100 的分数，最多两位小数'}
     value={answer?.rawScoreText ?? ''}
+    onChange={rawScoreText => onChange({ rawScoreText })}
     disabled={disabled}
-    onChange={event => onChange({ rawScoreText: event.target.value })}
+    ratings={ratings}
   />
 )
 
@@ -220,37 +223,57 @@ export type EvaluationItemFieldProps = FieldProps & {
   ratings?: PerfConfigTemplateRating[]
 }
 
-/** 单个评估项：标题/必填标记/说明 + 对应控件 + 就地校验错误 */
-const EvaluationItemField = ({ item, answer, onChange, disabled, error, ratings }: EvaluationItemFieldProps) => (
-  <Field data-invalid={!!error} className='gap-2'>
-    <div className='flex flex-col gap-1'>
-      <FieldTitle>
-        {item.title}
-        {item.required && (
-          <span aria-hidden className='text-destructive ml-1'>
-            *
-          </span>
-        )}
-      </FieldTitle>
-      {item.description && <FieldDescription>{item.description}</FieldDescription>}
-    </div>
-    {item.type === 'RATING' && (
-      <RatingItemField item={item} answer={answer} onChange={onChange} disabled={disabled} ratings={ratings} />
+const ItemLabel = ({ item }: { item: PerfEvalFormItem }) => (
+  <FieldTitle className='shrink-0'>
+    {item.title}
+    {item.required && (
+      <span aria-hidden className='text-destructive ml-1'>
+        *
+      </span>
     )}
-    {item.type === 'SCORE' && <ScoreField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'SHORT_TEXT' && <ShortTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'LONG_TEXT' && <LongTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'MARKDOWN' && <MarkdownField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'SINGLE_SELECT' && (
-      <SingleSelectField item={item} answer={answer} onChange={onChange} disabled={disabled} />
-    )}
-    {item.type === 'MULTI_SELECT' && (
-      <MultiSelectField item={item} answer={answer} onChange={onChange} disabled={disabled} />
-    )}
-    {item.type === 'ATTACHMENT' && <AttachmentField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {item.type === 'LINK' && <LinkField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
-    {error && <FieldError>{error}</FieldError>}
-  </Field>
+  </FieldTitle>
 )
+
+/** 单个评估项：标题/必填标记/说明 + 对应控件 + 就地校验错误 */
+const EvaluationItemField = ({ item, answer, onChange, disabled, error, ratings }: EvaluationItemFieldProps) => {
+  // RATING / SCORE：Label 与控件同一行、两端对齐
+  if (item.type === 'RATING' || item.type === 'SCORE') {
+    return (
+      <Field data-invalid={!!error} className='gap-2'>
+        <div className='flex w-full items-center justify-between gap-x-3'>
+          <ItemLabel item={item} />
+          {item.type === 'RATING' ? (
+            <RatingItemField item={item} answer={answer} onChange={onChange} disabled={disabled} ratings={ratings} />
+          ) : (
+            <ScoreField item={item} answer={answer} onChange={onChange} disabled={disabled} ratings={ratings} />
+          )}
+        </div>
+        {item.description && <FieldDescription>{item.description}</FieldDescription>}
+        {error && <FieldError>{error}</FieldError>}
+      </Field>
+    )
+  }
+
+  return (
+    <Field data-invalid={!!error} className='gap-2'>
+      <div className='flex flex-col gap-1'>
+        <ItemLabel item={item} />
+        {item.description && <FieldDescription>{item.description}</FieldDescription>}
+      </div>
+      {item.type === 'SHORT_TEXT' && <ShortTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+      {item.type === 'LONG_TEXT' && <LongTextField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+      {item.type === 'MARKDOWN' && <MarkdownField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+      {item.type === 'SINGLE_SELECT' && (
+        <SingleSelectField item={item} answer={answer} onChange={onChange} disabled={disabled} />
+      )}
+      {item.type === 'MULTI_SELECT' && (
+        <MultiSelectField item={item} answer={answer} onChange={onChange} disabled={disabled} />
+      )}
+      {item.type === 'ATTACHMENT' && <AttachmentField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+      {item.type === 'LINK' && <LinkField item={item} answer={answer} onChange={onChange} disabled={disabled} />}
+      {error && <FieldError>{error}</FieldError>}
+    </Field>
+  )
+}
 
 export default EvaluationItemField

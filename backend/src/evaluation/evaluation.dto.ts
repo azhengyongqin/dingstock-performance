@@ -4,7 +4,6 @@ import {
   IsEnum,
   IsInt,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   Max,
@@ -36,10 +35,10 @@ export class EvaluationItemAnswerDto {
   @IsEnum(PerfRatingSymbol)
   rawLevel?: PerfRatingSymbol;
 
-  /** SCORE 项原始分数：0-100，最多两位小数 */
+  /** SCORE 项原始分数：0-100 整数 */
   @IsOptional()
   @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsInt()
   @Min(0)
   @Max(100)
   rawScore?: number;

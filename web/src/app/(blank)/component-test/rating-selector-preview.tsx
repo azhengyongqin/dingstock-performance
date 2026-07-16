@@ -94,19 +94,21 @@ export default function RatingSelectorPreview() {
           </div>
         </CardHeader>
         <CardContent className='flex flex-col gap-5'>
-          <Field className='gap-3'>
-            <FieldTitle>
-              业绩评分
-              <span aria-hidden className='text-destructive ml-1'>
-                *
-              </span>
-            </FieldTitle>
-            <RatingSelector
-              aria-label='业绩评分'
-              value={performance}
-              onChange={setPerformance}
-              ratings={SAMPLE_RATINGS}
-            />
+          <Field className='gap-2'>
+            <div className='flex w-full items-center justify-between gap-x-3'>
+              <FieldTitle className='shrink-0'>
+                业绩评分
+                <span aria-hidden className='text-destructive ml-1'>
+                  *
+                </span>
+              </FieldTitle>
+              <RatingSelector
+                aria-label='业绩评分'
+                value={performance}
+                onChange={setPerformance}
+                ratings={SAMPLE_RATINGS}
+              />
+            </div>
           </Field>
           <div className='flex flex-col gap-2'>
             <span className='text-sm font-medium'>业绩评价</span>
@@ -124,19 +126,21 @@ export default function RatingSelectorPreview() {
             <span aria-hidden className='bg-primary h-4 w-1 rounded-full' />
             <span className='text-base font-semibold'>价值观</span>
           </div>
-          <Field className='gap-3'>
-            <FieldTitle>
-              价值观评分
-              <span aria-hidden className='text-destructive ml-1'>
-                *
-              </span>
-            </FieldTitle>
-            <RatingSelector
-              aria-label='价值观评分'
-              value={values}
-              onChange={setValues}
-              ratings={SAMPLE_RATINGS}
-            />
+          <Field className='gap-2'>
+            <div className='flex w-full items-center justify-between gap-x-3'>
+              <FieldTitle className='shrink-0'>
+                价值观评分
+                <span aria-hidden className='text-destructive ml-1'>
+                  *
+                </span>
+              </FieldTitle>
+              <RatingSelector
+                aria-label='价值观评分'
+                value={values}
+                onChange={setValues}
+                ratings={SAMPLE_RATINGS}
+              />
+            </div>
           </Field>
         </CardContent>
       </Card>

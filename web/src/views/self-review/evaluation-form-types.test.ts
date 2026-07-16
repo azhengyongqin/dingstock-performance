@@ -71,7 +71,8 @@ describe('validateEvaluationItem SCORE 边界', () => {
     expect(validateEvaluationItem(scoreItem, { rawScoreText: '100.01' })).toMatch(/0-100/)
   })
 
-  it('三位小数拒绝', () => {
+  it('小数拒绝', () => {
+    expect(validateEvaluationItem(scoreItem, { rawScoreText: '85.5' })).toMatch(/0-100/)
     expect(validateEvaluationItem(scoreItem, { rawScoreText: '85.123' })).toMatch(/0-100/)
   })
 
@@ -84,8 +85,8 @@ describe('validateEvaluationItem SCORE 边界', () => {
     expect(validateEvaluationItem(scoreItem, { rawScoreText: '100' })).toBeNull()
   })
 
-  it('两位小数通过', () => {
-    expect(validateEvaluationItem(scoreItem, { rawScoreText: '85.55' })).toBeNull()
+  it('整数分数通过', () => {
+    expect(validateEvaluationItem(scoreItem, { rawScoreText: '85' })).toBeNull()
   })
 })
 
@@ -150,7 +151,7 @@ describe('toEvaluationAnswers', () => {
         itemKey: 'item:SELF:EMPLOYEE:1:0',
         itemType: 'SCORE',
         rawLevel: null,
-        rawScore: '92.50',
+        rawScore: '92',
         calculationScore: '92.50',
         value: null
       },
@@ -171,7 +172,7 @@ describe('toEvaluationAnswers', () => {
     const answers = toEvaluationAnswers(items)
 
     expect(answers['item:SELF:EMPLOYEE:0:0']).toEqual({ rawLevel: 'A' })
-    expect(answers['item:SELF:EMPLOYEE:1:0']).toEqual({ rawScoreText: '92.50' })
+    expect(answers['item:SELF:EMPLOYEE:1:0']).toEqual({ rawScoreText: '92' })
     expect(answers['item:SELF:EMPLOYEE:1:1']).toEqual({ value: '文本内容' })
   })
 })

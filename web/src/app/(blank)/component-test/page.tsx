@@ -8,6 +8,7 @@ import {
   ClipboardCheckIcon,
   ComponentIcon,
   FileStackIcon,
+  GaugeIcon,
   HistoryIcon,
   Layers3Icon,
   ListChecksIcon,
@@ -63,6 +64,7 @@ import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
+import ScoreSelectorPreview from './score-selector-preview'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
@@ -84,6 +86,7 @@ type ComponentKey =
   | 'snapshot-provenance'
   | 'evaluation-form'
   | 'rating-selector'
+  | 'score-selector'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -182,6 +185,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '评分选择器',
     description: 'RatingSelector · 时间轴胶囊',
     icon: StarIcon
+  },
+  {
+    key: 'score-selector',
+    title: '分数选择器',
+    description: 'ScoreSelector · 整数 + 命中等级',
+    icon: GaugeIcon
   }
 ]
 
@@ -1413,6 +1422,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'snapshot-provenance') return <SnapshotProvenanceCardPreview />
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
   if (activeComponent === 'rating-selector') return <RatingSelectorPreview />
+  if (activeComponent === 'score-selector') return <ScoreSelectorPreview />
 
   return <DateTimePreview />
 }
@@ -1422,11 +1432,12 @@ const ComponentTestPage = () => {
   const activeItem = COMPONENT_MENU.find(item => item.key === activeComponent) ?? COMPONENT_MENU[0]
 
   return (
-    <div className='bg-muted/30 min-h-dvh'>
+    // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
+    <div className='bg-muted/30 flex h-dvh flex-col overflow-hidden'>
       <Header />
-      <main className='px-4 py-6 sm:px-6'>
-        <div className='mx-auto flex w-full max-w-7xl flex-col gap-5'>
-          <div className='flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
+      <main className='min-h-0 flex-1 overflow-hidden px-4 py-6 sm:px-6'>
+        <div className='mx-auto flex h-full w-full max-w-7xl flex-col gap-5'>
+          <div className='flex shrink-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between'>
             <div className='flex flex-col gap-2'>
               <Badge variant='outline' className='w-fit'>
                 Shared UI Lab
@@ -1440,14 +1451,14 @@ const ComponentTestPage = () => {
             </div>
           </div>
 
-          <div className='grid min-h-[560px] gap-5 lg:grid-cols-[280px_1fr]'>
-            <aside className='bg-card text-card-foreground h-fit rounded-xl border shadow-xs'>
-              <div className='flex items-center gap-2 px-4 py-3'>
+          <div className='grid min-h-0 flex-1 gap-5 lg:grid-cols-[280px_1fr]'>
+            <aside className='bg-card text-card-foreground flex min-h-0 flex-col overflow-hidden rounded-xl border shadow-xs'>
+              <div className='flex shrink-0 items-center gap-2 px-4 py-3'>
                 <PanelLeftIcon className='text-muted-foreground size-4' />
                 <span className='text-sm font-medium'>组件菜单</span>
               </div>
-              <Separator />
-              <nav className='flex flex-col gap-1 p-2'>
+              <Separator className='shrink-0' />
+              <nav className='flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overscroll-contain p-2'>
                 {COMPONENT_MENU.map(item => {
                   const Icon = item.icon
                   const active = item.key === activeComponent
@@ -1458,7 +1469,7 @@ const ComponentTestPage = () => {
                       type='button'
                       variant='ghost'
                       className={cn(
-                        'hover:bg-muted flex w-full items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
+                        'hover:bg-muted flex w-full shrink-0 items-start gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors',
                         active && 'bg-muted text-foreground'
                       )}
                       onClick={() => setActiveComponent(item.key)}
@@ -1474,8 +1485,8 @@ const ComponentTestPage = () => {
               </nav>
             </aside>
 
-            <section className='flex min-w-0 flex-col gap-4'>
-              <div className='bg-card rounded-xl border px-4 py-3 shadow-xs'>
+            <section className='flex min-h-0 min-w-0 flex-col gap-4 overflow-y-auto overscroll-contain'>
+              <div className='bg-card shrink-0 rounded-xl border px-4 py-3 shadow-xs'>
                 <div className='flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between'>
                   <div>
                     <h2 className='text-base font-medium'>{activeItem.title}</h2>
