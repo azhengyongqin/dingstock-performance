@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本仓库同时使用 Claude Code 和 Codex 开发。
+本仓库同时使用 Claude Code,Codex,Cursor进行开发。
 
 ## 语言
 
