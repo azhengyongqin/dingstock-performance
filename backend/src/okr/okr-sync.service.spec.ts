@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, Logger } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -14,6 +14,27 @@ const asPageIterator = <T>(items: T[]) =>
   );
 
 const flushAsync = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const badRequestError = (code = 1001004, msg = 'okr data not found') =>
+  Object.assign(new Error('Request failed with status code 400'), {
+    config: {
+      method: 'get',
+      url: '/open-apis/okr/v2/objectives/objective-1/indicator',
+      params: {
+        user_id_type: 'open_id',
+        department_id_type: 'open_department_id',
+      },
+    },
+    response: {
+      status: 400,
+      data: {
+        code,
+        msg,
+        log_id: 'test-log-id',
+        troubleshooter: 'https://open.feishu.cn/search?log_id=test-log-id',
+      },
+    },
+  });
 
 const lastStatusWrite = (setMock: { mock: { calls: unknown[][] } }) => {
   const writes = setMock.mock.calls.filter(
@@ -57,7 +78,7 @@ describe('OkrSyncService', () => {
   };
 
   const categoryListMock = jest.fn();
-  const cycleListMock = jest.fn();
+  const cyclePageListMock = jest.fn();
   const objectiveListMock = jest.fn();
   const keyResultListMock = jest.fn();
   const objectiveIndicatorMock = jest.fn();
@@ -71,7 +92,7 @@ describe('OkrSyncService', () => {
       okr: {
         v2: {
           okrCategory: { listWithIterator: categoryListMock },
-          okrCycle: { listWithIterator: cycleListMock },
+          okrCycle: { list: cyclePageListMock },
           okrCycleObjective: { listWithIterator: objectiveListMock },
           okrObjectiveKeyResult: { listWithIterator: keyResultListMock },
           okrObjectiveIndicator: { list: objectiveIndicatorMock },
@@ -110,21 +131,26 @@ describe('OkrSyncService', () => {
         },
       ]),
     );
-    cycleListMock.mockReturnValue(
-      asPageIterator([
-        {
-          id: 'cycle-1',
-          create_time: '1000',
-          update_time: '1001',
-          tenant_cycle_id: 'tenant-cycle-1',
-          owner: { owner_type: 'user', user_id: 'ou-1' },
-          start_time: '1000',
-          end_time: '2000',
-          cycle_status: 1,
-          score: 0.8,
-        },
-      ]),
-    );
+    cyclePageListMock.mockResolvedValue({
+      code: 0,
+      msg: 'success',
+      data: {
+        has_more: false,
+        items: [
+          {
+            id: 'cycle-1',
+            create_time: '1000',
+            update_time: '1001',
+            tenant_cycle_id: 'tenant-cycle-1',
+            owner: { owner_type: 'user', user_id: 'ou-1' },
+            start_time: '1000',
+            end_time: '2000',
+            cycle_status: 1,
+            score: 0.8,
+          },
+        ],
+      },
+    });
     objectiveListMock.mockReturnValue(
       asPageIterator([
         {
@@ -247,7 +273,7 @@ describe('OkrSyncService', () => {
     });
     await flushAsync();
 
-    expect(cycleListMock).toHaveBeenCalledWith({
+    expect(cyclePageListMock).toHaveBeenCalledWith({
       params: {
         user_id: 'ou-1',
         user_id_type: 'open_id',
@@ -287,8 +313,196 @@ describe('OkrSyncService', () => {
     expect(redisMock.del).toHaveBeenCalledWith('okr:sync:lock');
   });
 
+  it('按接口 has_more 和 page_token 拉取员工的全部 OKR 周期', async () => {
+    cyclePageListMock
+      .mockResolvedValueOnce({
+        code: 0,
+        msg: 'success',
+        data: {
+          has_more: true,
+          page_token: 'next-page',
+          items: [
+            {
+              id: 'cycle-1',
+              create_time: '1000',
+              update_time: '1001',
+              tenant_cycle_id: 'tenant-cycle-1',
+              owner: { owner_type: 'user', user_id: 'ou-1' },
+              start_time: '1000',
+              end_time: '2000',
+              cycle_status: 1,
+              score: 0.8,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        msg: 'success',
+        data: {
+          has_more: false,
+          items: [
+            {
+              id: 'cycle-2',
+              create_time: '2000',
+              update_time: '2001',
+              tenant_cycle_id: 'tenant-cycle-2',
+              owner: { owner_type: 'user', user_id: 'ou-1' },
+              start_time: '2000',
+              end_time: '3000',
+              cycle_status: 1,
+              score: 0.6,
+            },
+          ],
+        },
+      });
+
+    await service.triggerSync();
+    await flushAsync();
+
+    expect(cyclePageListMock).toHaveBeenNthCalledWith(1, {
+      params: {
+        user_id: 'ou-1',
+        user_id_type: 'open_id',
+        page_size: 100,
+      },
+    });
+    expect(cyclePageListMock).toHaveBeenNthCalledWith(2, {
+      params: {
+        user_id: 'ou-1',
+        user_id_type: 'open_id',
+        page_size: 100,
+        page_token: 'next-page',
+      },
+    });
+    expect(prismaMock.larkOkrCycle.upsert).toHaveBeenCalledTimes(2);
+    expect(lastStatusWrite(redisMock.set)).toMatchObject({
+      status: 'success',
+      cycles: 2,
+    });
+  });
+
+  it('后续周期页返回错误时标记员工失败且不清理旧快照', async () => {
+    cyclePageListMock
+      .mockResolvedValueOnce({
+        code: 0,
+        msg: 'success',
+        data: {
+          has_more: true,
+          page_token: 'next-page',
+          items: [
+            {
+              id: 'cycle-1',
+              create_time: '1000',
+              update_time: '1001',
+              tenant_cycle_id: 'tenant-cycle-1',
+              owner: { owner_type: 'user', user_id: 'ou-1' },
+              start_time: '1000',
+              end_time: '2000',
+              cycle_status: 1,
+              score: 0.8,
+            },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        code: 1001002,
+        msg: 'No permission to access this OKR data',
+      });
+
+    await service.triggerSync();
+    await flushAsync();
+
+    expect(lastStatusWrite(redisMock.set)).toMatchObject({
+      status: 'failed',
+      failedUsers: 1,
+      userErrors: [
+        {
+          openId: 'ou-1',
+          error:
+            '获取员工 OKR 周期失败（code=1001002）：No permission to access this OKR data',
+        },
+      ],
+    });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('单条 OKR 子资源返回 400 时跳过并继续同步后续目标', async () => {
+    const warnSpy = jest
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => undefined);
+    objectiveListMock.mockReturnValue(
+      asPageIterator([
+        {
+          id: 'objective-1',
+          create_time: '1000',
+          update_time: '1001',
+          owner: { owner_type: 'user', user_id: 'ou-1' },
+          cycle_id: 'cycle-1',
+          position: 1,
+        },
+        {
+          id: 'objective-2',
+          create_time: '1000',
+          update_time: '1001',
+          owner: { owner_type: 'user', user_id: 'ou-1' },
+          cycle_id: 'cycle-1',
+          position: 2,
+        },
+      ]),
+    );
+    objectiveIndicatorMock.mockRejectedValueOnce(badRequestError());
+
+    await service.triggerSync();
+    await flushAsync();
+
+    expect(prismaMock.larkOkrObjective.upsert).toHaveBeenCalledTimes(2);
+    expect(objectiveIndicatorMock).toHaveBeenCalledTimes(2);
+    expect(objectiveProgressMock).toHaveBeenCalledTimes(2);
+    expect(lastStatusWrite(redisMock.set)).toMatchObject({
+      status: 'success',
+      objectives: 2,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '"url":"/open-apis/okr/v2/objectives/objective-1/indicator"',
+      ),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"user_id_type":"open_id"'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"code":1001004'),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"log_id":"test-log-id"'),
+    );
+    expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('单条 OKR 子资源返回非 400 时仍将员工同步标记为失败', async () => {
+    objectiveIndicatorMock.mockRejectedValueOnce(
+      Object.assign(new Error('Request failed with status code 500'), {
+        response: {
+          status: 500,
+          data: { code: 1009999, msg: 'Internal server error' },
+        },
+      }),
+    );
+
+    await service.triggerSync();
+    await flushAsync();
+
+    expect(lastStatusWrite(redisMock.set)).toMatchObject({
+      status: 'failed',
+      failedUsers: 1,
+    });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
   it('全部员工同步失败时记录 failed 并保留错误定位信息', async () => {
-    cycleListMock.mockRejectedValueOnce(new Error('no permission'));
+    cyclePageListMock.mockRejectedValueOnce(new Error('no permission'));
 
     await service.triggerSync();
     await flushAsync();
@@ -339,7 +553,7 @@ describe('OkrSyncService', () => {
       { open_id: 'ou-1' },
       { open_id: 'ou-2' },
     ]);
-    cycleListMock.mockRejectedValueOnce(new Error('no permission'));
+    cyclePageListMock.mockRejectedValueOnce(new Error('no permission'));
 
     await service.triggerSync();
     await flushAsync();
@@ -394,7 +608,7 @@ describe('OkrSyncService', () => {
       status: 'running',
       startedAt: '2026-07-16T10:00:00Z',
     });
-    expect(cycleListMock).not.toHaveBeenCalled();
+    expect(cyclePageListMock).not.toHaveBeenCalled();
   });
 
   it('未同步过时状态为 idle', async () => {

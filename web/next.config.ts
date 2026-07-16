@@ -13,7 +13,8 @@ const nextConfig: NextConfig = {
         permanent: true
       }
     ]
-  }
+  },
+  allowedDevOrigins: ['192.168.27.92'],
 };
 
 export default nextConfig;

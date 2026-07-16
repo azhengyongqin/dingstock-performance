@@ -39,6 +39,8 @@ const lastStatusWrite = (setMock: { mock: { calls: unknown[][] } }) => {
     users?: number;
     corehrEmployees?: number;
     corehrError?: string;
+    compensationArchives?: number;
+    compensationError?: string;
     error?: string;
   };
 };
@@ -56,10 +58,12 @@ describe('ContactSyncService', () => {
     larkDepartment: { upsert: jest.fn().mockResolvedValue({}) },
     larkUser: { upsert: jest.fn().mockResolvedValue({}) },
     larkCorehrEmployee: { upsert: jest.fn().mockResolvedValue({}) },
+    larkCompensationArchive: { upsert: jest.fn().mockResolvedValue({}) },
   };
   const childrenWithIteratorMock = jest.fn();
   const findByDepartmentWithIteratorMock = jest.fn();
   const corehrBatchGetMock = jest.fn();
+  const compensationQueryMock = jest.fn();
   const larkServiceMock = {
     getClient: () => ({
       contact: {
@@ -73,6 +77,9 @@ describe('ContactSyncService', () => {
       corehr: {
         v2: { employee: { batchGet: corehrBatchGetMock } },
       },
+      compensation: {
+        v1: { archive: { query: compensationQueryMock } },
+      },
     }),
   };
 
@@ -82,6 +89,10 @@ describe('ContactSyncService', () => {
     jest.clearAllMocks();
     redisMock.set.mockResolvedValue('OK');
     redisMock.del.mockResolvedValue(1);
+    compensationQueryMock.mockResolvedValue({
+      code: 0,
+      data: { items: [], has_more: false },
+    });
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -121,12 +132,65 @@ describe('ContactSyncService', () => {
         ]),
       );
     // CoreHR 只录入了 ou-1（ou-2 缺失，模拟机器人/未入职账号）
-    corehrBatchGetMock.mockResolvedValue({
-      code: 0,
-      data: {
-        items: [{ employment_id: 'ou-1', employee_number: 'D19001' }],
-      },
-    });
+    corehrBatchGetMock
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          items: [{ employment_id: 'ou-1', employee_number: 'D19001' }],
+        },
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          items: [
+            {
+              employment_id: 'ou-1',
+              person_info: { national_id_number: '110101199001011234' },
+            },
+          ],
+        },
+      });
+    compensationQueryMock
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          items: [
+            {
+              user_id: 'ou-1',
+              id: 'archive-1',
+              tid: 'archive-tid-1',
+              plan_id: 'plan-1',
+              plan_tid: 'plan-tid-1',
+              currency_id: 'currency-cny',
+              change_reason_id: 'reason-1',
+              change_description: '年度调薪',
+              effective_date: '2026-01-01',
+              archive_items: [{ item_id: 'base-salary', item_result: '15000' }],
+              archive_indicators: [
+                { indicator_id: 'annual-cash', indicator_result: '180000' },
+              ],
+            },
+          ],
+          page_token: 'next-page',
+          has_more: true,
+        },
+      })
+      .mockResolvedValueOnce({
+        code: 0,
+        data: {
+          items: [
+            {
+              user_id: 'ou-1',
+              id: 'archive-1',
+              tid: 'archive-tid-2',
+              effective_date: '2026-07-01',
+              archive_items: [],
+              archive_indicators: [],
+            },
+          ],
+          has_more: false,
+        },
+      });
 
     const started = await service.triggerSync();
     expect(started.status).toBe('running');
@@ -153,15 +217,38 @@ describe('ContactSyncService', () => {
 
     // CoreHR 详情：按去重后的 open_id 批量拉取（open_id 即 employment_id），
     // ou-2 未录入 CoreHR（响应缺失）时只入库 ou-1。
-    expect(corehrBatchGetMock).toHaveBeenCalledTimes(1);
-    const batchGetArg = (
-      corehrBatchGetMock.mock.calls as unknown[][]
-    )[0][0] as {
+    expect(corehrBatchGetMock).toHaveBeenCalledTimes(2);
+    const batchGetArgs = (corehrBatchGetMock.mock.calls as unknown[][]).map(
+      (call) => call[0],
+    ) as Array<{
       data: { employment_ids: string[]; fields: string[] };
       params: Record<string, string>;
-    };
+    }>;
+    const batchGetArg = batchGetArgs[0];
+    const requestedFields = batchGetArgs.flatMap((arg) => arg.data.fields);
     expect(batchGetArg.data.employment_ids).toEqual(['ou-1', 'ou-2']);
-    expect(batchGetArg.data.fields).toContain('employee_number');
+    expect(requestedFields).toContain('employee_number');
+    expect(requestedFields).toEqual(
+      expect.arrayContaining([
+        'ats_application_id',
+        'compensation_type',
+        'custom_org_05',
+        'direct_manager.person_info.preferred_name',
+        'job.description',
+        'job_family.parent_id',
+        'job_level.description',
+        'pay_group_id',
+        'person_info.bank_account_list',
+        'person_info.national_id_number',
+        'position.descriptions',
+        'work_shift',
+      ]),
+    );
+    // 完整字段超过 100 个时拆成多次请求，每次仍满足接口上限且整体不重复。
+    expect(batchGetArgs.every((arg) => arg.data.fields.length <= 100)).toBe(
+      true,
+    );
+    expect(new Set(requestedFields).size).toBe(requestedFields.length);
     expect(batchGetArg.params).toMatchObject({
       user_id_type: 'open_id',
       department_id_type: 'open_department_id',
@@ -177,6 +264,37 @@ describe('ContactSyncService', () => {
     expect(corehrUpsertArg.create).toMatchObject({
       open_id: 'ou-1',
       employee_number: 'D19001',
+      person_info: { national_id_number: '110101199001011234' },
+    });
+
+    // 薪资档案：按 open_id 查询并跟随 page_token 翻页，以 tid 保存每个历史版本。
+    expect(compensationQueryMock).toHaveBeenCalledTimes(2);
+    expect(compensationQueryMock).toHaveBeenNthCalledWith(1, {
+      data: { user_id_list: ['ou-1', 'ou-2'] },
+      params: { page_size: 500, user_id_type: 'open_id' },
+    });
+    expect(compensationQueryMock).toHaveBeenNthCalledWith(2, {
+      data: { user_id_list: ['ou-1', 'ou-2'] },
+      params: {
+        page_size: 500,
+        page_token: 'next-page',
+        user_id_type: 'open_id',
+      },
+    });
+    expect(prismaMock.larkCompensationArchive.upsert).toHaveBeenCalledTimes(2);
+    const compensationUpsertArg = (
+      prismaMock.larkCompensationArchive.upsert.mock.calls as unknown[][]
+    )[0][0] as {
+      where: Record<string, unknown>;
+      create: Record<string, unknown>;
+    };
+    expect(compensationUpsertArg.where).toEqual({ tid: 'archive-tid-1' });
+    expect(compensationUpsertArg.create).toMatchObject({
+      tid: 'archive-tid-1',
+      id: 'archive-1',
+      open_id: 'ou-1',
+      change_description: '年度调薪',
+      archive_items: [{ item_id: 'base-salary', item_result: '15000' }],
     });
 
     // 最终状态写入 success，并释放锁
@@ -185,6 +303,7 @@ describe('ContactSyncService', () => {
     expect(finalStatus.departments).toBe(1);
     expect(finalStatus.users).toBe(2);
     expect(finalStatus.corehrEmployees).toBe(1);
+    expect(finalStatus.compensationArchives).toBe(2);
     expect(redisMock.del).toHaveBeenCalledWith('contact:sync:lock');
   });
 
@@ -214,6 +333,28 @@ describe('ContactSyncService', () => {
     await expect(service.triggerSync()).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+
+  it('薪资档案同步失败时降级：整体仍 success 并记录 compensationError', async () => {
+    childrenWithIteratorMock.mockReturnValue(asPageIterator([]));
+    findByDepartmentWithIteratorMock.mockReturnValue(
+      asPageIterator([{ open_id: 'ou-1', name: '张三' }]),
+    );
+    compensationQueryMock.mockResolvedValue({
+      code: 99991672,
+      msg: 'no compensation archive permission',
+    });
+
+    await service.triggerSync();
+    await flushAsync();
+
+    const finalStatus = lastStatusWrite(redisMock.set);
+    expect(finalStatus.status).toBe('success');
+    expect(finalStatus.compensationArchives).toBeUndefined();
+    expect(finalStatus.compensationError).toContain(
+      'no compensation archive permission',
+    );
+    expect(prismaMock.larkCompensationArchive.upsert).not.toHaveBeenCalled();
   });
 
   it('同步失败时记录 failed 状态并释放锁', async () => {

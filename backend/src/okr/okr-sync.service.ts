@@ -110,6 +110,70 @@ const addCounts = (target: OkrSyncCounts, source: OkrSyncCounts) => {
 const asNullableJson = (value: unknown) =>
   value === undefined ? Prisma.DbNull : (value as Prisma.InputJsonValue);
 
+type LarkBadRequestDetails = {
+  request: {
+    method?: string;
+    url?: string;
+    params?: unknown;
+    data?: unknown;
+  };
+  error: {
+    httpStatus: number;
+    response: unknown;
+    message: string;
+  };
+};
+
+/** SDK 抛出的是 Axios 风格错误；仅识别 HTTP 400，其他异常必须继续上抛。 */
+const getLarkBadRequestDetails = (
+  error: unknown,
+): LarkBadRequestDetails | null => {
+  if (!error || typeof error !== 'object') return null;
+
+  const response = (
+    error as {
+      response?: {
+        status?: number;
+        data?: unknown;
+      };
+    }
+  ).response;
+  if (response?.status !== 400) return null;
+
+  const config = (
+    error as {
+      config?: {
+        method?: string;
+        url?: string;
+        params?: unknown;
+        data?: unknown;
+      };
+    }
+  ).config;
+  const responseData = response.data;
+  const responseMessage =
+    responseData && typeof responseData === 'object' && 'msg' in responseData
+      ? String(responseData.msg)
+      : error instanceof Error
+        ? error.message
+        : 'Bad Request';
+
+  return {
+    // 严格白名单提取请求信息，不记录 Authorization、token 等敏感请求头。
+    request: {
+      method: config?.method,
+      url: config?.url,
+      params: config?.params,
+      data: config?.data,
+    },
+    error: {
+      httpStatus: response.status,
+      response: responseData,
+      message: responseMessage,
+    },
+  };
+};
+
 @Injectable()
 export class OkrSyncService {
   private readonly logger = new Logger(OkrSyncService.name);
@@ -332,20 +396,46 @@ export class OkrSyncService {
   private async syncUser(openId: string): Promise<OkrSyncCounts> {
     const client = this.larkService.getClient();
     const counts = emptyCounts();
-    const iterator = await client.okr.v2.okrCycle.listWithIterator({
-      params: {
-        user_id: openId,
-        user_id_type: 'open_id',
-        page_size: PAGE_SIZE,
-      },
-    });
+    let pageToken: string | undefined;
+    let hasMore = true;
 
-    for await (const page of iterator) {
+    while (hasMore) {
+      const response = await client.okr.v2.okrCycle.list({
+        params: {
+          user_id: openId,
+          user_id_type: 'open_id',
+          page_size: PAGE_SIZE,
+          ...(pageToken ? { page_token: pageToken } : {}),
+        },
+      });
+      if (response.code !== 0) {
+        throw new Error(
+          `获取员工 OKR 周期失败（code=${response.code ?? 'unknown'}）：${response.msg ?? 'unknown error'}`,
+        );
+      }
+
+      const page = response.data;
       for (const cycle of page?.items ?? []) {
         await this.upsertCycle(cycle, openId);
         counts.cycles += 1;
-        addCounts(counts, await this.syncCycleObjectives(cycle.id, openId));
+        addCounts(
+          counts,
+          await this.continueOnBadRequest(
+            `周期 ${cycle.id} 的目标`,
+            () => this.syncCycleObjectives(cycle.id, openId),
+            emptyCounts,
+          ),
+        );
       }
+
+      hasMore = page?.has_more ?? false;
+      if (!hasMore) continue;
+      const nextPageToken = page?.page_token;
+      if (!nextPageToken || nextPageToken === pageToken) {
+        // has_more=true 却没有新的游标时继续请求会死循环，也会把不完整数据误判为成功。
+        throw new Error('获取员工 OKR 周期失败：飞书未返回有效的下一页标记');
+      }
+      pageToken = nextPageToken;
     }
 
     return counts;
@@ -372,21 +462,28 @@ export class OkrSyncService {
         counts.objectives += 1;
 
         const ownerOpenId = objective.owner.user_id ?? fallbackOwnerOpenId;
-        counts.indicators += await this.syncObjectiveIndicator(
-          objective.id,
-          ownerOpenId,
+        counts.indicators += await this.continueOnBadRequest(
+          `目标 ${objective.id} 的指标`,
+          () => this.syncObjectiveIndicator(objective.id, ownerOpenId),
+          () => 0,
         );
-        counts.progresses += await this.syncObjectiveProgresses(
-          objective.id,
-          ownerOpenId,
+        counts.progresses += await this.continueOnBadRequest(
+          `目标 ${objective.id} 的进展`,
+          () => this.syncObjectiveProgresses(objective.id, ownerOpenId),
+          () => 0,
         );
-        counts.alignments += await this.syncObjectiveAlignments(
-          objective.id,
-          ownerOpenId,
+        counts.alignments += await this.continueOnBadRequest(
+          `目标 ${objective.id} 的对齐关系`,
+          () => this.syncObjectiveAlignments(objective.id, ownerOpenId),
+          () => 0,
         );
         addCounts(
           counts,
-          await this.syncObjectiveKeyResults(objective.id, ownerOpenId),
+          await this.continueOnBadRequest(
+            `目标 ${objective.id} 的关键结果`,
+            () => this.syncObjectiveKeyResults(objective.id, ownerOpenId),
+            emptyCounts,
+          ),
         );
       }
     }
@@ -416,13 +513,15 @@ export class OkrSyncService {
         await this.upsertKeyResult(keyResult, fallbackOwnerOpenId);
         counts.keyResults += 1;
         const ownerOpenId = keyResult.owner.user_id ?? fallbackOwnerOpenId;
-        counts.indicators += await this.syncKeyResultIndicator(
-          keyResult.id,
-          ownerOpenId,
+        counts.indicators += await this.continueOnBadRequest(
+          `关键结果 ${keyResult.id} 的指标`,
+          () => this.syncKeyResultIndicator(keyResult.id, ownerOpenId),
+          () => 0,
         );
-        counts.progresses += await this.syncKeyResultProgresses(
-          keyResult.id,
-          ownerOpenId,
+        counts.progresses += await this.continueOnBadRequest(
+          `关键结果 ${keyResult.id} 的进展`,
+          () => this.syncKeyResultProgresses(keyResult.id, ownerOpenId),
+          () => 0,
         );
       }
     }
@@ -545,6 +644,26 @@ export class OkrSyncService {
       }
     }
     return synced;
+  }
+
+  /**
+   * 单条 OKR 已被删除或暂不可访问时，飞书会返回 HTTP 400。
+   * 这类数据级错误只跳过当前子资源，不能中断该员工后续 OKR 的同步。
+   */
+  private async continueOnBadRequest<T>(
+    context: string,
+    operation: () => Promise<T>,
+    fallback: () => T,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      const details = getLarkBadRequestDetails(error);
+      if (!details) throw error;
+
+      this.logger.warn(`跳过${context}：${JSON.stringify(details)}`);
+      return fallback();
+    }
   }
 
   private async upsertCategory(item: OkrCategoryItem) {

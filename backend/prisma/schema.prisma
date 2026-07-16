@@ -58,7 +58,8 @@ model LarkUser {
   created_at DateTime @default(now()) /// 首次入库时间
   synced_at  DateTime @updatedAt /// 最近一次同步时间
 
-  corehr LarkCorehrEmployee? /// CoreHR（飞书人事）员工详情，1:1，可能不存在（未开通/无权限/机器人账号）
+  corehr                LarkCorehrEmployee? /// CoreHR（飞书人事）员工详情，1:1，可能不存在（未开通/无权限/机器人账号）
+  compensation_archives LarkCompensationArchive[] /// 薪资档案历史版本，可能为空（未开通/无薪资权限）
 
   @@map("lark_users")
   @@schema("performance")
@@ -121,6 +122,37 @@ model LarkCorehrEmployee {
   @@index([department_id])
   @@index([direct_manager_id])
   @@map("lark_corehr_employees")
+  @@schema("performance")
+}
+
+/// 飞书员工薪资档案历史版本（compensation.v1 archive.query，user_id_type=open_id）。
+/// tid 是官方定义的档案版本唯一标识；薪资项与指标依赖字段权限，按 SDK 原始结构存 JSONB。
+model LarkCompensationArchive {
+  tid                String  @id /// 薪资档案版本 ID，官方定义的全局唯一标识
+  id                 String /// 薪资档案 ID；同一档案的不同版本可共享该 ID
+  open_id            String /// = 响应中的 user_id（请求固定 user_id_type=open_id），关联 lark_users
+  plan_id            String? /// 关联薪资方案 ID；依赖 plan 字段权限
+  plan_tid           String? /// 关联薪资方案版本 ID；依赖 plan 字段权限
+  currency_id        String? /// 档案币种 ID
+  change_reason_id   String? /// 调薪原因 ID
+  change_description String? /// 调薪说明；依赖 change_description 字段权限
+  effective_date     String /// 生效日期（YYYY-MM-DD）
+  expiration_date    String? /// 失效日期（YYYY-MM-DD）
+  salary_level_id    String? /// 薪级薪等 ID；依赖 salary_level 字段权限
+  created_time       String? /// 飞书侧创建时间，按 SDK 字符串原样保存
+  updated_time       String? /// 飞书侧更新时间，按 SDK 字符串原样保存
+  archive_items      Json? /// 薪资项 [{ item_id, item_result, item_result_regular? }]；依赖 items 字段权限
+  archive_indicators Json? /// 薪资指标 [{ indicator_id, indicator_result, indicator_result_regular? }]；依赖 indicators 字段权限
+
+  // ---- 以下为本地同步簿记字段（非 SDK 字段）----
+  created_at DateTime @default(now()) /// 首次入库时间
+  synced_at  DateTime @updatedAt /// 最近一次同步时间
+
+  user LarkUser @relation(fields: [open_id], references: [open_id], onDelete: Cascade)
+
+  @@index([open_id, effective_date])
+  @@index([id])
+  @@map("lark_compensation_archives")
   @@schema("performance")
 }
 
@@ -933,9 +965,9 @@ model PerfCycle {
   archive               PerfCycleArchive?
   legacyMigrationRuns   PerfLegacyMigrationRun[]
 
+  @@unique([currentConfigVersionId, id])
   @@index([status, plannedStartAt])
   @@index([deletedAt])
-  @@unique([currentConfigVersionId, id])
   @@map("perf_cycles")
   @@schema("performance")
 }

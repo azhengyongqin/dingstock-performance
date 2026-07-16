@@ -14,4 +14,15 @@ lark:
   appSecret: 'It5XV8Rzrl7ZNtG7dgoSwhBsjeuchWRJ'
   # 本地开发默认不外发飞书通知（通知仍会落库，便于联调查看）；需要真实发送时改为 true 或设 LARK_NOTIFICATION_ENABLED=true。
   notification:
-    enabled: false
+    enabled: true
+
+  # 飞书 OAuth2（网页授权登录）配置
+  oauth:
+    # 飞书授权页地址（authen v1 authorize）
+    authorizeUrl: https://accounts.feishu.cn/open-apis/authen/v1/authorize
+    # 授权完成后飞书回调到后端的地址，必须与开放平台「安全设置-重定向 URL」一致
+    redirectUri: http://localhost:3000/auth/lark/callback
+    # 需要的用户授权 scope，多个用空格分隔；留空表示仅基础身份信息
+    scope: ''
+    # 后端换取 token 成功后跳回前端的地址（前端回调页）
+    webRedirectUrl: http://localhost:3001/auth/callback

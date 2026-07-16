@@ -16,6 +16,10 @@ export type ContactSyncStatus = {
   corehrEmployees?: number;
   /** CoreHR 详情同步失败原因（不影响整体 success：未开通飞书人事/缺权限时降级） */
   corehrError?: string;
+  /** 成功同步的薪资档案版本数 */
+  compensationArchives?: number;
+  /** 薪资档案同步失败原因（不影响整体 success：未开通薪酬/缺权限时降级） */
+  compensationError?: string;
   error?: string;
 };
 
@@ -27,83 +31,176 @@ const SYNC_LOCK_TTL_SECONDS = 1800;
 const ROOT_DEPARTMENT_ID = '0';
 // corehr.v2 employee.batchGet 单次最多 100 个 employment_ids（官方限制）。
 const COREHR_BATCH_SIZE = 100;
+// corehr.v2 employee.batchGet 单次最多查询 100 个 fields（官方限制）。
+const COREHR_FIELD_BATCH_SIZE = 100;
 
 /**
- * CoreHR batchGet 的 fields 查询列表（上限 100 个）。
- * 字段名来自官方「查询员工信息字段下钻列表」文档：
- * https://open.feishu.cn/document/corehr-v1/employee/query-employment-fields
- * 规则：顶层字段直接写名字；person_info 等大对象用 `.` 下钻按需取子字段，
- * 响应中会合并回对应的嵌套对象。fields 为空时接口只返回 employment_id。
+ * CoreHR batchGet 的完整 fields 查询列表。
+ * 字段名来自官方「查询员工信息的字段格式参考」文档。
+ * 总数超过接口单次 100 个 fields 的上限，调用时必须按 COREHR_FIELD_BATCH_SIZE
+ * 分批查询并按员工合并响应。fields 为空时接口只返回 employment_id。
  */
 const COREHR_EMPLOYEE_FIELDS = [
-  // 雇佣信息
-  'employee_number',
-  'employee_type_id',
-  'employee_subtype_id',
-  'employment_type',
-  'employment_status',
-  'effective_date',
-  'expiration_date',
-  'reason_for_offboarding',
-  'primary_employment',
-  // 组织归属
-  'department_id',
+  // 基础雇佣信息
+  'ats_application_id',
+  'avatar_url',
   'company_id',
-  'work_location_id',
-  'working_hours_type_id',
-  'cost_center_list',
-  // 职级 / 序列 / 岗位 / 职务
-  // 注意：job_level/job_family/job 等对象字段只传顶层名字时接口仅返回 { id }，
-  // 名称等子字段必须显式下钻（已用真实租户验证）。
-  'job_level_id',
-  'job_level.id',
-  'job_level.name',
-  'job_level.level_order',
-  'job_level.code',
-  'job_grade_id',
-  'job_family_id',
-  'job_family.id',
-  'job_family.name',
-  'position_id',
-  'position',
-  'job_id',
-  'job.id',
-  'job.name',
-  'job.code',
-  // 汇报关系（user_id_type=open_id 时返回 open_id，可直接关联 lark_users）
-  'direct_manager_id',
-  'dotted_line_manager_id',
-  // 司龄 / 试用期 / 合同
-  'tenure',
-  'seniority_date',
-  'probation_period',
-  'on_probation',
-  'probation_end_date',
-  'regular_employee_start_date',
-  'rehire',
-  'contract_start_date',
+  'compensation_type',
   'contract_end_date',
   'contract_expected_end_date',
-  // 联系方式 / 其他
-  'email_address',
-  'work_email_list',
-  'avatar_url',
-  'time_zone',
+  'contract_start_date',
   'custom_fields',
-  // 个人信息（下钻，按绩效系统需要的最小集合申请，避免拉取过多敏感字段）
-  'person_info.person_id',
-  'person_info.legal_name',
-  'person_info.preferred_name',
-  'person_info.preferred_local_full_name',
-  'person_info.preferred_english_full_name',
-  'person_info.gender',
-  'person_info.date_of_birth',
-  'person_info.nationality_id',
-  'person_info.phone_number',
-  'person_info.email_address',
+  'custom_org_01',
+  'custom_org_02',
+  'custom_org_03',
+  'custom_org_04',
+  'custom_org_05',
+  'department.name',
+  'department_id',
+  'effective_date',
+  'email_address',
+  'employee_number',
+  'employee_type_id',
+  'employment_id',
+  'employment_status',
+  'employment_type',
+  'expiration_date',
+  'external_id',
+  'international_assignment',
+  'noncompete_status',
+  'on_probation',
+  'past_offboarding',
+  'pay_group_id',
+  'prehire_id',
+  'primary_contract_id',
+  'primary_employment',
+  'probation_end_date',
+  'probation_period',
+  'reason_for_offboarding',
+  'recruitment_type',
+  'regular_employee_start_date',
+  'rehire',
+  'rehire_employment_id',
+  'seniority_date',
+  'service_company',
+  'tenure',
+  'time_zone',
+  'times_employed',
+  'work_calendar_id',
+  'work_email_list',
+  'work_location_id',
+  'work_shift',
+  'working_hours_type_id',
+  'cost_center_list',
+
+  // 汇报关系：只查询工作邮箱、工号、常用名和员工 ID。
+  'direct_manager.email_address',
+  'direct_manager.employee_number',
+  'direct_manager.person_info.preferred_english_full_name',
+  'direct_manager.person_info.preferred_local_full_name',
+  'direct_manager.person_info.preferred_name',
+  'direct_manager_id',
+  'dotted_line_manager.email_address',
+  'dotted_line_manager.employee_number',
+  'dotted_line_manager.person_info.preferred_english_full_name',
+  'dotted_line_manager.person_info.preferred_local_full_name',
+  'dotted_line_manager.person_info.preferred_name',
+  'dotted_line_manager_id',
+
+  // 职务：对象字段必须显式下钻，否则接口只返回 ID。
+  'job.active',
+  'job.code',
+  'job.custom_fields',
+  'job.description',
+  'job.effective_time',
+  'job.expiration_time',
+  'job.id',
+  'job.job_family_id_list',
+  'job.job_level_id_list',
+  'job.job_title',
+  'job.name',
+  'job.working_hours_type_id',
+  'job_id',
+
+  // 序列
+  'job_family.active',
+  'job_family.code',
+  'job_family.custom_fields',
+  'job_family.effective_time',
+  'job_family.expiration_time',
+  'job_family.id',
+  'job_family.name',
+  'job_family.parent_id',
+  'job_family_id',
+
+  // 职级 / 职等
+  'job_grade_id',
+  'job_level.active',
+  'job_level.code',
+  'job_level.custom_fields',
+  'job_level.description',
+  'job_level.id',
+  'job_level.level_order',
+  'job_level.name',
+  'job_level_id',
+
+  // 岗位
+  'position.active',
+  'position.code',
+  'position.descriptions',
+  'position.id',
+  'position.names',
+
+  // 个人档案
+  'person_info.additional_nationalities',
+  'person_info.address_list',
+  'person_info.age',
+  'person_info.bank_account_list',
+  'person_info.born_country_region',
+  'person_info.citizenship_status',
+  'person_info.custom_fields',
   'person_info.date_entered_workforce',
-  'person_info.working_years',
+  'person_info.date_of_birth',
+  'person_info.dependent_list',
+  'person_info.disable_card_number',
+  'person_info.education_list',
+  'person_info.email_address',
+  'person_info.email_list',
+  'person_info.emergency_contact_list',
+  'person_info.family_address',
+  'person_info.first_entry_time',
+  'person_info.gender',
+  'person_info.highest_degree_of_education',
   'person_info.highest_level_of_education',
+  'person_info.hukou_location',
+  'person_info.hukou_type',
+  'person_info.is_disabled',
+  'person_info.is_martyr_family',
+  'person_info.is_old_alone',
+  'person_info.leave_time',
+  'person_info.legal_name',
+  'person_info.marital_status',
+  'person_info.martyr_card_number',
+  'person_info.name_list',
+  'person_info.national_id_list',
+  'person_info.national_id_number',
+  'person_info.nationality_id_v2',
+  'person_info.native_region',
+  'person_info.person_id',
+  'person_info.personal_profile',
+  'person_info.phone_list',
+  'person_info.phone_number',
+  'person_info.political_affiliations',
+  'person_info.preferred_english_full_name',
+  'person_info.preferred_local_full_name',
+  'person_info.preferred_name',
+  'person_info.profile_image_id',
+  'person_info.race',
+  'person_info.religion',
+  'person_info.resident_taxes',
+  'person_info.talent_id',
+  'person_info.work_experience_list',
+  'person_info.working_years',
 ];
 
 @Injectable()
@@ -158,7 +255,7 @@ export class ContactSyncService {
     await this.redis.set(SYNC_STATUS_KEY, JSON.stringify(status));
   }
 
-  /** 全量同步：先部门树，再各部门员工，最后用 CoreHR 详情补全员工信息。 */
+  /** 全量同步：先部门树和员工，再同步 CoreHR 详情与薪资档案。 */
   private async runFullSync(status: ContactSyncStatus) {
     try {
       const departmentIds = await this.syncDepartments();
@@ -184,12 +281,29 @@ export class ContactSyncService {
         );
       }
 
+      // 薪资档案属于敏感增强数据：未开通薪酬或缺少薪资档案资源权限时独立降级。
+      try {
+        status.compensationArchives =
+          await this.syncCompensationArchives(openIds);
+      } catch (compensationError) {
+        status.compensationError =
+          compensationError instanceof Error
+            ? compensationError.message
+            : String(compensationError);
+        this.logger.warn(
+          `员工薪资档案同步失败（已降级）：${status.compensationError}`,
+        );
+      }
+
       status.status = 'success';
       status.finishedAt = new Date().toISOString();
       this.logger.log(
         `组织架构同步完成：部门 ${status.departments} 个，员工 ${status.users} 人` +
           (status.corehrEmployees !== undefined
             ? `，CoreHR 详情 ${status.corehrEmployees} 人`
+            : '') +
+          (status.compensationArchives !== undefined
+            ? `，薪资档案 ${status.compensationArchives} 个版本`
             : ''),
       );
     } catch (error) {
@@ -364,19 +478,55 @@ export class ContactSyncService {
     for (let i = 0; i < openIds.length; i += COREHR_BATCH_SIZE) {
       const batch = openIds.slice(i, i + COREHR_BATCH_SIZE);
 
-      const response = await client.corehr.v2.employee.batchGet({
-        data: {
-          fields: COREHR_EMPLOYEE_FIELDS,
-          employment_ids: batch,
-        },
-        params: {
-          // 与 lark_users / lark_departments 主键口径保持一致。
-          user_id_type: 'open_id',
-          department_id_type: 'open_department_id',
-        },
-      });
+      type CorehrBatchGetResponse = Awaited<
+        ReturnType<typeof client.corehr.v2.employee.batchGet>
+      >;
+      const responses: CorehrBatchGetResponse[] = [];
+      for (
+        let fieldIndex = 0;
+        fieldIndex < COREHR_EMPLOYEE_FIELDS.length;
+        fieldIndex += COREHR_FIELD_BATCH_SIZE
+      ) {
+        responses.push(
+          await client.corehr.v2.employee.batchGet({
+            data: {
+              fields: COREHR_EMPLOYEE_FIELDS.slice(
+                fieldIndex,
+                fieldIndex + COREHR_FIELD_BATCH_SIZE,
+              ),
+              employment_ids: batch,
+            },
+            params: {
+              // 与 lark_users / lark_departments 主键口径保持一致。
+              user_id_type: 'open_id',
+              department_id_type: 'open_department_id',
+            },
+          }),
+        );
+      }
 
-      for (const item of response?.data?.items ?? []) {
+      const responseItems = responses.flatMap(
+        (response) => response?.data?.items ?? [],
+      );
+      const mergedItems = new Map<string, (typeof responseItems)[number]>();
+
+      for (const item of responseItems) {
+        if (!item.employment_id) {
+          continue;
+        }
+        const previous = mergedItems.get(item.employment_id);
+        mergedItems.set(item.employment_id, {
+          ...previous,
+          ...item,
+          // person_info 等对象可能被 fields 分批切开，必须深一层合并。
+          person_info: {
+            ...previous?.person_info,
+            ...item.person_info,
+          },
+        });
+      }
+
+      for (const item of mergedItems.values()) {
         // user_id_type=open_id 时 employment_id 即员工 open_id。
         const openId = item.employment_id;
         if (!openId) {
@@ -450,5 +600,84 @@ export class ContactSyncService {
     }
 
     return synced;
+  }
+
+  /**
+   * 同步员工薪资档案：按 open_id 每 100 人一批，并完整遍历接口分页。
+   * tid 是档案版本唯一标识，同一员工可有多个历史版本。
+   */
+  private async syncCompensationArchives(openIds: string[]): Promise<number> {
+    const client = this.larkService.getClient();
+    const syncedTids = new Set<string>();
+
+    for (let i = 0; i < openIds.length; i += COREHR_BATCH_SIZE) {
+      const batch = openIds.slice(i, i + COREHR_BATCH_SIZE);
+      let pageToken: string | undefined;
+      const seenPageTokens = new Set<string>();
+
+      do {
+        const response = await client.compensation.v1.archive.query({
+          data: { user_id_list: batch },
+          params: {
+            page_size: 500,
+            user_id_type: 'open_id',
+            ...(pageToken ? { page_token: pageToken } : {}),
+          },
+        });
+        if (response?.code !== undefined && response.code !== 0) {
+          throw new Error(
+            `薪资档案接口返回错误 ${response.code}: ${response.msg ?? 'unknown error'}`,
+          );
+        }
+
+        for (const item of response?.data?.items ?? []) {
+          // SDK 标记为必填；运行时仍做保护，避免异常脏数据破坏整批同步。
+          if (!item.user_id || !item.id || !item.tid || !item.effective_date) {
+            this.logger.warn(
+              '跳过缺少 user_id/id/tid/effective_date 的薪资档案',
+            );
+            continue;
+          }
+
+          const data = {
+            id: item.id,
+            open_id: item.user_id,
+            plan_id: item.plan_id,
+            plan_tid: item.plan_tid,
+            currency_id: item.currency_id,
+            change_reason_id: item.change_reason_id,
+            change_description: item.change_description,
+            effective_date: item.effective_date,
+            expiration_date: item.expiration_date,
+            salary_level_id: item.salary_level_id,
+            created_time: item.created_time,
+            updated_time: item.updated_time,
+            archive_items: (item.archive_items ?? undefined) as
+              Prisma.InputJsonValue | undefined,
+            archive_indicators: (item.archive_indicators ?? undefined) as
+              Prisma.InputJsonValue | undefined,
+          };
+
+          await this.prisma.larkCompensationArchive.upsert({
+            where: { tid: item.tid },
+            create: { tid: item.tid, ...data },
+            update: data,
+          });
+          syncedTids.add(item.tid);
+        }
+
+        if (!response?.data?.has_more) {
+          break;
+        }
+        const nextPageToken = response.data.page_token;
+        if (!nextPageToken || seenPageTokens.has(nextPageToken)) {
+          throw new Error('薪资档案分页响应缺少有效的新 page_token');
+        }
+        seenPageTokens.add(nextPageToken);
+        pageToken = nextPageToken;
+      } while (pageToken);
+    }
+
+    return syncedTids.size;
   }
 }
