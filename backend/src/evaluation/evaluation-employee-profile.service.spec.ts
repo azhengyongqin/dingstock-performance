@@ -7,7 +7,7 @@ jest.mock('../shared/database/prisma.service', () => ({
 
 describe('EvaluationEmployeeProfileService', () => {
   const prisma = {
-    larkUser: { findUnique: jest.fn() },
+    larkUser: { findUnique: jest.fn(), findMany: jest.fn() },
     larkDepartment: { findMany: jest.fn() },
   };
   let service: EvaluationEmployeeProfileService;
@@ -27,9 +27,38 @@ describe('EvaluationEmployeeProfileService', () => {
       },
     });
     prisma.larkDepartment.findMany.mockResolvedValue([
-      { open_department_id: 'od_group', name: '集团', parent_department_id: '0' },
-      { open_department_id: 'od_rd', name: '研发中心', parent_department_id: 'od_group' },
-      { open_department_id: 'od_dev', name: '后端组', parent_department_id: 'od_rd' },
+      {
+        open_department_id: 'od_group',
+        name: '集团',
+        parent_department_id: '0',
+      },
+      {
+        open_department_id: 'od_rd',
+        name: '研发中心',
+        parent_department_id: 'od_group',
+      },
+      {
+        open_department_id: 'od_dev',
+        name: '后端组',
+        parent_department_id: 'od_rd',
+      },
+    ]);
+    prisma.larkUser.findMany.mockResolvedValue([
+      {
+        open_id: 'ou_employee',
+        name: '员工甲',
+        avatar: { avatar_72: 'avatar.png' },
+        corehr: {
+          department_id: 'od_dev',
+          job: { name: [{ lang: 'zh-CN', value: '后端工程师' }] },
+        },
+      },
+      {
+        open_id: 'ou_employee_2',
+        name: '员工乙',
+        avatar: null,
+        corehr: null,
+      },
     ]);
   });
 
@@ -56,6 +85,33 @@ describe('EvaluationEmployeeProfileService', () => {
     });
     expect(profile).not.toHaveProperty('jobLevel');
     expect(profile).not.toHaveProperty('effectiveDate');
+  });
+
+  it('批量加载 360°资料只执行一次用户查询', async () => {
+    const profiles = await service.getPeerSafeMany([
+      'ou_employee',
+      'ou_employee_2',
+      'ou_employee',
+    ]);
+
+    expect(prisma.larkUser.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { open_id: { in: ['ou_employee', 'ou_employee_2'] } },
+      }),
+    );
+    expect(prisma.larkUser.findMany).toHaveBeenCalledTimes(1);
+    expect(profiles).toEqual([
+      expect.objectContaining({
+        open_id: 'ou_employee',
+        departmentPath: '集团 / 研发中心 / 后端组',
+        jobTitle: '后端工程师',
+      }),
+      expect.objectContaining({
+        open_id: 'ou_employee_2',
+        departmentPath: null,
+        jobTitle: null,
+      }),
+    ]);
   });
 
   it('短时间内复用部门映射，避免每次打开评估页都全表查询', async () => {

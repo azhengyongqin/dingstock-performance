@@ -21,7 +21,11 @@ const {
   triggerParticipantOkrSync: vi.fn()
 }))
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
+  usePathname: () => '/review-tasks/fill',
+  useSearchParams: () => new URLSearchParams()
+}))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/perf-api', async importOriginal => {
   const actual = await importOriginal<typeof PerfApi>()

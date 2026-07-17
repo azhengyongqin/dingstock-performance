@@ -31,7 +31,7 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
     setMounted(true)
   }, [])
 
-  const currentKey = searchParams.get(paramKey) ?? variants[0]?.key
+  const currentKey = searchParams?.get(paramKey) ?? variants[0]?.key
   const currentIndex = Math.max(
     0,
     variants.findIndex(item => item.key === currentKey)
@@ -40,7 +40,7 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
 
   const go = useCallback(
     (index: number) => {
-      if (variants.length === 0) return
+      if (variants.length === 0 || !searchParams) return
 
       const next = variants[(index + variants.length) % variants.length]
       const params = new URLSearchParams(searchParams.toString())
@@ -110,7 +110,8 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
 
 export function usePrototypeVariant(variants: PrototypeVariantMeta[], paramKey = 'variant') {
   const searchParams = useSearchParams()
-  const key = searchParams.get(paramKey) ?? variants[0]?.key
+  // 单测无 Next 路由时 searchParams 可能为 null，回退到首个变体
+  const key = searchParams?.get(paramKey) ?? variants[0]?.key
 
   return variants.find(item => item.key === key) ?? variants[0]
 }

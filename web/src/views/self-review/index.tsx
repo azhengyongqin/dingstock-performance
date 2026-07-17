@@ -257,6 +257,7 @@ const SelfReview = () => {
 
       <EvaluationSplitLayout
         collapsed={referenceCollapsed}
+        onCollapsedChange={setReferenceCollapsed}
         left={
           <ReferencePanel
             participantId={participant.id}

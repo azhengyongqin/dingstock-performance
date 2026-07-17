@@ -57,6 +57,12 @@ const participant = {
                   title: '协作表现',
                   required: true,
                 },
+                {
+                  key: 'item:collaboration:comment',
+                  type: 'LONG_TEXT',
+                  title: '协作评语',
+                  required: true,
+                },
               ],
             },
           ],
@@ -122,6 +128,15 @@ const submission = (
       rawScore: null,
       calculationScore:
         rawLevel === 'S' ? '95' : rawLevel === 'A' ? '85' : '50',
+    },
+    {
+      itemKey: 'item:collaboration:comment',
+      dimensionKey: 'dimension:collaboration',
+      itemType: 'LONG_TEXT',
+      rawLevel: null,
+      rawScore: null,
+      calculationScore: null,
+      value: `协作反馈 ${id}`,
     },
   ],
 });
@@ -217,6 +232,80 @@ describe('PeerStageResultService 公开计算契约', () => {
         }),
       }),
     );
+  });
+
+  it('只用当前生效答卷生成关系构成、维度分布和实名下钻明细', async () => {
+    prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
+      submission(101, 'ou_peer_1', 11, 'PEER', 'A'),
+      submission(102, 'ou_peer_2', 12, 'PEER', 'C'),
+      submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S'),
+      {
+        ...submission(104, 'ou_peer_1', 11, 'PEER', 'B'),
+        status: 'DRAFT',
+      },
+    ]);
+
+    const result = await service.recalculate(7);
+
+    expect(result.analysis).toEqual({
+      assignedReviewerCount: 3,
+      submittedReviewerCount: 3,
+      relationCounts: [
+        { relation: 'PROJECT_OWNER', reviewerCount: 1 },
+        { relation: 'PEER', reviewerCount: 2 },
+      ],
+      dimensions: [
+        {
+          id: 'dimension:collaboration',
+          name: '协作沟通',
+          score: '82.5',
+          level: 'A',
+          distribution: { S: 1, A: 1, B: 0, C: 1 },
+        },
+      ],
+      reviewers: [
+        {
+          submissionId: 101,
+          reviewerOpenId: 'ou_peer_1',
+          relation: 'PEER',
+          dimensions: [
+            {
+              id: 'dimension:collaboration',
+              name: '协作沟通',
+              rawLevel: 'A',
+              rawScore: null,
+              mappedLevel: 'A',
+              items: [
+                {
+                  itemKey: 'item:collaboration:rating',
+                  title: '协作表现',
+                  type: 'RATING',
+                  rawLevel: 'A',
+                  rawScore: null,
+                  value: null,
+                },
+                {
+                  itemKey: 'item:collaboration:comment',
+                  title: '协作评语',
+                  type: 'LONG_TEXT',
+                  rawLevel: null,
+                  rawScore: null,
+                  value: '协作反馈 101',
+                },
+              ],
+            },
+          ],
+        },
+        expect.objectContaining({
+          submissionId: 102,
+          reviewerOpenId: 'ou_peer_2',
+        }),
+        expect.objectContaining({
+          submissionId: 103,
+          reviewerOpenId: 'ou_project_owner',
+        }),
+      ],
+    });
   });
 
   it('全部只有草稿时持久化明确 NO_DATA，不合成零分或默认等级', async () => {
@@ -421,6 +510,18 @@ describe('PeerStageResultService 公开计算契约', () => {
     expect(result).toMatchObject({
       mode: 'WEIGHTED_SCORE',
       compositeScore: '86.67',
+      analysis: {
+        dimensions: [
+          {
+            id: 'dimension:collaboration',
+            distribution: { S: 1, A: 1, B: 0, C: 0 },
+          },
+        ],
+        reviewers: [
+          { reviewerOpenId: 'ou_org', dimensions: [{ mappedLevel: 'A' }] },
+          { reviewerOpenId: 'ou_cross', dimensions: [{ mappedLevel: 'S' }] },
+        ],
+      },
       validRelations: [
         {
           relation: 'ORG_OWNER',

@@ -67,6 +67,9 @@ import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-type
 import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
 import ScoreSelectorPreview from './score-selector-preview'
+import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
+import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
+import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
@@ -90,6 +93,9 @@ type ComponentKey =
   | 'evaluation-form'
   | 'rating-selector'
   | 'score-selector'
+  | 'scrollable-tabs-list'
+  | 'peer-review-analysis'
+  | 'evaluation-reference-section'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -200,6 +206,24 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '分数选择器',
     description: 'ScoreSelector · 整数 + 命中等级',
     icon: GaugeIcon
+  },
+  {
+    key: 'scrollable-tabs-list',
+    title: '横向滚动 Tab',
+    description: 'ScrollableTabsList · 无滚动条 / 选中自动滚入',
+    icon: PanelLeftIcon
+  },
+  {
+    key: 'peer-review-analysis',
+    title: '360°评估分析',
+    description: '概览分布 / 关系维度筛选 / 实名明细',
+    icon: UsersIcon
+  },
+  {
+    key: 'evaluation-reference-section',
+    title: '评估参考板块',
+    description: '等级行两端对齐 / 浅灰内容底',
+    icon: ListChecksIcon
   }
 ]
 
@@ -1317,7 +1341,22 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
     initialLevel: 'A',
     stageLevel: 'A',
     constraintReasons: [],
-    dimensions: [{ id: 'peer-collaboration', name: '协作沟通', score: '85', level: 'A' }]
+    dimensions: [{ id: 'peer-collaboration', name: '协作沟通', score: '85', level: 'A' }],
+    analysis: {
+      assignedReviewerCount: 3,
+      submittedReviewerCount: 3,
+      relationCounts: [{ relation: 'PEER', reviewerCount: 3 }],
+      dimensions: [
+        {
+          id: 'peer-collaboration',
+          name: '协作沟通',
+          score: '85',
+          level: 'A',
+          distribution: { S: 0, A: 2, B: 1, C: 0 }
+        }
+      ],
+      reviewers: []
+    }
   },
   managerResult: null,
   history: []
@@ -1466,6 +1505,9 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
   if (activeComponent === 'rating-selector') return <RatingSelectorPreview />
   if (activeComponent === 'score-selector') return <ScoreSelectorPreview />
+  if (activeComponent === 'scrollable-tabs-list') return <ScrollableTabsListPreview />
+  if (activeComponent === 'peer-review-analysis') return <PeerReviewAnalysisPreview />
+  if (activeComponent === 'evaluation-reference-section') return <EvaluationReferenceSectionPreview />
 
   return <DateTimePreview />
 }

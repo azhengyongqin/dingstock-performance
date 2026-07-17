@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
-import { RefreshCwIcon, TargetIcon } from 'lucide-react'
+import { ChevronDownIcon, ChevronRightIcon, RefreshCwIcon, TargetIcon } from 'lucide-react'
 
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -54,6 +55,12 @@ export const okrRichTextToPlainText = (content?: OkrRichText | null) => {
 }
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)))
+
+/** 进度（已是 0–100）展示为整数百分比 */
+const formatPercent = (value: number) => `${Math.round(value)}%`
+
+/** 飞书 OKR 权重为 0–1 小数，展示时 ×100 并取整 */
+const formatWeightPercent = (value: number) => `${Math.round(value * 100)}%`
 
 const progressPercent = (
   progress: OkrProgressView,
@@ -111,6 +118,25 @@ const cycleStartTimestamp = (value: string) => {
   return parseTimestamp(value) ?? Number.NEGATIVE_INFINITY
 }
 
+/** 纯文本中的 @提及用主题色标出 */
+const PlainWithMentions = ({ text, className }: { text: string; className?: string }) => {
+  const parts = text.split(/(@\S+)/g)
+
+  return (
+    <span className={className}>
+      {parts.map((part, index) =>
+        part.startsWith('@') ? (
+          <span key={index} className='text-primary'>
+            {part}
+          </span>
+        ) : (
+          <span key={index}>{part}</span>
+        )
+      )}
+    </span>
+  )
+}
+
 const OkrSkeleton = () => (
   <div aria-label='正在加载 OKR' className='space-y-5 py-1'>
     {[0, 1].map(index => (
@@ -155,63 +181,103 @@ const EmptyOkr = ({ onSync }: { onSync?: () => void }) => (
   </div>
 )
 
-const OkrObjective = ({ objective, index }: { objective: OkrObjectiveView; index: number }) => {
-  const percent = progressPercent(objective.latestProgress, objective.indicator, objective.score)
+/** 目标卡片：浅底无边框；字号阶梯 B：目标 text-sm / KR 标题 text-xs */
+const OkrObjectiveCard = ({ objective, index }: { objective: OkrObjectiveView; index: number }) => {
   const title = okrRichTextToPlainText(objective.content) || '未命名目标'
+  const percent = progressPercent(objective.latestProgress, objective.indicator, objective.score)
 
   return (
-    <div className='space-y-3'>
+    <article className='bg-muted/35 space-y-3 rounded-xl p-3'>
       <div className='flex items-start gap-2.5'>
-        <span className='bg-primary text-primary-foreground mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold'>
+        <span className='bg-primary text-primary-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold'>
           O{index + 1}
         </span>
         <div className='min-w-0 flex-1 space-y-2'>
           <div className='flex items-start justify-between gap-2'>
-            <p className='text-sm font-medium whitespace-pre-wrap'>{title}</p>
+            <h3 className='text-sm font-semibold whitespace-pre-wrap'>{title}</h3>
             {objective.weight != null && (
-              <span className='text-muted-foreground shrink-0 text-xs'>权重 {objective.weight}%</span>
+              <span className='text-muted-foreground shrink-0 text-xs'>
+                总权重：{formatWeightPercent(objective.weight)}
+              </span>
             )}
           </div>
           {percent != null && (
             <div className='flex items-center gap-2'>
-              <Progress value={percent} className='h-1.5 flex-1' />
-              <span className='text-muted-foreground w-8 text-right text-[11px]'>{percent}%</span>
+              <Progress value={percent} className='h-1.5 flex-1 gap-0' />
+              <span className='text-muted-foreground w-8 text-right text-[11px] tabular-nums'>
+                {formatPercent(percent)}
+              </span>
             </div>
-          )}
-          {objective.category?.name.zh && (
-            <Badge variant='outline' className='text-[10px]'>
-              {objective.category.name.zh}
-            </Badge>
           )}
         </div>
       </div>
-
       {objective.keyResults.length > 0 ? (
-        <ul className='divide-border ml-8 divide-y'>
+        <ul className='divide-border divide-y pl-1'>
           {objective.keyResults.map((keyResult, keyResultIndex) => {
-            const keyResultPercent = progressPercent(
-              keyResult.latestProgress,
-              keyResult.indicator,
-              keyResult.score
-            )
+            const text = okrRichTextToPlainText(keyResult.content) || '未填写关键结果内容'
+            const krProgress =
+              keyResult.weight == null
+                ? progressPercent(keyResult.latestProgress, keyResult.indicator, keyResult.score)
+                : null
+            const rightLabel =
+              keyResult.weight != null
+                ? formatWeightPercent(keyResult.weight)
+                : krProgress != null
+                  ? formatPercent(krProgress)
+                  : '—'
 
             return (
-              <li key={keyResult.id} className='flex items-start justify-between gap-3 py-2.5 text-sm'>
-                <p className='text-muted-foreground min-w-0 whitespace-pre-wrap'>
-                  <span className='text-foreground font-medium'>KR{keyResultIndex + 1}</span>{' '}
-                  {okrRichTextToPlainText(keyResult.content) || '未填写关键结果内容'}
+              <li key={keyResult.id} className='flex items-start gap-2 py-2.5'>
+                <span className='text-primary shrink-0 self-start text-xs leading-5 font-semibold'>
+                  KR{keyResultIndex + 1}
+                </span>
+                <p className='min-w-0 flex-1 text-sm leading-5 whitespace-pre-wrap'>
+                  <PlainWithMentions text={text} />
                 </p>
-                <span className='text-muted-foreground shrink-0 text-xs'>
-                  {keyResultPercent != null ? `${keyResultPercent}%` : keyResult.weight != null ? `${keyResult.weight}%` : '—'}
+                <span className='text-muted-foreground shrink-0 self-start text-xs leading-5 tabular-nums'>
+                  {rightLabel}
                 </span>
               </li>
             )
           })}
         </ul>
       ) : (
-        <p className='text-muted-foreground ml-8 text-xs'>该目标暂无关键结果</p>
+        <p className='text-muted-foreground pl-1 text-xs'>该目标暂无关键结果</p>
       )}
-    </div>
+    </article>
+  )
+}
+
+/** 周期手风琴：标题用主标题级 text-base，与参考区字号阶梯一致 */
+const OkrCycleList = ({
+  cycles,
+  children
+}: {
+  cycles: ParticipantOkrSnapshot['cycles']
+  children: (cycle: ParticipantOkrSnapshot['cycles'][number]) => ReactNode
+}) => {
+  const defaultOpen = cycles.map(cycle => cycle.id)
+
+  return (
+    <Accordion className='gap-0' defaultValue={defaultOpen} multiple>
+      {cycles.map(cycle => (
+        <AccordionItem key={cycle.id} value={cycle.id} className='border-border/70 px-0'>
+          <AccordionTrigger className='items-center gap-2 py-3 text-base font-semibold hover:no-underline **:data-[slot=accordion-trigger-icon]:hidden'>
+            <span className='flex min-w-0 flex-1 items-center gap-2'>
+              <ChevronRightIcon className='text-foreground size-3.5 shrink-0 group-aria-expanded/accordion-trigger:hidden' />
+              <ChevronDownIcon className='text-foreground hidden size-3.5 shrink-0 group-aria-expanded/accordion-trigger:inline' />
+              <span className='min-w-0 truncate'>
+                {formatEpochDate(cycle.startTime)} — {formatEpochDate(cycle.endTime)}
+              </span>
+              <Badge variant='secondary' className='shrink-0 text-[10px] font-normal'>
+                {cycle.objectives.length} 个目标
+              </Badge>
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className='pb-4'>{children(cycle)}</AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
   )
 }
 
@@ -231,7 +297,7 @@ export const OkrReferenceContent = ({ data, loading = false, onSync }: OkrRefere
   const syncedAt = formatSyncedAt(data?.lastSyncedAt ?? null)
 
   return (
-    <div className='space-y-5'>
+    <div className='space-y-2'>
       <div className='text-muted-foreground flex min-h-6 items-center justify-between gap-2 text-[11px]'>
         {data?.sync?.status === 'running' ? (
           <span className='text-primary flex items-center gap-1.5'>
@@ -244,27 +310,19 @@ export const OkrReferenceContent = ({ data, loading = false, onSync }: OkrRefere
         <SyncOkrButton onSync={onSync} syncing={loading || data?.sync?.status === 'running'} />
       </div>
 
-      {displayedCycles.map(cycle => (
-        <section key={cycle.id} className='space-y-4'>
-          <div className='flex items-center justify-between gap-3 border-b pb-2'>
-            <p className='text-xs font-medium'>
-              {formatEpochDate(cycle.startTime)} — {formatEpochDate(cycle.endTime)}
-            </p>
-            <Badge variant='secondary' className='text-[10px]'>
-              {cycle.objectives.length} 个目标
-            </Badge>
-          </div>
-          {cycle.objectives.length > 0 ? (
-            <div className='space-y-5'>
+      <OkrCycleList cycles={displayedCycles}>
+        {cycle =>
+          cycle.objectives.length > 0 ? (
+            <div className='space-y-3'>
               {cycle.objectives.map((objective, index) => (
-                <OkrObjective key={objective.id} objective={objective} index={index} />
+                <OkrObjectiveCard key={objective.id} objective={objective} index={index} />
               ))}
             </div>
           ) : (
             <p className='text-muted-foreground text-xs'>该周期暂无目标</p>
-          )}
-        </section>
-      ))}
+          )
+        }
+      </OkrCycleList>
     </div>
   )
 }

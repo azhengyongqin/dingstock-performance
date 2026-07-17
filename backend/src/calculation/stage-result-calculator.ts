@@ -256,6 +256,18 @@ export function calculateStageResult(input: StageResultInput): StageResult {
   };
 }
 
+/**
+ * 按阶段计算器的同一套精度与区间边界，把原始分数映射为绩效等级。
+ * 展示层统计也必须复用此入口，避免与权威阶段结果产生边界漂移。
+ */
+export function mapScoreToPerformanceLevel(
+  rawScore: DecimalInput,
+  ratings: RatingScaleEntry[],
+): PerformanceLevel {
+  validateRatingScale(ratings);
+  return levelForScore(scoreOf(String(rawScore)), ratings);
+}
+
 function ratingScoreOf(
   rawValue: string,
   ratingMap: Map<PerformanceLevel, RatingScaleEntry>,

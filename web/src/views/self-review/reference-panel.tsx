@@ -1,15 +1,15 @@
 'use client'
 
 // 自评页左侧参考区：员工信息 + OKR / 复盘 / 日志 Tab；Tab 内容区独立滚动。
-import { ChevronLeftIcon, ChevronRightIcon, EyeIcon } from 'lucide-react'
-
-import { UserAvatar } from '@/components/shared/lark'
+// 左右布局收起为侧轨，上下布局收起为顶部条。
 import EmployeeBasicInfo from '@/components/shared/EmployeeBasicInfo'
+import { ReferencePanelMotionRoot } from '@/components/shared/ReferencePanelCollapse'
+import { useEvaluationSplitSideBySide } from '@/components/shared/EvaluationSplitLayout'
 import { OkrReferenceContent, useParticipantOkr } from '@/components/shared/okr'
+import ScrollableTabsList from '@/components/shared/ScrollableTabsList'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs'
 import { avatarUrlOf, type PerfDetailedEmployeeProfile } from '@/lib/perf-api'
 
 import { REFERENCE_LOGS, REFERENCE_REVIEWS } from './reference-mock-data'
@@ -22,61 +22,35 @@ export type ReferencePanelProps = {
 }
 
 const ReferencePanel = ({ participantId, employee, collapsed, onCollapsedChange }: ReferencePanelProps) => {
+  const sideBySide = useEvaluationSplitSideBySide()
   const okr = useParticipantOkr(participantId)
   const openId = employee?.open_id
   const name = employee?.name ?? '员工'
 
-  if (collapsed) {
-    return (
-      <div className='flex h-full w-12 flex-col items-center gap-3 py-4'>
-        <Button
-          type='button'
-          size='icon'
-          variant='ghost'
-          aria-label='展开参考区'
-          onClick={() => onCollapsedChange(false)}
-        >
-          <ChevronRightIcon className='size-4' />
-        </Button>
-        <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='sm' />
-        <span className='text-muted-foreground text-[10px] tracking-widest' style={{ writingMode: 'vertical-rl' }}>
-          参考资料
-        </span>
-      </div>
-    )
-  }
-
   return (
-    <div className='flex h-full min-h-0 flex-col'>
-      <div className='flex shrink-0 items-center gap-3 px-4 py-4'>
-        <UserAvatar openId={openId} name={name} avatarUrl={avatarUrlOf(employee)} size='lg' />
-        <div className='min-w-0 flex-1'>
-          <p className='truncate text-base font-semibold'>{name}</p>
-        </div>
-        <Button
-          type='button'
-          size='icon'
-          variant='ghost'
-          aria-label='收起参考区'
-          onClick={() => onCollapsedChange(true)}
-        >
-          <ChevronLeftIcon className='size-4' />
-        </Button>
-      </div>
-
-      <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0'>
-        <div className='flex shrink-0 items-center justify-between gap-2 overflow-x-auto border-y px-3 pt-2'>
-          <TabsList variant='line' className='h-10 w-max min-w-full flex-nowrap'>
-            <TabsTrigger value='info' className='shrink-0'>基本信息</TabsTrigger>
-            <TabsTrigger value='okr'>OKR 内容</TabsTrigger>
-            <TabsTrigger value='review'>复盘记录</TabsTrigger>
-            <TabsTrigger value='log'>绩效日志</TabsTrigger>
-          </TabsList>
-          <Button type='button' variant='ghost' size='sm' className='text-muted-foreground shrink-0 text-xs'>
-            <EyeIcon className='size-3.5' />
-            OKR 详情
-          </Button>
-        </div>
+    <ReferencePanelMotionRoot
+      collapsed={collapsed}
+      sideBySide={sideBySide}
+      openId={openId}
+      name={name}
+      avatarUrl={avatarUrlOf(employee)}
+      onCollapsedChange={onCollapsedChange}
+    >
+      <Tabs defaultValue='info' className='flex min-h-0 flex-1 flex-col gap-0 overflow-hidden'>
+        <ScrollableTabsList>
+          <TabsTrigger value='info' className='shrink-0'>
+            基本信息
+          </TabsTrigger>
+          <TabsTrigger value='okr' className='shrink-0'>
+            OKR 内容
+          </TabsTrigger>
+          <TabsTrigger value='review' className='shrink-0'>
+            复盘记录
+          </TabsTrigger>
+          <TabsTrigger value='log' className='shrink-0'>
+            绩效日志
+          </TabsTrigger>
+        </ScrollableTabsList>
 
         <ScrollArea className='h-0 min-h-0 flex-1'>
           <TabsContent value='info' className='px-4 py-5'>
@@ -115,7 +89,7 @@ const ReferencePanel = ({ participantId, employee, collapsed, onCollapsedChange 
           </TabsContent>
         </ScrollArea>
       </Tabs>
-    </div>
+    </ReferencePanelMotionRoot>
   )
 }
 

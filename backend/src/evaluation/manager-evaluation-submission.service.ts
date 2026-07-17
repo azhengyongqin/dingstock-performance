@@ -155,6 +155,24 @@ export class ManagerEvaluationSubmissionService {
         take: 6,
       }),
     ]);
+    const peerReviewerProfiles = new Map(
+      (
+        await this.employeeProfileService.getPeerSafeMany(
+          peerResult.analysis.reviewers.map((review) => review.reviewerOpenId),
+        )
+      ).map((profile) => [profile.open_id, profile]),
+    );
+    const peerResultForManager = {
+      ...peerResult,
+      analysis: {
+        ...peerResult.analysis,
+        // Leader 实名可见，但只补充评估页需要的安全人员投影。
+        reviewers: peerResult.analysis.reviewers.map((review) => ({
+          ...review,
+          reviewer: peerReviewerProfiles.get(review.reviewerOpenId) ?? null,
+        })),
+      },
+    };
     const managerResult = submitted
       ? await this.managerStageResultService.recalculate(participant.id)
       : null;
@@ -179,7 +197,7 @@ export class ManagerEvaluationSubmissionService {
       draft,
       state: submitted ? (draft ? 'PENDING_RESUBMIT' : 'EFFECTIVE') : 'DRAFT',
       selfEvaluation,
-      peerResult,
+      peerResult: peerResultForManager,
       managerResult,
       history: history.map((version) => ({
         finalLevel: version.finalLevel,

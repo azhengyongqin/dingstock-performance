@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PerfApi from '@/lib/perf-api'
@@ -13,15 +14,19 @@ const {
   getParticipantOkr,
   triggerParticipantOkrSync
 } = vi.hoisted(() => ({
-    routerPush: vi.fn(),
-    getManagerEvaluationContext: vi.fn(),
-    saveManagerEvaluationDraft: vi.fn(),
-    submitManagerEvaluation: vi.fn(),
-    getParticipantOkr: vi.fn(),
-    triggerParticipantOkrSync: vi.fn()
-  }))
+  routerPush: vi.fn(),
+  getManagerEvaluationContext: vi.fn(),
+  saveManagerEvaluationDraft: vi.fn(),
+  submitManagerEvaluation: vi.fn(),
+  getParticipantOkr: vi.fn(),
+  triggerParticipantOkrSync: vi.fn()
+}))
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
+  usePathname: () => '/review-tasks/fill',
+  useSearchParams: () => new URLSearchParams()
+}))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/perf-api', async importOriginal => {
   const actual = await importOriginal<typeof PerfApi>()
@@ -128,10 +133,116 @@ const context = {
   },
   peerResult: {
     status: 'READY',
+    mode: 'WEIGHTED_RATING',
     reviewerCount: 2,
     compositeScore: '85.00',
+    initialLevel: 'A',
     stageLevel: 'A',
-    dimensions: [{ id: 'dimension:collaboration', name: '协作沟通', score: '85', level: 'A' }]
+    constraintReasons: [],
+    dimensions: [{ id: 'dimension:collaboration', name: '协作沟通', score: '85', level: 'A' }],
+    analysis: {
+      assignedReviewerCount: 3,
+      submittedReviewerCount: 2,
+      relationCounts: [
+        { relation: 'PROJECT_OWNER', reviewerCount: 1 },
+        { relation: 'PEER', reviewerCount: 1 }
+      ],
+      dimensions: [
+        {
+          id: 'dimension:collaboration',
+          name: '协作沟通',
+          score: '85',
+          level: 'A',
+          distribution: { S: 0, A: 1, B: 1, C: 0 }
+        },
+        {
+          id: 'dimension:responsibility',
+          name: '责任担当',
+          score: '90',
+          level: 'S',
+          distribution: { S: 1, A: 1, B: 0, C: 0 }
+        }
+      ],
+      reviewers: [
+        {
+          submissionId: 201,
+          reviewerOpenId: 'ou_peer_1',
+          relation: 'PEER',
+          reviewer: {
+            open_id: 'ou_peer_1',
+            name: '评审员甲',
+            avatar: null,
+            departmentPath: null,
+            jobTitle: null
+          },
+          dimensions: [
+            {
+              id: 'dimension:collaboration',
+              name: '协作沟通',
+              rawLevel: 'A',
+              rawScore: null,
+              mappedLevel: 'A',
+              items: [
+                {
+                  itemKey: 'item:collaboration:rating',
+                  title: '协作表现',
+                  type: 'RATING',
+                  rawLevel: 'A',
+                  rawScore: null,
+                  value: null
+                },
+                {
+                  itemKey: 'item:collaboration:comment',
+                  title: '协作评语',
+                  type: 'LONG_TEXT',
+                  rawLevel: null,
+                  rawScore: null,
+                  value: '沟通及时，能够主动补位。'
+                }
+              ]
+            },
+            {
+              id: 'dimension:responsibility',
+              name: '责任担当',
+              rawLevel: 'S',
+              rawScore: null,
+              mappedLevel: 'S',
+              items: []
+            }
+          ]
+        },
+        {
+          submissionId: 202,
+          reviewerOpenId: 'ou_project_owner',
+          relation: 'PROJECT_OWNER',
+          reviewer: {
+            open_id: 'ou_project_owner',
+            name: '项目负责人乙',
+            avatar: null,
+            departmentPath: null,
+            jobTitle: null
+          },
+          dimensions: [
+            {
+              id: 'dimension:collaboration',
+              name: '协作沟通',
+              rawLevel: 'B',
+              rawScore: null,
+              mappedLevel: 'B',
+              items: []
+            },
+            {
+              id: 'dimension:responsibility',
+              name: '责任担当',
+              rawLevel: 'A',
+              rawScore: null,
+              mappedLevel: 'A',
+              items: []
+            }
+          ]
+        }
+      ]
+    }
   },
   managerResult: null,
   history: []
@@ -201,5 +312,29 @@ describe('ManagerReviewFill 关键流程', () => {
     )
     expect(await screen.findByText('初始等级 A')).toBeInTheDocument()
     expect(routerPush).toHaveBeenCalledWith('/review-tasks')
+  })
+
+  it('展示当前 360°概览，并在评审明细中展开查看生效答卷', async () => {
+    const user = userEvent.setup()
+
+    render(<ManagerReviewFill participantId={7} />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '360°评估' }))
+    expect(screen.getByRole('heading', { name: '360°评估结果' })).toBeInTheDocument()
+    expect(screen.getByText(/已提交/)).toBeInTheDocument()
+    expect(screen.getByText('2/3')).toBeInTheDocument()
+    expect(screen.getByText(/项目负责人/)).toBeInTheDocument()
+    expect(screen.getByText(/同部门同事/)).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '协作沟通评级人数柱状图' })).toHaveAccessibleDescription(
+      'C 0 人，B 1 人，A 1 人，S 0 人'
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '评审明细' }))
+    expect(screen.getByText('评审员甲')).toBeInTheDocument()
+    expect(screen.getByText('项目负责人乙')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /项目负责人乙/ }))
+    expect(await screen.findByRole('heading', { name: '责任担当' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '协作沟通' })).toBeInTheDocument()
   })
 })

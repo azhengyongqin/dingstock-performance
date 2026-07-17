@@ -22,6 +22,36 @@ if (!globalThis.ResizeObserver) {
   }
 }
 
+// jsdom 不提供响应式媒体查询；评估分栏默认按桌面宽度运行测试。
+if (!window.matchMedia) {
+  window.matchMedia = query => {
+    const viewportWidth = 1440
+    const minWidth = query.match(/\(min-width:\s*(\d+)px\)/)?.[1]
+    const maxWidth = query.match(/\(max-width:\s*(\d+)px\)/)?.[1]
+
+    const matches =
+      (minWidth ? viewportWidth >= Number(minWidth) : true) &&
+      (maxWidth ? viewportWidth <= Number(maxWidth) : true) &&
+      Boolean(minWidth || maxWidth)
+
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => true
+    } as MediaQueryList
+  }
+}
+
+// 横向滚动 Tab 会定位当前项；jsdom 没有实现元素级 scrollTo。
+if (!HTMLElement.prototype.scrollTo) {
+  HTMLElement.prototype.scrollTo = () => {}
+}
+
 // Base UI 的滚动区域在关闭时会等待 Web Animations；jsdom 仅缺少该浏览器 API。
 if (!Element.prototype.getAnimations) {
   Element.prototype.getAnimations = () => []

@@ -227,6 +227,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
         <>
           <EvaluationSplitLayout
             collapsed={referenceCollapsed}
+            onCollapsedChange={setReferenceCollapsed}
             left={
               <PeerReferencePanel
                 participantId={context.participant?.id ?? 0}

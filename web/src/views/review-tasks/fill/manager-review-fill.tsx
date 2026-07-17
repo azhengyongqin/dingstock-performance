@@ -219,6 +219,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
         <>
           <EvaluationSplitLayout
             collapsed={referenceCollapsed}
+            onCollapsedChange={setReferenceCollapsed}
             left={
               <ManagerReferencePanel
                 participantId={context.participant.id}

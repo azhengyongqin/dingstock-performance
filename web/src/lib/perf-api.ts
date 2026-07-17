@@ -1016,6 +1016,51 @@ export type PerfManagerStageResult = {
   dimensions: PerfStageDimensionResultView[]
 }
 
+export type PerfPeerReviewAnalysisItem = {
+  itemKey: string
+  title: string
+  type: PerfFormItemType
+  rawLevel: PerfPerformanceLevel | null
+  rawScore: string | null
+  value: unknown
+}
+
+export type PerfPeerReviewAnalysisDimension = {
+  id: string
+  name: string
+  rawLevel: PerfPerformanceLevel | null
+  rawScore: string | null
+  mappedLevel: PerfPerformanceLevel
+  items: PerfPeerReviewAnalysisItem[]
+}
+
+export type PerfPeerReviewAnalysis = {
+  assignedReviewerCount: number
+  submittedReviewerCount: number
+  relationCounts: Array<{
+    relation: PerfConfigReviewerRelation
+    reviewerCount: number
+  }>
+  dimensions: Array<{
+    id: string
+    name: string
+    score: string
+    level: PerfPerformanceLevel
+    distribution: Record<PerfPerformanceLevel, number>
+  }>
+  reviewers: Array<{
+    submissionId: number
+    reviewerOpenId: string
+    relation: PerfConfigReviewerRelation
+    reviewer: PerfPeerSafeEmployeeProfile | null
+    dimensions: PerfPeerReviewAnalysisDimension[]
+  }>
+}
+
+export type PerfPeerStageResult = PerfManagerStageResult & {
+  analysis: PerfPeerReviewAnalysis
+}
+
 export type PerfManagerEvaluationContext = {
   participant: { id: number; cycleId: number; isPromotionEnabled: boolean }
   cycle: {
@@ -1031,7 +1076,7 @@ export type PerfManagerEvaluationContext = {
   draft: PerfEvaluationSubmissionRecord | null
   state: PerfPeerEvaluationState
   selfEvaluation: PerfEvaluationSubmissionRecord | null
-  peerResult: (PerfManagerStageResult & { inputSummary?: unknown }) | null
+  peerResult: PerfPeerStageResult | null
   managerResult: PerfManagerStageResult | null
   history: Array<{
     finalLevel: string

@@ -61,6 +61,41 @@ export class EvaluationEmployeeProfileService {
     return this.load(openId, false);
   }
 
+  /** 上级评估明细批量加载评审人，避免按人员放大用户与部门查询。 */
+  async getPeerSafeMany(openIds: string[]) {
+    const uniqueOpenIds = [...new Set(openIds)];
+    if (uniqueOpenIds.length === 0) return [];
+
+    const users = await this.prisma.larkUser.findMany({
+      where: { open_id: { in: uniqueOpenIds } },
+      select: {
+        open_id: true,
+        name: true,
+        avatar: true,
+        corehr: {
+          select: {
+            department_id: true,
+            job: true,
+          },
+        },
+      },
+    });
+    const departmentMap = users.some((user) => user.corehr?.department_id)
+      ? await this.getDepartmentMap()
+      : null;
+
+    return users.map((user): PeerSafeEmployeeProfile => ({
+      open_id: user.open_id,
+      name: user.name,
+      avatar: user.avatar,
+      departmentPath:
+        user.corehr?.department_id && departmentMap
+          ? this.departmentPathOf(user.corehr.department_id, departmentMap)
+          : null,
+      jobTitle: nestedName(user.corehr?.job),
+    }));
+  }
+
   private async load(
     openId: string,
     includeSensitive: true,
@@ -112,6 +147,20 @@ export class EvaluationEmployeeProfileService {
 
   private async resolveDepartmentPath(departmentId: string) {
     const byId = await this.getDepartmentMap();
+    return this.departmentPathOf(departmentId, byId);
+  }
+
+  private departmentPathOf(
+    departmentId: string,
+    byId: Map<
+      string,
+      {
+        open_department_id: string;
+        name: string;
+        parent_department_id: string;
+      }
+    >,
+  ) {
     const names: string[] = [];
     const visited = new Set<string>();
     let currentId: string | undefined = departmentId;

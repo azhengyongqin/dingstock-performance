@@ -114,7 +114,10 @@ const ReviewTasks = () => {
             待办
             <Badge className='bg-primary/10 text-primary ml-1.5'>{pendingTasks.length}</Badge>
           </TabsTrigger>
-          <TabsTrigger value='done'>已完成</TabsTrigger>
+          <TabsTrigger value='done'>
+            已完成
+            <Badge className='bg-primary/10 text-primary ml-1.5'>{doneTasks.length}</Badge>
+          </TabsTrigger>
         </TabsList>
 
         {/* 待办任务 */}

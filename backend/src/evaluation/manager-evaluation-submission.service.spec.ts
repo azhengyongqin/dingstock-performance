@@ -174,7 +174,11 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
   };
   const aiReport = { refreshForParticipant: jest.fn() };
   const participantEvaluationLock = { lockHumanWrite: jest.fn() };
-  const employeeProfile = { getDetailed: jest.fn() };
+  const employeeProfile = {
+    getDetailed: jest.fn(),
+    getPeerSafe: jest.fn(),
+    getPeerSafeMany: jest.fn(),
+  };
   let service: ManagerEvaluationSubmissionService;
 
   beforeEach(() => {
@@ -223,7 +227,43 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       stageLevel: 'A',
       dimensions: [],
       inputSummary: { submittedReviewerCount: 2 },
+      analysis: {
+        assignedReviewerCount: 2,
+        submittedReviewerCount: 2,
+        relationCounts: [{ relation: 'PEER', reviewerCount: 2 }],
+        dimensions: [],
+        reviewers: [
+          {
+            submissionId: 201,
+            reviewerOpenId: 'ou_peer_1',
+            relation: 'PEER',
+            dimensions: [],
+          },
+          {
+            submissionId: 202,
+            reviewerOpenId: 'ou_peer_2',
+            relation: 'PEER',
+            dimensions: [],
+          },
+        ],
+      },
     });
+    employeeProfile.getPeerSafeMany.mockResolvedValue([
+      {
+        open_id: 'ou_peer_1',
+        name: '评审员甲',
+        avatar: null,
+        departmentPath: null,
+        jobTitle: null,
+      },
+      {
+        open_id: 'ou_peer_2',
+        name: '评审员乙',
+        avatar: null,
+        departmentPath: null,
+        jobTitle: null,
+      },
+    ]);
     managerStageResult.recalculate.mockResolvedValue({
       status: 'READY',
       compositeScore: '88.00',
@@ -271,7 +311,29 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     expect(context.peerResult).toMatchObject({
       status: 'READY',
       stageLevel: 'A',
+      analysis: {
+        reviewers: [
+          {
+            reviewerOpenId: 'ou_peer_1',
+            reviewer: {
+              open_id: 'ou_peer_1',
+              name: '评审员甲',
+            },
+          },
+          {
+            reviewerOpenId: 'ou_peer_2',
+            reviewer: {
+              open_id: 'ou_peer_2',
+              name: '评审员乙',
+            },
+          },
+        ],
+      },
     });
+    expect(employeeProfile.getPeerSafeMany).toHaveBeenCalledWith([
+      'ou_peer_1',
+      'ou_peer_2',
+    ]);
 
     prisma.perfParticipant.findUnique.mockResolvedValueOnce({
       ...participant,

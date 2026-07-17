@@ -7,3 +7,8 @@ allowBuilds:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+# svelte 仅由 ai/@ai-sdk/svelte 作为可选传递依赖引入（本项目为 React/Next，未实际使用），
+# 其新版本常落在 pnpm 默认最小发布时长（minimumReleaseAge）cutoff 内导致 install 失败，故定向豁免；
+# 其余依赖仍受默认供应链策略保护。
+minimumReleaseAgeExclude:
+  - svelte

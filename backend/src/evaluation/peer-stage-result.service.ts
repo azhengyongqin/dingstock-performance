@@ -14,6 +14,7 @@ import {
 import { Prisma } from '../generated/prisma/client';
 import {
   calculateStageResult,
+  mapScoreToPerformanceLevel,
   type MatchedConstraint,
   type PerformanceLevel,
   type RatingScaleEntry,
@@ -47,6 +48,46 @@ type RelationResultView = {
   dimensionScores: Array<{ dimensionKey: string; score: string }>;
 };
 
+type PeerReviewItemView = {
+  itemKey: string;
+  title: string;
+  type: string;
+  rawLevel: PerformanceLevel | null;
+  rawScore: string | null;
+  value: unknown;
+};
+
+type PeerReviewDimensionView = {
+  id: string;
+  name: string;
+  rawLevel: PerformanceLevel | null;
+  rawScore: string | null;
+  mappedLevel: PerformanceLevel;
+  items: PeerReviewItemView[];
+};
+
+export type PeerReviewAnalysisView = {
+  assignedReviewerCount: number;
+  submittedReviewerCount: number;
+  relationCounts: Array<{
+    relation: ReviewerRelation;
+    reviewerCount: number;
+  }>;
+  dimensions: Array<{
+    id: string;
+    name: string;
+    score: string;
+    level: PerformanceLevel;
+    distribution: Record<PerformanceLevel, number>;
+  }>;
+  reviewers: Array<{
+    submissionId: number;
+    reviewerOpenId: string;
+    relation: ReviewerRelation;
+    dimensions: PeerReviewDimensionView[];
+  }>;
+};
+
 export type PeerStageResultView = {
   participantId: number;
   cycleConfigVersionId: number;
@@ -59,6 +100,8 @@ export type PeerStageResultView = {
   constraintReasons: MatchedConstraint[];
   validRelations: RelationResultView[];
   dimensions: StageDimensionResult[];
+  /** 上级评估参考区使用的当前生效答卷统计，不包含草稿和历史答卷。 */
+  analysis: PeerReviewAnalysisView;
   inputSummary: {
     assignedReviewerCount: number;
     submittedReviewerCount: number;
@@ -197,6 +240,13 @@ export class PeerStageResultService {
         constraintReasons: [],
         validRelations: [],
         dimensions: [],
+        analysis: {
+          assignedReviewerCount: participant.reviewerAssignments.length,
+          submittedReviewerCount: 0,
+          relationCounts: [],
+          dimensions: [],
+          reviewers: [],
+        },
         inputSummary,
       };
       await this.persist(db, participant.cycleId, view, null);
@@ -252,6 +302,14 @@ export class PeerStageResultService {
       constraintReasons: result.matchedConstraints,
       validRelations,
       dimensions: result.dimensions,
+      analysis: this.buildAnalysis(
+        content,
+        mode,
+        this.ratingsOf(config.ratings),
+        participant.reviewerAssignments.length,
+        validSubmissions,
+        result.dimensions,
+      ),
       inputSummary,
     };
     await this.persist(
@@ -261,6 +319,130 @@ export class PeerStageResultService {
       result.unroundedCompositeScore,
     );
     return view;
+  }
+
+  /**
+   * 展示统计直接来自当前生效答卷：汇总结果仍复用阶段计算产物，
+   * 人数分布和原始评语不经过关系权重二次加工。
+   */
+  private buildAnalysis(
+    content: FormSnapshotContent,
+    mode: StageResultMode,
+    ratings: RatingScaleEntry[],
+    assignedReviewerCount: number,
+    submissions: Array<{
+      id: number;
+      reviewerOpenId: string;
+      reviewerAssignment: { relation: string } | null;
+      items: Array<{
+        itemKey: string;
+        dimensionKey: string;
+        itemType: string;
+        rawLevel: PerformanceLevel | null;
+        rawScore: { toString(): string } | string | number | null;
+        value: unknown;
+      }>;
+    }>,
+    resultDimensions: StageDimensionResult[],
+  ): PeerReviewAnalysisView {
+    const dimensions = content.subforms
+      .filter((subform) => subform.type === 'PEER')
+      .flatMap((subform) => subform.dimensions)
+      .filter(
+        (dimension) =>
+          dimension.audience === 'REVIEWER' &&
+          (!dimension.kind || dimension.kind === 'REGULAR'),
+      );
+    const reviewerDimensions = (submission: (typeof submissions)[number]) =>
+      dimensions.map((dimension) => {
+        const scoringItem = this.scoringItemOf(dimension, mode);
+        const scoringResult = submission.items.find(
+          (item) => item.itemKey === scoringItem.key,
+        );
+        const rawLevel = scoringResult?.rawLevel ?? null;
+        const rawScore = scoringResult?.rawScore?.toString() ?? null;
+        const mappedLevel =
+          mode === 'WEIGHTED_RATING'
+            ? this.requirePerformanceLevel(rawLevel)
+            : this.levelForScore(rawScore, ratings);
+
+        return {
+          id: dimension.key,
+          name: dimension.name ?? dimension.key,
+          rawLevel,
+          rawScore,
+          mappedLevel,
+          items: dimension.items.map((item) => {
+            const stored = submission.items.find(
+              (candidate) => candidate.itemKey === item.key,
+            );
+            return {
+              itemKey: item.key,
+              title: item.title,
+              type: item.type,
+              rawLevel: stored?.rawLevel ?? null,
+              rawScore: stored?.rawScore?.toString() ?? null,
+              value: stored?.value ?? null,
+            };
+          }),
+        };
+      });
+    const reviewers = submissions.map((submission) => ({
+      submissionId: submission.id,
+      reviewerOpenId: submission.reviewerOpenId,
+      relation: submission.reviewerAssignment!.relation as ReviewerRelation,
+      dimensions: reviewerDimensions(submission),
+    }));
+
+    return {
+      assignedReviewerCount,
+      submittedReviewerCount: submissions.length,
+      relationCounts: REVIEWER_RELATIONS.flatMap((relation) => {
+        const reviewerCount = reviewers.filter(
+          (reviewer) => reviewer.relation === relation,
+        ).length;
+        return reviewerCount > 0 ? [{ relation, reviewerCount }] : [];
+      }),
+      dimensions: resultDimensions.map((dimension) => {
+        const distribution: Record<PerformanceLevel, number> = {
+          S: 0,
+          A: 0,
+          B: 0,
+          C: 0,
+        };
+        reviewers.forEach((reviewer) => {
+          const level = reviewer.dimensions.find(
+            (item) => item.id === dimension.id,
+          )?.mappedLevel;
+          if (level) distribution[level] += 1;
+        });
+        return {
+          id: dimension.id,
+          name: dimension.name,
+          score: dimension.score,
+          level: dimension.level,
+          distribution,
+        };
+      }),
+      reviewers,
+    };
+  }
+
+  private requirePerformanceLevel(value: unknown): PerformanceLevel {
+    if (value === 'S' || value === 'A' || value === 'B' || value === 'C') {
+      return value;
+    }
+    throw new ConflictException('有效 360°提交缺少评级结果');
+  }
+
+  private levelForScore(
+    value: string | null,
+    ratings: RatingScaleEntry[],
+  ): PerformanceLevel {
+    if (value === null) {
+      throw new ConflictException('有效 360°提交缺少评分结果');
+    }
+    return mapScoreToPerformanceLevel(value, ratings);
   }
 
   /** 管理视角读取时始终按当前有效输入重算，避免替换或未来配置变更留下陈旧结果。 */

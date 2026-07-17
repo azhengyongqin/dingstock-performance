@@ -1,6 +1,7 @@
 'use client'
 
 // 动态评估表单：大标题/说明固定在上方，色块维度标题吸顶，其下表单项在独立滚动区内。
+// 字号阶梯 B：主标题 text-base；维度详情 text-xs。
 import { Badge } from '@/components/ui/badge'
 import type { PerfConfigTemplateRating, PerfEvalFormSubform } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
@@ -44,15 +45,18 @@ const DimensionBlock = ({
   <section className='flex flex-col'>
     {/* 实底吸顶：铺满滚动区横向，避免半透明/顶间距透出下层内容 */}
     <div className='bg-card sticky top-0 z-10 -mx-5 px-5 pt-4 pb-3 sm:-mx-6 sm:px-6'>
-      <div className='flex items-start gap-3'>
-        <span className='bg-primary mt-1 h-5 w-1 shrink-0 rounded-full' aria-hidden />
-        <div className='min-w-0'>
-          <div className='flex flex-wrap items-center gap-2'>
-            <h3 className='text-base font-semibold'>{dimension.name}</h3>
+      <div className='space-y-1'>
+        {/* 色条与标题同一行 items-center，避免 mt/h 与 text-xs 行高错位 */}
+        <div className='flex items-center gap-2'>
+          <span className='bg-primary h-3.5 w-1 shrink-0 rounded-full' aria-hidden />
+          <div className='flex min-w-0 flex-wrap items-center gap-2'>
+            <h2 className='text-xs font-semibold'>{dimension.name}</h2>
             {dimension.isCore && <Badge variant='secondary'>核心</Badge>}
           </div>
-          {dimension.description && <p className='text-muted-foreground mt-1 text-sm'>{dimension.description}</p>}
         </div>
+        {dimension.description && (
+          <p className='text-muted-foreground pl-3 text-sm'>{dimension.description}</p>
+        )}
       </div>
     </div>
     <div className='flex flex-col gap-5 pb-8 pl-4'>
@@ -87,7 +91,7 @@ const EvaluationForm = ({
     return (
       <div className={cn('flex h-full min-h-0 flex-col', className)}>
         <div className='shrink-0 px-5 pt-5 sm:px-6 sm:pt-6'>
-          <h2 className='text-xl font-semibold'>{subformTitle(subform)}</h2>
+          <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
           {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
         </div>
         {/* 顶 padding 放进吸顶条，避免 sticky top-0 上方留出透底空隙 */}
@@ -114,7 +118,7 @@ const EvaluationForm = ({
       {subforms.map(subform => (
         <div key={subform.key} className='flex flex-col'>
           <div className='bg-card sticky top-0 z-20 -mx-5 border-b px-5 pt-5 pb-3 sm:-mx-6 sm:px-6'>
-            <h2 className='text-xl font-semibold'>{subformTitle(subform)}</h2>
+            <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
             {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
           </div>
           {subform.dimensions.map(dimension => (
