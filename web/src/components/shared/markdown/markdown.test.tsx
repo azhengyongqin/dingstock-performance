@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -70,6 +70,96 @@ describe('MarkdownEditor', () => {
       'src',
       'https://example.com/result.png'
     )
+  })
+
+  it('粘贴剪贴板图片后上传并回写为 Markdown 图片语法', async () => {
+    const onChange = vi.fn()
+
+    // 缓存命中、测试桩等上传实现可能立即完成，也必须等 Novel 的占位节点先落地。
+    const uploadImage = vi.fn(async () => 'https://example.com/pasted-screenshot.png')
+
+    const screenshot = new File(['screenshot'], 'screenshot.png', { type: 'image/png' })
+
+    render(
+      <MarkdownEditor
+        ariaLabel='粘贴图片编辑器'
+        value=''
+        onChange={onChange}
+        uploadImage={uploadImage}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox', { name: '粘贴图片编辑器' })
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        files: [screenshot],
+        types: ['Files'],
+        getData: () => ''
+      }
+    })
+
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledWith(screenshot))
+    await waitFor(() =>
+      expect(onChange.mock.calls.at(-1)?.[0]).toContain('![](https://example.com/pasted-screenshot.png)')
+    )
+  })
+
+  it('未配置上传服务时把粘贴图片以内嵌 Data URL 保存', async () => {
+    const onChange = vi.fn()
+    const screenshot = new File(['screenshot'], 'screenshot.png', { type: 'image/png' })
+
+    render(<MarkdownEditor ariaLabel='本地图片编辑器' value='' onChange={onChange} />)
+
+    const editor = await screen.findByRole('textbox', { name: '本地图片编辑器' })
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        files: [screenshot],
+        types: ['Files'],
+        getData: () => ''
+      }
+    })
+
+    await waitFor(() =>
+      expect(onChange.mock.calls.at(-1)?.[0]).toContain('![](data:image/png;base64,c2NyZWVuc2hvdA==)')
+    )
+  })
+
+  it('连续粘贴多张图片时不会因旧编辑器事务丢失图片', async () => {
+    const onChange = vi.fn()
+    const uploadImage = vi.fn(async (file: File) => `https://example.com/${file.name}`)
+
+    render(
+      <MarkdownEditor
+        ariaLabel='连续粘贴编辑器'
+        value=''
+        onChange={onChange}
+        uploadImage={uploadImage}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox', { name: '连续粘贴编辑器' })
+
+    const pasteImage = (file: File) =>
+      fireEvent.paste(editor, {
+        clipboardData: {
+          files: [file],
+          types: ['Files'],
+          getData: () => ''
+        }
+      })
+
+    pasteImage(new File(['first'], 'first.png', { type: 'image/png' }))
+    pasteImage(new File(['second'], 'second.png', { type: 'image/png' }))
+
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(2))
+    await waitFor(() => {
+      const markdown = onChange.mock.calls.at(-1)?.[0] as string
+
+      expect(markdown).toContain('![](https://example.com/first.png)')
+      expect(markdown).toContain('![](https://example.com/second.png)')
+    })
   })
 
   it('解析已有 Markdown，并将富文本修改继续回写为 Markdown', async () => {

@@ -422,7 +422,7 @@ const MarkdownPreview = () => {
         <CardHeader>
           <CardTitle>Novel.sh 编辑态</CardTitle>
           <CardDescription>
-            支持格式化、斜杠内容块与图片链接插入，修改会实时回写为 Markdown 字符串。
+            支持格式化、斜杠内容块、图片链接插入与直接粘贴截图，修改会实时回写为 Markdown 字符串。
           </CardDescription>
         </CardHeader>
         <CardContent>

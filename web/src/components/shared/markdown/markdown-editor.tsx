@@ -20,8 +20,13 @@ import {
   TaskList,
   TiptapImage,
   TiptapLink,
+  type UploadFn,
+  UploadImagesPlugin,
+  createImageUpload,
   createSuggestionItems,
   handleCommandNavigation,
+  handleImageDrop,
+  handleImagePaste,
   renderItems,
   useEditor
 } from 'novel'
@@ -44,6 +49,7 @@ import {
   Undo2Icon,
   type LucideIcon
 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { CommandEmpty, CommandList } from '@/components/ui/command'
@@ -67,6 +73,98 @@ type ToolbarAction = {
   icon: LucideIcon
   active?: boolean
   run: () => void
+}
+
+type ImageUploadHandler = (file: File) => Promise<string>
+
+const MAX_PASTED_IMAGE_SIZE = 20 * 1024 * 1024
+
+/** 默认将粘贴图片保存为 Data URL，接入对象存储后可通过 uploadImage 覆盖。 */
+const imageFileToDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result)
+      else reject(new Error('无法读取图片内容'))
+    }
+
+    reader.onerror = () => reject(reader.error ?? new Error('无法读取图片内容'))
+    reader.onabort = () => reject(new Error('图片读取已取消'))
+    reader.readAsDataURL(file)
+  })
+
+/** 串行执行 Novel 图片上传，避免连续粘贴时多个占位事务基于同一份旧编辑器状态。 */
+const createQueuedImageUpload = (uploadImage?: ImageUploadHandler): UploadFn => {
+  let uploadQueue: Promise<void> = Promise.resolve()
+  let releaseCurrentUpload: (() => void) | undefined
+
+  const releaseAfterNovelTransaction = () => {
+    // Novel 在 onUpload Promise 结算后的微任务中插图；下一个宏任务再释放队列。
+    setTimeout(() => {
+      releaseCurrentUpload?.()
+      releaseCurrentUpload = undefined
+    }, 0)
+  }
+
+  const runImageUpload = createImageUpload({
+    validateFn: file => {
+      if (!file.type.startsWith('image/')) {
+        toast.error('只能粘贴图片文件')
+        releaseAfterNovelTransaction()
+
+        return false
+      }
+
+      if (file.size > MAX_PASTED_IMAGE_SIZE) {
+        toast.error('图片不能超过 20 MB')
+        releaseAfterNovelTransaction()
+
+        return false
+      }
+
+      return true
+    },
+    onUpload: async file => {
+      // Novel 先启动自己的 FileReader；等待第二次读取完成，可确保预览占位已经派发。
+      const placeholderReady = imageFileToDataUrl(file)
+
+      try {
+        const imageUrlPromise = uploadImage ? uploadImage(file) : placeholderReady
+
+        await placeholderReady
+
+        const imageUrl = await imageUrlPromise
+
+        if (!imageUrl) throw new Error('上传结果缺少图片地址')
+
+        toast.success(uploadImage ? '图片上传成功' : '图片已粘贴')
+
+        return imageUrl
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '图片上传失败，请重试')
+        throw error
+      } finally {
+        releaseAfterNovelTransaction()
+      }
+    }
+  })
+
+  return (file, view, pos) => {
+    uploadQueue = uploadQueue.then(
+      () =>
+        new Promise<void>(resolve => {
+          releaseCurrentUpload = resolve
+
+          try {
+            runImageUpload(file, view, pos)
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : '图片上传失败，请重试')
+            releaseAfterNovelTransaction()
+          }
+        })
+    )
+  }
 }
 
 const slashCommandItems = createSuggestionItems([
@@ -415,6 +513,9 @@ export type MarkdownEditorProps = {
   value: string
   onChange: (markdown: string) => void
   ariaLabel: string
+
+  /** 上传粘贴或拖入的图片并返回可持久化地址；省略时以内嵌 Data URL 保存。 */
+  uploadImage?: ImageUploadHandler
   placeholder?: string
   disabled?: boolean
   invalid?: boolean
@@ -428,11 +529,14 @@ const MarkdownEditor = ({
   value,
   onChange,
   ariaLabel,
+  uploadImage,
   placeholder = '请输入内容，或输入 / 选择内容块…',
   disabled,
   invalid,
   className
 }: MarkdownEditorProps) => {
+  const uploadFn = useMemo(() => createQueuedImageUpload(uploadImage), [uploadImage])
+
   const extensions = useMemo(
     () => [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -440,8 +544,17 @@ const MarkdownEditor = ({
       TiptapLink.configure({ openOnClick: false, autolink: false, linkOnPaste: false }),
 
       // Markdown 图片本质是行内节点；让段落负责写入块间空行，避免图片与后续标题粘连。
-      TiptapImage.configure({
+      TiptapImage.extend({
+        addProseMirrorPlugins() {
+          return [
+            UploadImagesPlugin({
+              imageClass: 'my-3 block max-w-full rounded-md opacity-40'
+            })
+          ]
+        }
+      }).configure({
         inline: true,
+        allowBase64: true,
         HTMLAttributes: { class: 'my-3 block max-w-full rounded-md' }
       }),
       Table.configure({ resizable: false }),
@@ -491,6 +604,9 @@ const MarkdownEditor = ({
             handleDOMEvents: {
               keydown: (_view, event) => handleCommandNavigation(event)
             },
+            handlePaste: (view, event) => handleImagePaste(view, event, uploadFn),
+            handleDrop: (view, event, _slice, moved) =>
+              handleImageDrop(view, event, moved, uploadFn),
             attributes: {
               role: 'textbox',
               'aria-label': ariaLabel,
