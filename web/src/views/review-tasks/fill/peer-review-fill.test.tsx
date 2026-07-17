@@ -155,7 +155,7 @@ describe('PeerReviewFill 关键流程', () => {
     expect(screen.getByRole('tab', { name: '员工自评' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
     expect(screen.getByRole('heading', { name: '完成核心项目', level: 2 })).toBeInTheDocument()
-    expect(screen.getByRole('list')).toHaveTextContent('协作落地')
+    expect(screen.getByText('协作落地').closest('ul')).toBeInTheDocument()
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))

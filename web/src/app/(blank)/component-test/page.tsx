@@ -144,7 +144,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'markdown',
     title: 'Markdown 编辑器',
-    description: 'Tiptap 编辑 / Markdown 渲染',
+    description: 'Novel.sh 编辑 / Markdown 渲染',
     icon: FileTextIcon
   },
   {
@@ -420,8 +420,10 @@ const MarkdownPreview = () => {
     <div className='grid gap-4 xl:grid-cols-2'>
       <Card>
         <CardHeader>
-          <CardTitle>Tiptap 编辑态</CardTitle>
-          <CardDescription>支持格式化与图片链接插入，修改会实时回写为 Markdown 字符串。</CardDescription>
+          <CardTitle>Novel.sh 编辑态</CardTitle>
+          <CardDescription>
+            支持格式化、斜杠内容块与图片链接插入，修改会实时回写为 Markdown 字符串。
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <MarkdownEditor ariaLabel='Markdown 示例编辑器' value={content} onChange={setContent} />
@@ -1473,6 +1475,7 @@ const ComponentTestPage = () => {
   const activeItem = COMPONENT_MENU.find(item => item.key === activeComponent) ?? COMPONENT_MENU[0]
 
   return (
+
     // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
     <div className='bg-muted/30 flex h-dvh flex-col overflow-hidden'>
       <Header />

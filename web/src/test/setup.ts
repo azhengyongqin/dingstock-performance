@@ -8,3 +8,21 @@ if (!Range.prototype.getClientRects) {
 if (!Range.prototype.getBoundingClientRect) {
   Range.prototype.getBoundingClientRect = () => new DOMRect()
 }
+
+// jsdom 未实现坐标命中查询；Novel 的斜杠菜单与 ProseMirror 光标定位会调用它。
+if (!document.elementFromPoint) {
+  document.elementFromPoint = () => document.body
+}
+
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+}
+
+// Base UI 的滚动区域在关闭时会等待 Web Animations；jsdom 仅缺少该浏览器 API。
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => []
+}

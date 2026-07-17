@@ -1,23 +1,43 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { Image } from '@tiptap/extension-image'
-import { Placeholder } from '@tiptap/extension-placeholder'
-import { TableKit } from '@tiptap/extension-table'
-import { TaskItem } from '@tiptap/extension-task-item'
-import { TaskList } from '@tiptap/extension-task-list'
-import { Markdown } from '@tiptap/markdown'
-import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
+import Table from '@tiptap/extension-table'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
+import TableRow from '@tiptap/extension-table-row'
+import {
+  Command,
+  EditorCommand,
+  EditorCommandItem,
+  EditorContent,
+  type EditorInstance,
+  EditorRoot,
+  type JSONContent,
+  Placeholder,
+  StarterKit,
+  TaskItem,
+  TaskList,
+  TiptapImage,
+  TiptapLink,
+  createSuggestionItems,
+  handleCommandNavigation,
+  renderItems,
+  useEditor
+} from 'novel'
+import { Markdown } from 'tiptap-markdown'
 import {
   BoldIcon,
+  CheckSquareIcon,
   Code2Icon,
+  Heading1Icon,
   Heading2Icon,
+  Heading3Icon,
   ImageIcon,
   ItalicIcon,
   ListIcon,
   ListOrderedIcon,
+  PilcrowIcon,
   QuoteIcon,
   Redo2Icon,
   StrikethroughIcon,
@@ -26,6 +46,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
+import { CommandEmpty, CommandList } from '@/components/ui/command'
 import {
   Dialog,
   DialogContent,
@@ -48,76 +69,211 @@ type ToolbarAction = {
   run: () => void
 }
 
-/** 工具栏状态直接订阅编辑器事务，确保光标切换段落时按钮高亮同步更新。 */
-const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: boolean }) => {
+const slashCommandItems = createSuggestionItems([
+  {
+    title: '正文',
+    description: '普通文本段落',
+    searchTerms: ['text', 'paragraph', 'p'],
+    icon: <PilcrowIcon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setParagraph().run()
+  },
+  {
+    title: '一级标题',
+    description: '页面主标题',
+    searchTerms: ['heading', 'h1', 'title'],
+    icon: <Heading1Icon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run()
+  },
+  {
+    title: '二级标题',
+    description: '主要章节标题',
+    searchTerms: ['heading', 'h2', 'subtitle'],
+    icon: <Heading2Icon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run()
+  },
+  {
+    title: '三级标题',
+    description: '次级章节标题',
+    searchTerms: ['heading', 'h3', 'subtitle'],
+    icon: <Heading3Icon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run()
+  },
+  {
+    title: '无序列表',
+    description: '创建项目符号列表',
+    searchTerms: ['bullet', 'list', 'ul'],
+    icon: <ListIcon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).toggleBulletList().run()
+  },
+  {
+    title: '有序列表',
+    description: '创建数字编号列表',
+    searchTerms: ['ordered', 'list', 'ol'],
+    icon: <ListOrderedIcon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).toggleOrderedList().run()
+  },
+  {
+    title: '任务列表',
+    description: '创建可勾选的待办事项',
+    searchTerms: ['todo', 'task', 'checkbox'],
+    icon: <CheckSquareIcon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).toggleTaskList().run()
+  },
+  {
+    title: '引用',
+    description: '突出显示引用内容',
+    searchTerms: ['quote', 'blockquote'],
+    icon: <QuoteIcon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).setParagraph().toggleBlockquote().run()
+  },
+  {
+    title: '代码块',
+    description: '插入等宽字体代码块',
+    searchTerms: ['code', 'codeblock'],
+    icon: <Code2Icon className='size-4' />,
+    command: ({ editor, range }) =>
+      editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
+  }
+])
+
+const slashCommand = Command.configure({
+  suggestion: {
+    items: () => slashCommandItems,
+    render: renderItems
+  }
+})
+
+/**
+ * Novel 命令菜单使用中文描述，并仅暴露当前评估答案支持持久化的 Markdown 内容块。
+ * EditorCommand / EditorCommandItem 必须保留 Novel 原语来传递当前 editor 与 range；列表状态复用 shadcn。
+ */
+const NovelCommandMenu = () => (
+  <EditorCommand className='bg-popover text-popover-foreground z-50 max-h-80 min-w-64 overflow-y-auto rounded-md border p-1 shadow-md'>
+    <CommandEmpty className='text-muted-foreground px-3 py-6'>
+      没有匹配的内容块
+    </CommandEmpty>
+    <CommandList>
+      {slashCommandItems.map(item => (
+        <EditorCommandItem
+          key={item.title}
+          value={item.title}
+          keywords={item.searchTerms}
+          aria-label={`${item.title}：${item.description}`}
+          className='aria-selected:bg-accent aria-selected:text-accent-foreground flex cursor-pointer items-center gap-3 rounded-sm px-2 py-2 text-sm outline-none'
+          onCommand={params => item.command?.(params)}
+        >
+          <span className='bg-muted flex size-8 shrink-0 items-center justify-center rounded-md'>{item.icon}</span>
+          <span className='flex flex-col'>
+            <span className='font-medium'>{item.title}</span>
+            <span className='text-muted-foreground text-xs'>{item.description}</span>
+          </span>
+        </EditorCommandItem>
+      ))}
+    </CommandList>
+  </EditorCommand>
+)
+
+/** 保持原有受控组件协议：父级重置草稿时，把 Markdown 安静地同步回 Novel 编辑器。 */
+const NovelValueSync = ({ value }: { value: string }) => {
+  const { editor } = useEditor()
+
+  useEffect(() => {
+    if (!editor || editor.storage.markdown.getMarkdown() === value) return
+
+    editor.commands.setContent(value, false)
+  }, [editor, value])
+
+  return null
+}
+
+const insertMarkdownImage = (editor: EditorInstance, src: string, alt: string) => {
+  // 评审答案仍保存 Markdown 字符串，图片节点会序列化为 ![描述](地址)。
+  // 始终在当前选区之后插入，避免光标选中已有图片时把旧节点替换掉。
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(editor.state.selection.to, { type: 'image', attrs: { src, alt } })
+    .run()
+}
+
+/** 工具栏订阅 Novel 编辑器事务，确保光标和历史记录变化后按钮状态立即刷新。 */
+const NovelMarkdownToolbar = () => {
+  const { editor } = useEditor()
+  const [, setRevision] = useState(0)
   const [imageDialogOpen, setImageDialogOpen] = useState(false)
   const [imageUrl, setImageUrl] = useState('')
   const [imageAlt, setImageAlt] = useState('')
   const [imageError, setImageError] = useState('')
 
-  const state = useEditorState({
-    editor,
-    selector: ({ editor: current }) => ({
-      bold: current.isActive('bold'),
-      italic: current.isActive('italic'),
-      strike: current.isActive('strike'),
-      heading: current.isActive('heading', { level: 2 }),
-      bulletList: current.isActive('bulletList'),
-      orderedList: current.isActive('orderedList'),
-      blockquote: current.isActive('blockquote'),
-      code: current.isActive('code'),
-      canUndo: current.can().chain().focus().undo().run(),
-      canRedo: current.can().chain().focus().redo().run()
-    })
-  })
+  useEffect(() => {
+    if (!editor) return
+
+    const refresh = () => setRevision(revision => revision + 1)
+
+    editor.on('transaction', refresh)
+
+    return () => {
+      editor.off('transaction', refresh)
+    }
+  }, [editor])
+
+  if (!editor) return null
 
   const actions: ToolbarAction[] = [
     {
       label: '加粗',
       icon: BoldIcon,
-      active: state.bold,
+      active: editor.isActive('bold'),
       run: () => editor.chain().focus().toggleBold().run()
     },
     {
       label: '斜体',
       icon: ItalicIcon,
-      active: state.italic,
+      active: editor.isActive('italic'),
       run: () => editor.chain().focus().toggleItalic().run()
     },
     {
       label: '删除线',
       icon: StrikethroughIcon,
-      active: state.strike,
+      active: editor.isActive('strike'),
       run: () => editor.chain().focus().toggleStrike().run()
     },
     {
       label: '二级标题',
       icon: Heading2Icon,
-      active: state.heading,
+      active: editor.isActive('heading', { level: 2 }),
       run: () => editor.chain().focus().toggleHeading({ level: 2 }).run()
     },
     {
       label: '无序列表',
       icon: ListIcon,
-      active: state.bulletList,
+      active: editor.isActive('bulletList'),
       run: () => editor.chain().focus().toggleBulletList().run()
     },
     {
       label: '有序列表',
       icon: ListOrderedIcon,
-      active: state.orderedList,
+      active: editor.isActive('orderedList'),
       run: () => editor.chain().focus().toggleOrderedList().run()
     },
     {
       label: '引用',
       icon: QuoteIcon,
-      active: state.blockquote,
+      active: editor.isActive('blockquote'),
       run: () => editor.chain().focus().toggleBlockquote().run()
     },
     {
       label: '行内代码',
       icon: Code2Icon,
-      active: state.code,
+      active: editor.isActive('code'),
       run: () => editor.chain().focus().toggleCode().run()
     }
   ]
@@ -143,12 +299,7 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
       return
     }
 
-    // 评审答案仍保存 Markdown 字符串，图片节点会由 Tiptap 序列化为 ![描述](地址)。
-    editor
-      .chain()
-      .focus()
-      .setImage({ src, alt: imageAlt.trim() || '图片' })
-      .run()
+    insertMarkdownImage(editor, src, imageAlt.trim() || '图片')
     handleImageDialogChange(false)
   }
 
@@ -170,7 +321,6 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
               aria-label={action.label}
               aria-pressed={action.active}
               title={action.label}
-              disabled={disabled}
               onClick={action.run}
             >
               <Icon className='size-4' />
@@ -184,7 +334,6 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
           variant='ghost'
           aria-label='插入图片'
           title='插入图片'
-          disabled={disabled}
           onClick={() => setImageDialogOpen(true)}
         >
           <ImageIcon className='size-4' />
@@ -196,7 +345,7 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
           variant='ghost'
           aria-label='撤销'
           title='撤销'
-          disabled={disabled || !state.canUndo}
+          disabled={!editor.can().chain().focus().undo().run()}
           onClick={() => editor.chain().focus().undo().run()}
         >
           <Undo2Icon className='size-4' />
@@ -207,7 +356,7 @@ const MarkdownToolbar = ({ editor, disabled }: { editor: Editor; disabled?: bool
           variant='ghost'
           aria-label='重做'
           title='重做'
-          disabled={disabled || !state.canRedo}
+          disabled={!editor.can().chain().focus().redo().run()}
           onClick={() => editor.chain().focus().redo().run()}
         >
           <Redo2Icon className='size-4' />
@@ -273,88 +422,104 @@ export type MarkdownEditorProps = {
 }
 
 /**
- * Tiptap Markdown 编辑器：界面为富文本，输入输出始终是 Markdown 字符串，兼容现有评估答案协议。
+ * Novel.sh Markdown 编辑器：保留 value/onChange 字符串协议，替换原有 Tiptap 3 编辑器实现。
  */
 const MarkdownEditor = ({
   value,
   onChange,
   ariaLabel,
-  placeholder = '请输入内容…',
+  placeholder = '请输入内容，或输入 / 选择内容块…',
   disabled,
   invalid,
   className
 }: MarkdownEditorProps) => {
-  const editor = useEditor({
-    immediatelyRender: false,
-    editable: !disabled,
-    extensions: [
+  const extensions = useMemo(
+    () => [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-      Placeholder.configure({ placeholder }),
-      Image,
-      TableKit,
+      Placeholder.configure({ placeholder, includeChildren: true }),
+      TiptapLink.configure({ openOnClick: false, autolink: false, linkOnPaste: false }),
+
+      // Markdown 图片本质是行内节点；让段落负责写入块间空行，避免图片与后续标题粘连。
+      TiptapImage.configure({
+        inline: true,
+        HTMLAttributes: { class: 'my-3 block max-w-full rounded-md' }
+      }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       TaskList,
       TaskItem.configure({ nested: true }),
-      Markdown.configure({ markedOptions: { gfm: true } })
+      Markdown.configure({
+        html: false,
+        tightLists: true,
+        bulletListMarker: '-',
+        linkify: false,
+        breaks: false,
+        transformPastedText: true,
+        transformCopiedText: true
+      }),
+      slashCommand
     ],
-    content: value,
-    contentType: 'markdown',
-    editorProps: {
-      attributes: {
-        role: 'textbox',
-        'aria-label': ariaLabel,
-        'aria-multiline': 'true',
-        class: cn(
-          'tiptap min-h-36 px-3 py-3 text-sm outline-none',
-          '[&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold',
-          '[&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold',
-          '[&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold',
-          '[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0',
-          '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
-          '[&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:pl-3 [&_blockquote]:italic',
-          '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono',
-          '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3',
-          '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
-          '[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-md',
-          '[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:bg-muted/60',
-          '[&_th]:border [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1.5',
-          '[&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0',
-          '[&_li[data-type=taskItem]]:flex [&_li[data-type=taskItem]]:items-start [&_li[data-type=taskItem]]:gap-2'
-        )
-      }
-    },
-    onUpdate: ({ editor: current }) => onChange(current.getMarkdown())
-  })
+    [placeholder]
+  )
 
-  useEffect(() => {
-    if (!editor) return
-    editor.setEditable(!disabled)
-  }, [disabled, editor])
-
-  useEffect(() => {
-    if (!editor || editor.getMarkdown() === value) return
-
-    // 草稿加载或父级重置时从 Markdown 重新解析，不触发一次多余的 onChange。
-    editor.commands.setContent(value, { contentType: 'markdown', emitUpdate: false })
-  }, [editor, value])
-
-  // 已提交或无编辑权限时直接走纯展示组件，避免把禁用工具栏误当成只读内容的一部分。
+  // 已提交或无编辑权限时直接走纯展示组件，避免把编辑器交互误当成只读内容的一部分。
   if (disabled) return <MarkdownContent content={value} className={className} />
+
+  // tiptap-markdown 会在编辑器创建前把初始字符串解析成文档；Novel 的类型只声明了 JSON。
+  const initialContent = value as unknown as JSONContent
 
   return (
     <div
       data-slot='markdown-editor'
-      data-disabled={disabled || undefined}
       aria-invalid={invalid || undefined}
       className={cn(
         'border-input bg-background overflow-hidden rounded-md border shadow-xs transition-[color,box-shadow]',
         'focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-3',
         'aria-invalid:border-destructive aria-invalid:ring-destructive/20',
-        'data-[disabled=true]:bg-muted/40 data-[disabled=true]:opacity-70',
         className
       )}
     >
-      {editor && <MarkdownToolbar editor={editor} disabled={disabled} />}
-      <EditorContent editor={editor} />
+      <EditorRoot>
+        <EditorContent
+          initialContent={initialContent}
+          immediatelyRender={false}
+          extensions={extensions}
+          slotBefore={<NovelMarkdownToolbar />}
+          editorProps={{
+            handleDOMEvents: {
+              keydown: (_view, event) => handleCommandNavigation(event)
+            },
+            attributes: {
+              role: 'textbox',
+              'aria-label': ariaLabel,
+              'aria-multiline': 'true',
+              class: cn(
+                'tiptap min-h-36 px-3 py-3 text-sm outline-none',
+                '[&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold',
+                '[&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold',
+                '[&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold',
+                '[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0',
+                '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
+                '[&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:pl-3 [&_blockquote]:italic',
+                '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono',
+                '[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3',
+                '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
+                '[&_img]:my-3 [&_img]:max-w-full [&_img]:rounded-md',
+                '[&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:bg-muted/60',
+                '[&_th]:border [&_th]:px-2 [&_th]:py-1.5 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1.5',
+                '[&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0',
+                '[&_li[data-type=taskItem]]:flex [&_li[data-type=taskItem]]:items-start [&_li[data-type=taskItem]]:gap-2'
+              )
+            }
+          }}
+          onUpdate={({ editor }) => onChange(editor.storage.markdown.getMarkdown())}
+        >
+          <NovelCommandMenu />
+          <NovelValueSync value={value} />
+        </EditorContent>
+      </EditorRoot>
     </div>
   )
 }

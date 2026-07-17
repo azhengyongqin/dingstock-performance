@@ -34,6 +34,23 @@ describe('MarkdownContent', () => {
 })
 
 describe('MarkdownEditor', () => {
+  it('输入斜杠后可通过 Novel 命令菜单插入内容块', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(<MarkdownEditor ariaLabel='Novel 编辑器' value='' onChange={onChange} />)
+
+    const editor = await screen.findByRole('textbox', { name: 'Novel 编辑器' })
+
+    await user.click(editor)
+    await user.type(editor, '/')
+    await user.click(await screen.findByRole('option', { name: /二级标题/ }))
+    await user.type(editor, '阶段总结')
+
+    expect(screen.getByRole('heading', { name: '阶段总结', level: 2 })).toBeInTheDocument()
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('## 阶段总结'))
+  })
+
   it('通过工具栏插入图片并回写为 Markdown 图片语法', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
@@ -69,6 +86,26 @@ describe('MarkdownEditor', () => {
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('已有总结'))
   })
 
+  it('富文本修改后保留已有 Markdown 链接地址', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(
+      <MarkdownEditor
+        ariaLabel='链接总结编辑器'
+        value={'[查看详情](https://example.com)\n\n## 总结'}
+        onChange={onChange}
+      />
+    )
+
+    await screen.findByRole('textbox', { name: '链接总结编辑器' })
+    expect(screen.getByRole('link', { name: '查看详情' })).toHaveAttribute('href', 'https://example.com')
+
+    await user.click(screen.getByRole('button', { name: '二级标题' }))
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    expect(onChange.mock.calls.at(-1)?.[0]).toContain('[查看详情](https://example.com)')
+  })
+
   it('禁用态使用纯 Markdown 渲染，不显示工具栏或可编辑节点', () => {
     const { container } = render(
       <MarkdownEditor ariaLabel='只读总结' value='**已提交**' disabled onChange={() => {}} />
@@ -95,11 +132,11 @@ describe('MarkdownEditor', () => {
     expect(screen.getByRole('checkbox')).toBeChecked()
   })
 
-  it('富文本修改后仍保留已有 Markdown 图片地址', async () => {
+  it('继续插入图片后仍保留已有 Markdown 图片地址', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
 
-    render(
+    const view = render(
       <MarkdownEditor
         ariaLabel='图片总结编辑器'
         value={'![架构图](https://example.com/architecture.png)\n\n## 总结'}
@@ -110,8 +147,21 @@ describe('MarkdownEditor', () => {
     await screen.findByRole('textbox', { name: '图片总结编辑器' })
     expect(screen.getByRole('img', { name: '架构图' })).toHaveAttribute('src', 'https://example.com/architecture.png')
 
-    await user.click(screen.getByRole('button', { name: '二级标题' }))
+    await user.click(screen.getByRole('button', { name: '插入图片' }))
+    await user.type(screen.getByRole('textbox', { name: '图片地址' }), 'https://example.com/result.png')
+    await user.type(screen.getByRole('textbox', { name: '图片描述' }), '结果图')
+    await user.click(screen.getByRole('button', { name: '确认插入' }))
+
     await waitFor(() => expect(onChange).toHaveBeenCalled())
-    expect(onChange.mock.calls.at(-1)?.[0]).toContain('![架构图](https://example.com/architecture.png)')
+    const markdown = onChange.mock.calls.at(-1)?.[0] as string
+
+    expect(markdown).toContain('![架构图](https://example.com/architecture.png)')
+    expect(markdown).toContain('\n\n## 总结')
+
+    // 用刚序列化出的 Markdown 重新挂载，确保图片后的标题结构没有被粘连破坏。
+    view.rerender(
+      <MarkdownEditor ariaLabel='图片总结编辑器' value={markdown} onChange={onChange} />
+    )
+    expect(screen.getByRole('heading', { name: '总结', level: 2 })).toBeInTheDocument()
   })
 })

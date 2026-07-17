@@ -206,7 +206,7 @@ input[type='number']::-webkit-outer-spin-button {
   }
 }
 
-/* Tiptap 空内容提示由 Placeholder 扩展写入 data-placeholder，这里负责视觉呈现。 */
+/* Novel 空内容提示由 Placeholder 扩展写入 data-placeholder，这里负责视觉呈现。 */
 .tiptap p.is-editor-empty:first-child::before {
   color: var(--muted-foreground);
   content: attr(data-placeholder);
