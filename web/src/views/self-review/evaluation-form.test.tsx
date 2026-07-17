@@ -135,7 +135,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
 
     expect(screen.getAllByRole('radio')).toHaveLength(4)
     expect(screen.getByRole('radio', { name: 'A · 优秀' })).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton', { name: '目标完成度' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '目标完成度' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '一句话总结' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '详细说明' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '复盘总结' })).toBeInTheDocument()
@@ -204,14 +204,15 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
     expect(screen.getByRole('button', { name: '添加附件' })).not.toBeDisabled()
   })
 
-  it('SCORE 输入非法文本仍如实回显，交由校验层拦截', async () => {
+  it('SCORE 仅接受 0-100 整数，小数点无法输入且超出会钳制', async () => {
     const user = userEvent.setup()
 
     render(<Harness subforms={[ALL_TYPES_SUBFORM]} />)
-    const scoreInput = screen.getByRole('spinbutton', { name: '目标完成度' })
+    const scoreInput = screen.getByRole('textbox', { name: '目标完成度' })
 
     await user.type(scoreInput, '85.5')
-    expect(scoreInput).toHaveValue(85.5)
+    // 「.」被拦截；继续输入「5」后为 855，即时钳制为 100
+    expect(scoreInput).toHaveValue('100')
   })
 })
 
@@ -236,7 +237,7 @@ describe('EvaluationForm 禁用态', () => {
     // RatingSelector 用原生 button[role=radio]，可用 toBeDisabled；Checkbox 仍是 span，看 aria-disabled。
     for (const radio of screen.getAllByRole('radio')) expect(radio).toBeDisabled()
     expect(screen.getByRole('checkbox', { name: '跨团队协作' })).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByRole('spinbutton', { name: '目标完成度' })).toBeDisabled()
+    expect(screen.getByRole('textbox', { name: '目标完成度' })).toBeDisabled()
     expect(screen.getByRole('textbox', { name: '一句话总结' })).toBeDisabled()
     expect(screen.getByRole('combobox', { name: '晋升意愿' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '添加附件' })).toBeDisabled()

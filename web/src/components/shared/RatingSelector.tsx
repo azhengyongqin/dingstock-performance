@@ -143,7 +143,8 @@ export function RatingSelector({
 }: RatingSelectorProps) {
   return (
     <TooltipProvider delay={120}>
-      <div className={cn('relative w-full max-w-md py-2', className)}>
+      {/* 固定宽度便于与 Label 同行两端对齐；勿用 w-full 以免撑满整行 */}
+      <div className={cn('relative w-72 shrink-0 py-2', className)}>
         {/* 细线在前、pill 在后，靠文档顺序压线，避免 z-index 在滚动时盖住其它区块 */}
         <div aria-hidden className='bg-border absolute top-1/2 right-8 left-8 h-px -translate-y-1/2' />
 

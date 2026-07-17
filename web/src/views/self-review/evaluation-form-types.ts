@@ -1,6 +1,6 @@
 // 动态评估表单的本地状态与纯校验逻辑：不依赖 React，便于独立单测。
 // 后端契约见 backend/src/evaluation/evaluation.dto.ts + evaluation.service-types.ts：
-// RATING 项只收 rawLevel，SCORE 项只收 rawScore（0-100 两位小数），其余类型内容进 value。
+// RATING 项只收 rawLevel，SCORE 项只收 rawScore（0-100 整数），其余类型内容进 value。
 
 import type {
   PerfEvalFormItem,
@@ -19,7 +19,7 @@ export type EvaluationItemAnswer = {
 
 export type EvaluationAnswers = Record<string, EvaluationItemAnswer>
 
-const SCORE_PATTERN = /^\d{1,3}(\.\d{1,2})?$/
+const SCORE_PATTERN = /^\d{1,3}$/
 
 /** 附件行：仓库既有附件语义为 JSON 元数据数组（名称 + URL），无二进制上传通道 */
 export type AttachmentRow = { name: string; url: string }
@@ -58,7 +58,12 @@ export const toEvaluationAnswers = (items: PerfEvaluationItemResult[]): Evaluati
     if (item.itemType === 'RATING') {
       answers[item.itemKey] = { rawLevel: item.rawLevel ?? undefined }
     } else if (item.itemType === 'SCORE') {
-      answers[item.itemKey] = { rawScoreText: item.rawScore != null ? String(item.rawScore) : '' }
+      // 控件仅接受整数；历史小数草稿回显时四舍五入
+      const n = item.rawScore != null ? Number(item.rawScore) : NaN
+
+      answers[item.itemKey] = {
+        rawScoreText: Number.isFinite(n) ? String(Math.round(n)) : ''
+      }
     } else {
       answers[item.itemKey] = { value: item.value }
     }
@@ -81,11 +86,13 @@ export const validateEvaluationItem = (item: PerfEvalFormItem, answer: Evaluatio
     const text = answer?.rawScoreText?.trim() ?? ''
 
     if (!text) return item.required ? `「${item.title}」为必填项，请输入分数` : null
-    if (!SCORE_PATTERN.test(text)) return `「${item.title}」请输入 0-100 的数值，最多两位小数`
+    if (!SCORE_PATTERN.test(text)) return `「${item.title}」请输入 0-100 的整数`
 
     const numeric = Number(text)
 
-    if (numeric < 0 || numeric > 100) return `「${item.title}」请输入 0-100 的数值，最多两位小数`
+    if (!Number.isInteger(numeric) || numeric < 0 || numeric > 100) {
+      return `「${item.title}」请输入 0-100 的整数`
+    }
 
     return null
   }
