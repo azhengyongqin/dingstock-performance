@@ -26,3 +26,8 @@ if (!globalThis.ResizeObserver) {
 if (!Element.prototype.getAnimations) {
   Element.prototype.getAnimations = () => []
 }
+
+// cmdk 在斜杠菜单切换选中项时会把命令滚动到可视区域。
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {}
+}

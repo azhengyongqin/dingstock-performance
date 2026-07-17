@@ -420,9 +420,9 @@ const MarkdownPreview = () => {
     <div className='grid gap-4 xl:grid-cols-2'>
       <Card>
         <CardHeader>
-          <CardTitle>Novel.sh 编辑态</CardTitle>
+          <CardTitle>Novel 源码编辑态</CardTitle>
           <CardDescription>
-            支持格式化、斜杠内容块、图片链接插入与直接粘贴截图，修改会实时回写为 Markdown 字符串。
+            支持源码式斜杠菜单、选中文本浮动菜单、图片选择/粘贴/拖入，修改会实时回写为 Markdown。
           </CardDescription>
         </CardHeader>
         <CardContent>

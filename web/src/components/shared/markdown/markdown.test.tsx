@@ -51,25 +51,46 @@ describe('MarkdownEditor', () => {
     await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('## 阶段总结'))
   })
 
-  it('通过工具栏插入图片并回写为 Markdown 图片语法', async () => {
+  it('源码版斜杠菜单提供本地图片上传入口', async () => {
+    const user = userEvent.setup()
+
+    render(<MarkdownEditor ariaLabel='源码版编辑器' value='' onChange={() => {}} />)
+
+    const editor = await screen.findByRole('textbox', { name: '源码版编辑器' })
+
+    await user.click(editor)
+    await user.type(editor, '/')
+
+    expect(await screen.findByRole('option', { name: /上传图片/ })).toBeInTheDocument()
+  })
+
+  it('通过源码版斜杠菜单选择图片并回写为 Markdown 图片语法', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
+    const uploadImage = vi.fn(async () => 'https://example.com/result.png')
+    const imageFile = new File(['result'], 'result.png', { type: 'image/png' })
 
-    render(<MarkdownEditor ariaLabel='图片编辑器' value='' onChange={onChange} />)
+    const { container } = render(
+      <MarkdownEditor
+        ariaLabel='图片编辑器'
+        value=''
+        onChange={onChange}
+        uploadImage={uploadImage}
+      />
+    )
 
-    await screen.findByRole('textbox', { name: '图片编辑器' })
-    await user.click(screen.getByRole('button', { name: '插入图片' }))
-    await user.type(screen.getByRole('textbox', { name: '图片地址' }), 'https://example.com/result.png')
-    await user.type(screen.getByRole('textbox', { name: '图片描述' }), '绩效结果图')
-    await user.click(screen.getByRole('button', { name: '确认插入' }))
+    const editor = await screen.findByRole('textbox', { name: '图片编辑器' })
+
+    await user.click(editor)
+    await user.type(editor, '/')
+    await user.click(await screen.findByRole('option', { name: /上传图片/ }))
+    await user.upload(screen.getByLabelText('选择图片文件'), imageFile)
 
     await waitFor(() =>
-      expect(onChange.mock.calls.at(-1)?.[0]).toContain('![绩效结果图](https://example.com/result.png)')
+      expect(onChange.mock.calls.at(-1)?.[0]).toContain('![](https://example.com/result.png)')
     )
-    expect(screen.getByRole('img', { name: '绩效结果图' })).toHaveAttribute(
-      'src',
-      'https://example.com/result.png'
-    )
+    expect(uploadImage).toHaveBeenCalledWith(imageFile)
+    expect(container.querySelector('img[src="https://example.com/result.png"]')).toBeInTheDocument()
   })
 
   it('粘贴剪贴板图片后上传并回写为 Markdown 图片语法', async () => {
@@ -168,12 +189,14 @@ describe('MarkdownEditor', () => {
 
     render(<MarkdownEditor ariaLabel='总结编辑器' value='## 已有总结' onChange={onChange} />)
 
-    await screen.findByRole('textbox', { name: '总结编辑器' })
+    const editor = await screen.findByRole('textbox', { name: '总结编辑器' })
 
     expect(screen.getByRole('heading', { name: '已有总结', level: 2 })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '二级标题' }))
+    await user.click(editor)
+    await user.type(editor, '补充')
 
-    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith('已有总结'))
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    expect(onChange.mock.calls.at(-1)?.[0]).toContain('补充')
   })
 
   it('富文本修改后保留已有 Markdown 链接地址', async () => {
@@ -188,10 +211,12 @@ describe('MarkdownEditor', () => {
       />
     )
 
-    await screen.findByRole('textbox', { name: '链接总结编辑器' })
+    const editor = await screen.findByRole('textbox', { name: '链接总结编辑器' })
+
     expect(screen.getByRole('link', { name: '查看详情' })).toHaveAttribute('href', 'https://example.com')
 
-    await user.click(screen.getByRole('button', { name: '二级标题' }))
+    await user.click(editor)
+    await user.type(editor, '补充')
     await waitFor(() => expect(onChange).toHaveBeenCalled())
     expect(onChange.mock.calls.at(-1)?.[0]).toContain('[查看详情](https://example.com)')
   })
@@ -223,29 +248,36 @@ describe('MarkdownEditor', () => {
   })
 
   it('继续插入图片后仍保留已有 Markdown 图片地址', async () => {
-    const user = userEvent.setup()
     const onChange = vi.fn()
+    const uploadImage = vi.fn(async () => 'https://example.com/result.png')
+    const imageFile = new File(['result'], 'result.png', { type: 'image/png' })
 
     const view = render(
       <MarkdownEditor
         ariaLabel='图片总结编辑器'
         value={'![架构图](https://example.com/architecture.png)\n\n## 总结'}
         onChange={onChange}
+        uploadImage={uploadImage}
       />
     )
 
-    await screen.findByRole('textbox', { name: '图片总结编辑器' })
+    const editor = await screen.findByRole('textbox', { name: '图片总结编辑器' })
+
     expect(screen.getByRole('img', { name: '架构图' })).toHaveAttribute('src', 'https://example.com/architecture.png')
 
-    await user.click(screen.getByRole('button', { name: '插入图片' }))
-    await user.type(screen.getByRole('textbox', { name: '图片地址' }), 'https://example.com/result.png')
-    await user.type(screen.getByRole('textbox', { name: '图片描述' }), '结果图')
-    await user.click(screen.getByRole('button', { name: '确认插入' }))
+    fireEvent.paste(editor, {
+      clipboardData: {
+        files: [imageFile],
+        types: ['Files'],
+        getData: () => ''
+      }
+    })
 
     await waitFor(() => expect(onChange).toHaveBeenCalled())
     const markdown = onChange.mock.calls.at(-1)?.[0] as string
 
     expect(markdown).toContain('![架构图](https://example.com/architecture.png)')
+    expect(markdown).toContain('![](https://example.com/result.png)')
     expect(markdown).toContain('\n\n## 总结')
 
     // 用刚序列化出的 Markdown 重新挂载，确保图片后的标题结构没有被粘连破坏。

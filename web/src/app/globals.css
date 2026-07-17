@@ -215,6 +215,69 @@ input[type='number']::-webkit-outer-spin-button {
   pointer-events: none;
 }
 
+/* Novel 源码 prosemirror.css 的图片上传占位与选中态。 */
+.tiptap img {
+  transition: filter 0.1s ease-in-out;
+}
+
+.tiptap img:hover {
+  cursor: pointer;
+  filter: brightness(90%);
+}
+
+.tiptap img.ProseMirror-selectednode {
+  outline: 3px solid var(--ring);
+  filter: brightness(90%);
+}
+
+.img-placeholder {
+  position: relative;
+}
+
+.img-placeholder::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  box-sizing: border-box;
+  width: 2rem;
+  height: 2rem;
+  content: '';
+  border: 3px solid var(--border);
+  border-top-color: var(--foreground);
+  border-radius: 9999px;
+  animation: novel-image-upload-spin 0.6s linear infinite;
+}
+
+@keyframes novel-image-upload-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Tippy 的定位由 Novel/TipTap 写入内联样式，这里只补充浮动菜单所需的基础盒模型。 */
+[data-tippy-root] {
+  max-width: calc(100vw - 0.625rem);
+}
+
+.tippy-box {
+  position: relative;
+  max-width: 25rem;
+  color: inherit;
+  background: transparent;
+  outline: 0;
+  transition-property: transform, visibility, opacity;
+}
+
+.tippy-box[data-state='hidden'] {
+  opacity: 0;
+}
+
+.tippy-content {
+  position: relative;
+  z-index: 1;
+  padding: 0;
+}
+
 [data-theme-scale='sm'] {
   --text-sm: 0.75rem;
   --text-base: 0.85rem;
