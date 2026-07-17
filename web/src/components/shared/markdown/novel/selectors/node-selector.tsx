@@ -32,9 +32,7 @@ const items: SelectorItem[] = [
     icon: PilcrowIcon,
     command: editor => editor.chain().focus().clearNodes().run(),
     isActive: editor =>
-      editor.isActive('paragraph') &&
-      !editor.isActive('bulletList') &&
-      !editor.isActive('orderedList')
+      editor.isActive('paragraph') && !editor.isActive('bulletList') && !editor.isActive('orderedList')
   },
   {
     name: '一级标题',

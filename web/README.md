@@ -33,11 +33,16 @@
    cp .env.example .env
    ```
 
-   | 变量 | 说明 | 默认值 |
-   | --- | --- | --- |
-   | `NEXT_PUBLIC_API_BASE_URL` | 后端 NestJS 服务地址 | `http://localhost:3000` |
-   | `BASEPATH` | 部署子路径，一般留空 | 空 |
-   | `NEXT_PUBLIC_APP_URL` | 前端对外地址（OG 元信息） | 空 |
+   | 变量                       | 说明                                   | 默认值                                           |
+   | -------------------------- | -------------------------------------- | ------------------------------------------------ |
+   | `NEXT_PUBLIC_API_BASE_URL` | 后端 NestJS 服务地址                   | `http://localhost:3000`                          |
+   | `BASEPATH`                 | 部署子路径，一般留空                   | 空                                               |
+   | `NEXT_PUBLIC_APP_URL`      | 前端对外地址（OG 元信息）              | 空                                               |
+   | `OPENAI_API_KEY`           | Novel Ask AI 服务端密钥                | 空（未配置时 AI 返回配置提示）                   |
+   | `OPENAI_BASE_URL`          | OpenAI 兼容服务地址                    | 空（使用 OpenAI 官方地址）                       |
+   | `BLOB_READ_WRITE_TOKEN`    | Novel 图片上传使用的 Vercel Blob Token | 空（未配置时继续使用 Data URL 或自定义上传回调） |
+   | `KV_REST_API_URL`          | Ask AI 可选限流存储地址                | 空（不启用限流）                                 |
+   | `KV_REST_API_TOKEN`        | Ask AI 可选限流存储 Token              | 空（不启用限流）                                 |
 
    成功标志：`.env` 文件存在且 `NEXT_PUBLIC_API_BASE_URL` 指向后端。
 

@@ -1,12 +1,6 @@
 'use client'
 
-import {
-  BoldIcon,
-  Code2Icon,
-  ItalicIcon,
-  StrikethroughIcon,
-  type LucideIcon
-} from 'lucide-react'
+import { BoldIcon, Code2Icon, ItalicIcon, StrikethroughIcon, UnderlineIcon, type LucideIcon } from 'lucide-react'
 import { type EditorInstance, EditorBubbleItem, useEditor } from 'novel'
 
 import { Button } from '@/components/ui/button'
@@ -32,6 +26,12 @@ const actions: TextAction[] = [
     isActive: editor => editor.isActive('italic')
   },
   {
+    label: '下划线',
+    icon: UnderlineIcon,
+    command: editor => editor.chain().focus().toggleUnderline().run(),
+    isActive: editor => editor.isActive('underline')
+  },
+  {
     label: '删除线',
     icon: StrikethroughIcon,
     command: editor => editor.chain().focus().toggleStrike().run(),
@@ -54,11 +54,7 @@ export const TextButtons = () => {
   return (
     <div className='flex'>
       {actions.map(action => (
-        <EditorBubbleItem
-          key={action.label}
-          asChild
-          onSelect={currentEditor => action.command(currentEditor)}
-        >
+        <EditorBubbleItem key={action.label} asChild onSelect={currentEditor => action.command(currentEditor)}>
           <Button
             type='button'
             size='icon-sm'

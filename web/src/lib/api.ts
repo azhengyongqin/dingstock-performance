@@ -29,7 +29,8 @@ export type AuthUser = {
 export const getToken = (): string | null => {
   if (typeof window === 'undefined') return null
 
-  return window.localStorage.getItem(TOKEN_STORAGE_KEY)
+  // 某些 SSR/测试运行时会暴露不完整的 localStorage 对象，不应阻断公开接口请求。
+  return typeof window.localStorage?.getItem === 'function' ? window.localStorage.getItem(TOKEN_STORAGE_KEY) : null
 }
 
 /** 读取本地保存的用户信息 */
@@ -127,6 +128,42 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
   if (response.status === 204) return undefined as T
 
   return (await response.json()) as T
+}
+
+/** Next.js 同源 Route Handler 请求入口；供流式 AI 等需要直接读取 Response 的场景复用。 */
+export const sameOriginApiFetch: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers)
+  const token = getToken()
+  const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/u, '')
+
+  const resolvedInput =
+    typeof input === 'string' && input.startsWith('/') && basePath && !input.startsWith(`${basePath}/`)
+      ? `${basePath}${input}`
+      : input
+
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  return fetch(resolvedInput, { ...init, headers })
+}
+
+/** 上传一张 Novel 编辑器图片，并返回对象存储中的公开地址。 */
+export const uploadNovelImage = async (file: File): Promise<string> => {
+  const response = await sameOriginApiFetch('/api/upload', {
+    method: 'POST',
+    body: file,
+    headers: {
+      'content-type': file.type || 'application/octet-stream',
+      'x-vercel-filename': encodeURIComponent(file.name)
+    }
+  })
+
+  if (!response.ok) throw new ApiError(response.status, await response.text())
+
+  const result = (await response.json()) as { url?: string }
+
+  if (!result.url) throw new ApiError(response.status, '上传结果缺少图片地址', result)
+
+  return result.url
 }
 
 // ---- 开发环境快速登录（仅 dev；生产后端返回 404，前端也不渲染入口） ----

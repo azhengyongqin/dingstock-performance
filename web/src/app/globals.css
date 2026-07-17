@@ -81,6 +81,15 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --novel-highlight-default: #ffffff;
+  --novel-highlight-purple: #f6f3f8;
+  --novel-highlight-red: #fdebeb;
+  --novel-highlight-yellow: #fbf4a2;
+  --novel-highlight-blue: #c1ecf9;
+  --novel-highlight-green: #acf79f;
+  --novel-highlight-orange: #faebdd;
+  --novel-highlight-pink: #faf1f5;
+  --novel-highlight-gray: #f1f1ef;
 }
 
 .dark {
@@ -115,6 +124,15 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --novel-highlight-default: #000000;
+  --novel-highlight-purple: #3f2c4b;
+  --novel-highlight-red: #5c1a1a;
+  --novel-highlight-yellow: #5c4b1a;
+  --novel-highlight-blue: #1a3d5c;
+  --novel-highlight-green: #1a5c20;
+  --novel-highlight-orange: #5c3a1a;
+  --novel-highlight-pink: #5c1a3a;
+  --novel-highlight-gray: #3a3a3a;
 }
 
 .input-default {
@@ -276,6 +294,107 @@ input[type='number']::-webkit-outer-spin-button {
   position: relative;
   z-index: 1;
   padding: 0;
+}
+
+/* Novel 源码中的任务列表、块拖拽手柄和媒体节点样式。 */
+.tiptap ul[data-type='taskList'] li > label {
+  margin-right: 0.3rem;
+  user-select: none;
+}
+
+.tiptap ul[data-type='taskList'] input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.2rem;
+  accent-color: var(--primary);
+}
+
+.tiptap ul[data-type='taskList'] li[data-checked='true'] > div > p {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+}
+
+.drag-handle {
+  position: fixed;
+  z-index: 50;
+  width: 1.2rem;
+  height: 1.5rem;
+  cursor: grab;
+  border-radius: 0.25rem;
+  opacity: 1;
+  transition: opacity 0.2s ease-in;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--foreground) 55%, transparent) 1px,
+    transparent 1px
+  );
+  background-repeat: repeat;
+  background-position: center;
+  background-size: 6px 6px;
+}
+
+.drag-handle:hover {
+  background-color: var(--muted);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.drag-handle.hide {
+  pointer-events: none;
+  opacity: 0;
+}
+
+.tiptap div[data-youtube-video] > iframe {
+  display: block;
+  width: 100%;
+  min-width: 12.5rem;
+  aspect-ratio: 16 / 9;
+  cursor: move;
+  border: 0.5rem solid color-mix(in oklab, var(--primary) 15%, transparent);
+  border-radius: var(--radius);
+}
+
+.tiptap .ProseMirror-selectednode iframe {
+  outline: 0.25rem solid var(--ring);
+}
+
+.tiptap span[style] > strong,
+.tiptap mark[style] > strong {
+  color: inherit;
+}
+
+.tiptap .hljs-comment,
+.tiptap .hljs-quote {
+  color: #7c7c7c;
+}
+
+.tiptap .hljs-keyword,
+.tiptap .hljs-selector-tag,
+.tiptap .hljs-title,
+.tiptap .hljs-section {
+  color: #2563eb;
+}
+
+.tiptap .hljs-string,
+.tiptap .hljs-symbol,
+.tiptap .hljs-bullet {
+  color: #15803d;
+}
+
+.tiptap .hljs-number,
+.tiptap .hljs-literal,
+.tiptap .hljs-type {
+  color: #c2410c;
+}
+
+@media (max-width: 600px) {
+  .drag-handle {
+    display: none;
+    pointer-events: none;
+  }
 }
 
 [data-theme-scale='sm'] {

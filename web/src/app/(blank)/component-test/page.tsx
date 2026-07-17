@@ -422,7 +422,7 @@ const MarkdownPreview = () => {
         <CardHeader>
           <CardTitle>Novel 源码编辑态</CardTitle>
           <CardDescription>
-            支持源码式斜杠菜单、选中文本浮动菜单、图片选择/粘贴/拖入，修改会实时回写为 Markdown。
+            支持 Ask AI、完整斜杠菜单、文本格式/颜色/公式、媒体嵌入、块拖拽和图片选择/粘贴/拖入/缩放。
           </CardDescription>
         </CardHeader>
         <CardContent>

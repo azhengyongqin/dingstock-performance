@@ -1,6 +1,7 @@
 'use client'
 
 import { AdvancedEditor } from './novel/advanced-editor'
+import { uploadImageWithNovelFallback } from './novel/image-upload'
 import type { ImageUploadHandler } from './novel/types'
 import MarkdownContent from './markdown-content'
 
@@ -36,7 +37,7 @@ const MarkdownEditor = ({
       value={value}
       onChange={onChange}
       ariaLabel={ariaLabel}
-      uploadImage={uploadImage}
+      uploadImage={uploadImage ?? uploadImageWithNovelFallback}
       placeholder={placeholder}
       invalid={invalid}
       className={className}

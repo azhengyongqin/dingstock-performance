@@ -31,3 +31,8 @@ if (!Element.prototype.getAnimations) {
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {}
 }
+
+// Novel 的全局拖拽手柄会用该 API 查找鼠标下方的 ProseMirror 节点。
+if (!document.elementsFromPoint) {
+  document.elementsFromPoint = () => []
+}

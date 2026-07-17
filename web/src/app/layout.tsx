@@ -25,6 +25,7 @@ import themeConfig from '@/configs/themeConfig'
 import { allFonts } from '@/utils/fonts'
 
 // Style Imports
+import 'katex/dist/katex.min.css'
 import './globals.css'
 import ScrollToTop from '@/components/layout/ScrollToTop'
 

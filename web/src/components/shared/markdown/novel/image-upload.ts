@@ -1,9 +1,14 @@
 import { type UploadFn, createImageUpload } from 'novel'
 import { toast } from 'sonner'
 
+import { ApiError, uploadNovelImage } from '@/lib/api'
+
 import type { ImageUploadHandler } from './types'
 
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024
+
+/** 可直接传给 MarkdownEditor.uploadImage，调用已移植的 Vercel Blob 上传端点。 */
+export const uploadImageToNovelApi: ImageUploadHandler = file => uploadNovelImage(file)
 
 /** 未接对象存储时以内嵌 Data URL 保存，确保现有业务页面开箱即用。 */
 const imageFileToDataUrl = (file: File) =>
@@ -19,6 +24,17 @@ const imageFileToDataUrl = (file: File) =>
     reader.onabort = () => reject(new Error('图片读取已取消'))
     reader.readAsDataURL(file)
   })
+
+/** 默认优先使用源码同款 Blob 端点；未配置或上传失败时回退为可立即持久化的 Data URL。 */
+export const uploadImageWithNovelFallback: ImageUploadHandler = async file => {
+  try {
+    return await uploadImageToNovelApi(file)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) return imageFileToDataUrl(file)
+
+    throw error
+  }
+}
 
 /**
  * 源码版 createImageUpload 的项目适配：串行占位事务，规避立即完成和连续上传时的丢图竞态。
@@ -66,7 +82,7 @@ export const createNovelImageUpload = (uploadImage?: ImageUploadHandler): Upload
 
         if (!imageUrl) throw new Error('上传结果缺少图片地址')
 
-        toast.success(uploadImage ? '图片上传成功' : '图片已插入')
+        toast.success('图片已插入')
 
         return imageUrl
       } catch (error) {
