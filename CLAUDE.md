@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 默认使用中文沟通与注释。为关键业务逻辑、配置边界和非显而易见的实现补充简洁中文注释。
 - 教程/操作说明写成可照做的步骤，并标注每一步的成功标志。
+- 需要用户作出决策或确认时，尽量提供清晰、互斥的选项，并明确标注推荐选项；每次只聚焦一个决策问题。
 
 ## Agent skills
 

@@ -127,7 +127,11 @@ export class DashboardService {
       where: { cycleId: resolvedCycleId, leaderOpenIdSnapshot: leaderOpenId },
       include: {
         evaluationSubmissions: {
-          where: { status: PerfReviewStatus.SUBMITTED },
+          where: {
+            status: {
+              in: [PerfReviewStatus.DRAFT, PerfReviewStatus.SUBMITTED],
+            },
+          },
           select: { stage: true, status: true, submittedAt: true },
         },
         stageResults: {
@@ -159,30 +163,48 @@ export class DashboardService {
     });
     return {
       cycle,
-      items: members.map((member) => ({
-        participantId: member.id,
-        employee: userMap.get(member.employeeOpenId) ?? null,
-        status: member.status,
-        isPromotionEnabled: member.isPromotionEnabled,
-        selfSubmissionStatus: member.evaluationSubmissions.some(
-          (row) => row.stage === 'SELF',
-        )
-          ? 'SUBMITTED'
-          : null,
-        reviewProgress: {
-          submitted: member.reviewerAssignments.filter(
-            (row) => row.status === PerfAssignmentStatus.SUBMITTED,
-          ).length,
-          total: member.reviewerAssignments.length,
-        },
-        managerSubmissionStatus: member.evaluationSubmissions.some(
-          (row) => row.stage === 'MANAGER',
-        )
-          ? 'SUBMITTED'
-          : null,
-        managerInitialLevel: member.stageResults[0]?.stageLevel ?? null,
-        finalLevel: member.resultVersions[0]?.finalLevel ?? null,
-      })),
+      items: members.map((member) => {
+        const managerSubmissions = member.evaluationSubmissions.filter(
+          (row) => row.stage === PerfEvaluationTaskType.MANAGER,
+        );
+        const hasManagerDraft = managerSubmissions.some(
+          (row) => row.status === PerfReviewStatus.DRAFT,
+        );
+        const hasManagerSubmission = managerSubmissions.some(
+          (row) => row.status === PerfReviewStatus.SUBMITTED,
+        );
+
+        return {
+          participantId: member.id,
+          employee: userMap.get(member.employeeOpenId) ?? null,
+          status: member.status,
+          isPromotionEnabled: member.isPromotionEnabled,
+          selfSubmissionStatus: member.evaluationSubmissions.some(
+            (row) =>
+              row.stage === PerfEvaluationTaskType.SELF &&
+              row.status === PerfReviewStatus.SUBMITTED,
+          )
+            ? 'SUBMITTED'
+            : null,
+          reviewProgress: {
+            submitted: member.reviewerAssignments.filter(
+              (row) => row.status === PerfAssignmentStatus.SUBMITTED,
+            ).length,
+            total: member.reviewerAssignments.length,
+          },
+          // 更新草稿不替换上一份生效提交，因此状态和完成统计必须分开表达。
+          managerEvaluationState: hasManagerSubmission
+            ? hasManagerDraft
+              ? 'PENDING_RESUBMIT'
+              : 'EFFECTIVE'
+            : hasManagerDraft
+              ? 'DRAFT'
+              : 'NOT_STARTED',
+          managerSubmissionStatus: hasManagerSubmission ? 'SUBMITTED' : null,
+          managerInitialLevel: member.stageResults[0]?.stageLevel ?? null,
+          finalLevel: member.resultVersions[0]?.finalLevel ?? null,
+        };
+      }),
       total: members.length,
     };
   }

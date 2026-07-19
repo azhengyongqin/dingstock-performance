@@ -8,6 +8,7 @@ import ManagerReviewFill from './manager-review-fill'
 
 const {
   routerPush,
+  useSearchParams,
   getManagerEvaluationContext,
   saveManagerEvaluationDraft,
   submitManagerEvaluation,
@@ -15,6 +16,7 @@ const {
   triggerParticipantOkrSync
 } = vi.hoisted(() => ({
   routerPush: vi.fn(),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
   getManagerEvaluationContext: vi.fn(),
   saveManagerEvaluationDraft: vi.fn(),
   submitManagerEvaluation: vi.fn(),
@@ -25,7 +27,7 @@ const {
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   usePathname: () => '/review-tasks/fill',
-  useSearchParams: () => new URLSearchParams()
+  useSearchParams
 }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('@/lib/perf-api', async importOriginal => {
@@ -251,6 +253,7 @@ const context = {
 describe('ManagerReviewFill 关键流程', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useSearchParams.mockReturnValue(new URLSearchParams())
     getManagerEvaluationContext.mockResolvedValue(context)
     submitManagerEvaluation.mockResolvedValue({
       ok: true,
@@ -336,5 +339,19 @@ describe('ManagerReviewFill 关键流程', () => {
     await user.click(screen.getByRole('button', { name: /项目负责人乙/ }))
     expect(await screen.findByRole('heading', { name: '责任担当' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '协作沟通' })).toBeInTheDocument()
+  })
+
+  it('从团队看板进入时，返回入口和提交成功跳转都回到团队看板', async () => {
+    useSearchParams.mockReturnValue(new URLSearchParams('from=team-review'))
+    render(<ManagerReviewFill participantId={7} />)
+
+    expect(await screen.findByRole('button', { name: /团队看板/ })).toHaveAttribute('href', '/team-review')
+
+    fireEvent.change(screen.getByLabelText('业绩分数'), { target: { value: '88' } })
+    fireEvent.click(screen.getByRole('combobox', { name: '晋升建议' }))
+    fireEvent.click(screen.getByRole('option', { name: '建议晋升' }))
+    fireEvent.click(screen.getByRole('button', { name: '提交上级评估' }))
+
+    await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/team-review'))
   })
 })

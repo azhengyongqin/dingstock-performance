@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Edit3Icon, Loader2Icon, SaveIcon, SendIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -48,6 +48,10 @@ const STATE_LABEL: Record<Exclude<PerfManagerEvaluationContext['state'], null>, 
 /** Ticket 09：Leader 动态上级评估流程，初始/阶段等级完全由后端计算。 */
 const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillProps) => {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const fromTeamReview = searchParams.get('from') === 'team-review'
+  const returnHref = fromTeamReview ? '/team-review' : '/review-tasks'
+  const returnLabel = fromTeamReview ? '团队看板' : '评审任务'
   const [context, setContext] = useState<PerfManagerEvaluationContext | null>(previewContext ?? null)
 
   const [answers, setAnswers] = useState<EvaluationAnswers>(() =>
@@ -153,7 +157,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
 
       setCalculatedResult(response.result)
       toast.success(context.submitted ? '上级评估已重新提交并生效' : '上级评估已提交并完成系统计算')
-      router.push('/review-tasks')
+      router.push(returnHref)
     } catch (caught) {
       toast.error(caught instanceof ApiError ? caught.message : '提交上级评估失败')
     } finally {
@@ -190,8 +194,8 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
         <PageHeader
           title='上级评估'
           description={`${context.cycle.name} · 被评估人：${context.employee?.name ?? '-'}`}
-          backHref='/review-tasks'
-          backLabel='评审任务'
+          backHref={returnHref}
+          backLabel={returnLabel}
           actions={state ? <Badge variant='outline'>{STATE_LABEL[state]}</Badge> : undefined}
         />
 
