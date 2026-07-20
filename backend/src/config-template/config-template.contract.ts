@@ -15,13 +15,6 @@ export type ConfigStage = (typeof CONFIG_STAGES)[number];
 export const SCHEDULE_STAGES = ['SELF', 'PEER', 'MANAGER'] as const;
 export type ScheduleStage = (typeof SCHEDULE_STAGES)[number];
 
-export const CONFIG_STAGE_MODES = [
-  'DIRECT_RATING',
-  'WEIGHTED_RATING',
-  'WEIGHTED_SCORE',
-] as const;
-export type ConfigStageMode = (typeof CONFIG_STAGE_MODES)[number];
-
 export const PERFORMANCE_LEVELS = ['S', 'A', 'B', 'C'] as const;
 
 export const REVIEWER_RELATIONS = [
@@ -39,13 +32,6 @@ export const REMINDER_FREQUENCIES = [
 ] as const;
 export type ReminderFrequencyType = (typeof REMINDER_FREQUENCIES)[number];
 
-export type ConfigStageModes = {
-  SELF: 'DIRECT_RATING';
-  PEER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE';
-  MANAGER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE';
-  AI: 'DIRECT_RATING';
-};
-
 export type ConfigRatingDefinition = {
   symbol: PerformanceLevel;
   name: string;
@@ -53,7 +39,6 @@ export type ConfigRatingDefinition = {
   minScore: string;
   maxScore: string;
   mappingScore: string;
-  commentRequired: boolean;
 };
 
 export type ConfigRatingConstraintRule = RatingConstraintRule & {
@@ -120,9 +105,7 @@ export type NotificationRules = {
 export type ConfigTemplateVersionContract = {
   name: string;
   description?: string | null;
-  stageModes: ConfigStageModes;
   ratings: readonly ConfigRatingDefinition[];
-  constraintProfiles: ConfigConstraintProfiles;
   reviewerRelationWeights: ReviewerRelationWeight;
   formBindings: readonly ConfigFormBinding[];
   schedulePreset: SchedulePreset;

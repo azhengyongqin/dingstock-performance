@@ -851,12 +851,12 @@ model PerfConfigTemplateVersion {
   name               String /// 版本名称；作为发布内容的一部分保持不可变
   description        String? /// 版本说明
   sourceVersionId    Int?                            @map("source_version_id") /// 从哪个已发布版本复制出的草稿；首版为空
-  selfStageMode      PerfStageResultMode             @default(DIRECT_RATING) @map("self_stage_mode") /// 自评固定直接评级
-  peerStageMode      PerfStageResultMode             @default(WEIGHTED_RATING) @map("peer_stage_mode") /// 360°默认加权评级
-  managerStageMode   PerfStageResultMode             @default(WEIGHTED_SCORE) @map("manager_stage_mode") /// 上级评估默认加权评分
-  aiStageMode        PerfStageResultMode             @default(DIRECT_RATING) @map("ai_stage_mode") /// AI固定直接评级
-  ratings            Json                            @default("[]") /// 固定 S/A/B/C 顺序的等级名称、区间、映射分与评语要求
-  constraintProfiles Json                            @default("{}") @map("constraint_profiles") /// 按 WEIGHTED_RATING / WEIGHTED_SCORE 模式保存的受控等级约束，不允许公式或脚本
+  selfStageMode      PerfStageResultMode             @default(DIRECT_RATING) @map("self_stage_mode") /// expand 期存量兼容列；不再通过配置接口公开
+  peerStageMode      PerfStageResultMode             @default(WEIGHTED_RATING) @map("peer_stage_mode") /// expand 期存量兼容列；新版人工阶段按维度计分
+  managerStageMode   PerfStageResultMode             @default(WEIGHTED_SCORE) @map("manager_stage_mode") /// expand 期存量兼容列；新版人工阶段按维度计分
+  aiStageMode        PerfStageResultMode             @default(DIRECT_RATING) @map("ai_stage_mode") /// expand 期存量兼容列；AI 仍直接产出等级
+  ratings            Json                            @default("[]") /// 固定 S/A/B/C 顺序的等级名称、区间与映射分
+  constraintProfiles Json                            @default("{}") @map("constraint_profiles") /// expand 期存量兼容列；新版固定约束写入空对象
   orgOwnerWeight     Decimal                         @default(30) @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
   projectOwnerWeight Decimal                         @default(30) @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
   peerWeight         Decimal                         @default(25) @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
@@ -910,12 +910,12 @@ model PerfCycleConfigVersion {
   cycleId                       Int                 @map("cycle_id") /// 所属绩效周期
   version                       Int /// 周期内递增版本号，从 1 开始
   sourceConfigTemplateVersionId Int?                @map("source_config_template_version_id") /// 来源配置模板版本；历史回填可为空
-  selfStageMode                 PerfStageResultMode @map("self_stage_mode") /// 自评固定直接评级
-  peerStageMode                 PerfStageResultMode @map("peer_stage_mode") /// 360°加权评级或加权评分
-  managerStageMode              PerfStageResultMode @map("manager_stage_mode") /// 上级评估加权评级或加权评分
-  aiStageMode                   PerfStageResultMode @map("ai_stage_mode") /// AI 固定直接评级
-  ratings                       Json /// 固定 S/A/B/C 的等级、区间、映射分和评语要求快照
-  constraintProfiles            Json                @map("constraint_profiles") /// 按计算模式保存的受控约束快照
+  selfStageMode                 PerfStageResultMode @map("self_stage_mode") /// expand 期存量兼容列；不再通过周期接口公开
+  peerStageMode                 PerfStageResultMode @map("peer_stage_mode") /// expand 期存量兼容列；新版人工阶段按维度计分
+  managerStageMode              PerfStageResultMode @map("manager_stage_mode") /// expand 期存量兼容列；新版人工阶段按维度计分
+  aiStageMode                   PerfStageResultMode @map("ai_stage_mode") /// expand 期存量兼容列；AI 仍直接产出等级
+  ratings                       Json /// 固定 S/A/B/C 的等级、区间和映射分快照
+  constraintProfiles            Json                @map("constraint_profiles") /// expand 期存量兼容列；新版固定约束写入空对象
   orgOwnerWeight                Decimal             @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
   projectOwnerWeight            Decimal             @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
   peerWeight                    Decimal             @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
@@ -947,7 +947,7 @@ model PerfCycleFormSnapshot {
   cycleId                     Int                @map("cycle_id") /// 冗余周期 ID，用于复合外键阻止跨周期挂载
   jobLevelPrefix              PerfJobLevelPrefix @map("job_level_prefix") /// 受控 D/M 职级前缀
   sourceFormTemplateVersionId Int                @map("source_form_template_version_id") /// 来源已发布表单版本
-  content                     Json /// 完整子表单、维度、评估项及稳定快照 key 的 JSONB
+  content                     Json /// v2 完整子表单、维度、字段、条件必填与稳定业务 key 的 JSONB
   createdAt                   DateTime           @default(now()) @map("created_at") /// 创建时间
   updatedAt                   DateTime           @updatedAt @map("updated_at") /// DRAFT / SCHEDULED 阶段的最近调整时间
 

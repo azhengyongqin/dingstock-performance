@@ -19,8 +19,6 @@ import {
 import { PerfCycleStatus } from '../generated/prisma/enums';
 import {
   ConfigRatingDto,
-  ConfigStageModesDto,
-  ConstraintProfilesDto,
   NotificationRulesDto,
   ReviewerRelationWeightsDto,
 } from '../config-template/config-template.dto';
@@ -112,11 +110,6 @@ export class UpsertCyclePlanDto {
 
 /** 高级配置只调整周期自己的计算快照，不回写来源模板或 D/M 表单。 */
 export class UpdateCycleAdvancedConfigDto {
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ConfigStageModesDto)
-  stageModes!: ConfigStageModesDto;
-
   @IsArray()
   @ArrayMinSize(4)
   @ArrayMaxSize(4)
@@ -124,11 +117,6 @@ export class UpdateCycleAdvancedConfigDto {
   @ValidateNested({ each: true })
   @Type(() => ConfigRatingDto)
   ratings!: ConfigRatingDto[];
-
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ConstraintProfilesDto)
-  constraintProfiles!: ConstraintProfilesDto;
 
   @IsObject()
   @ValidateNested()

@@ -9,17 +9,6 @@ import {
   type ConfigTemplateVersionContract,
 } from './config-template.contract';
 
-const RATING_RULE_TYPES = new Set([
-  'CORE_RATING_FORCE',
-  'CORE_RATING_CAP',
-  'ANY_RATING_CAP',
-]);
-const SCORE_RULE_TYPES = new Set([
-  'CORE_SCORE_FORCE',
-  'CORE_SCORE_CAP',
-  'ANY_SCORE_CAP',
-]);
-
 function decimalOf(value: unknown): Decimal | null {
   try {
     const parsed = new Decimal(String(value));
@@ -40,29 +29,6 @@ function issue(
   message: string,
 ) {
   issues.push({ code, path, message });
-}
-
-function validateStageModes(
-  input: ConfigTemplateVersionContract,
-  issues: ConfigTemplatePublicationIssue[],
-) {
-  const modes = input.stageModes as Record<string, unknown>;
-  const allowed: Record<string, readonly string[]> = {
-    SELF: ['DIRECT_RATING'],
-    PEER: ['WEIGHTED_RATING', 'WEIGHTED_SCORE'],
-    MANAGER: ['WEIGHTED_RATING', 'WEIGHTED_SCORE'],
-    AI: ['DIRECT_RATING'],
-  };
-  for (const [stage, values] of Object.entries(allowed)) {
-    if (!values.includes(String(modes?.[stage]))) {
-      issue(
-        issues,
-        'STAGE_MODE_INVALID',
-        `stageModes.${stage}`,
-        `${stage} 阶段结果模式不合法`,
-      );
-    }
-  }
 }
 
 function validateRatings(
@@ -139,14 +105,6 @@ function validateRatings(
         '评级映射分必须落在自身区间内',
       );
     }
-    if (typeof rating.commentRequired !== 'boolean') {
-      issue(
-        issues,
-        'RATING_COMMENT_REQUIRED_INVALID',
-        `ratings[${index}].commentRequired`,
-        '评语必填配置必须是布尔值',
-      );
-    }
     return { rating, min, max, mapping };
   });
 
@@ -169,109 +127,6 @@ function validateRatings(
         '评级区间必须连续且无重叠地覆盖 0～100',
       );
     }
-  }
-}
-
-function validateConstraints(
-  input: ConfigTemplateVersionContract,
-  issues: ConfigTemplatePublicationIssue[],
-) {
-  const profiles = [
-    [
-      'WEIGHTED_RATING',
-      input.constraintProfiles.WEIGHTED_RATING,
-      RATING_RULE_TYPES,
-    ],
-    [
-      'WEIGHTED_SCORE',
-      input.constraintProfiles.WEIGHTED_SCORE,
-      SCORE_RULE_TYPES,
-    ],
-  ] as const;
-  for (const [profile, rules, allowed] of profiles) {
-    const seenTypes = new Set<string>();
-    const seenIds = new Set<string>();
-    rules.forEach((rule, index) => {
-      const path = `constraintProfiles.${profile}[${index}]`;
-      if (typeof rule.id !== 'string' || rule.id.trim() === '') {
-        issue(
-          issues,
-          'CONSTRAINT_ID_REQUIRED',
-          `${path}.id`,
-          '约束必须包含非空稳定标识',
-        );
-      } else if (seenIds.has(rule.id)) {
-        issue(
-          issues,
-          'CONSTRAINT_ID_DUPLICATE',
-          `${path}.id`,
-          '同一计算模式内的约束标识不能重复',
-        );
-      }
-      if (typeof rule.id === 'string') seenIds.add(rule.id);
-      if (!allowed.has(rule.type)) {
-        issue(
-          issues,
-          'CONSTRAINT_TYPE_INVALID',
-          `${path}.type`,
-          `${profile} 包含不兼容的约束类型`,
-        );
-      }
-      if (seenTypes.has(rule.type)) {
-        issue(
-          issues,
-          'CONSTRAINT_TYPE_DUPLICATE',
-          `${path}.type`,
-          '同一约束类型只能配置一次',
-        );
-      }
-      seenTypes.add(rule.type);
-      if (typeof rule.enabled !== 'boolean') {
-        issue(
-          issues,
-          'CONSTRAINT_ENABLED_INVALID',
-          `${path}.enabled`,
-          '约束启用状态必须是布尔值',
-        );
-      }
-      if (!PERFORMANCE_LEVELS.includes(rule.targetLevel)) {
-        issue(
-          issues,
-          'CONSTRAINT_TARGET_INVALID',
-          `${path}.targetLevel`,
-          '约束目标等级必须为 S/A/B/C',
-        );
-      }
-      if (
-        'triggerRating' in rule &&
-        !PERFORMANCE_LEVELS.includes(rule.triggerRating)
-      ) {
-        issue(
-          issues,
-          'CONSTRAINT_TRIGGER_INVALID',
-          `${path}.triggerRating`,
-          '触发评级必须为 S/A/B/C',
-        );
-      }
-      if ('threshold' in rule) {
-        const threshold = decimalOf(rule.threshold);
-        if (!threshold || threshold.lt(0) || threshold.gt(100)) {
-          issue(
-            issues,
-            'CONSTRAINT_THRESHOLD_INVALID',
-            `${path}.threshold`,
-            '评分阈值必须位于 0～100',
-          );
-        } else if (!hasAtMostTwoDecimalPlaces(threshold)) {
-          issue(
-            issues,
-            'CONSTRAINT_THRESHOLD_PRECISION_INVALID',
-            `${path}.threshold`,
-            '评分阈值最多保留两位小数',
-          );
-        }
-      }
-    });
   }
 }
 
@@ -327,7 +182,6 @@ function validateRelationWeights(
 
 function validateWeightedSubform(
   dimensions: readonly FormTemplateDimensionContract[],
-  expectedType: 'RATING' | 'SCORE',
   path: string,
   issues: ConfigTemplatePublicationIssue[],
 ) {
@@ -339,7 +193,7 @@ function validateWeightedSubform(
       issues,
       'REGULAR_DIMENSION_REQUIRED',
       path,
-      '加权子表单至少需要一个常规维度',
+      '人工评估子表单至少需要一个计分维度',
     );
     return;
   }
@@ -348,7 +202,7 @@ function validateWeightedSubform(
       issues,
       'CORE_DIMENSION_COUNT_INVALID',
       path,
-      '加权子表单必须且只能有一个核心维度',
+      '人工评估子表单必须且只能有一个核心维度',
     );
   }
   let total = new Decimal(0);
@@ -364,17 +218,17 @@ function validateWeightedSubform(
         issues,
         'DIMENSION_WEIGHT_INVALID',
         `${path}.dimensions[${index}].weight`,
-        '常规维度权重必须大于 0、不超过 100 且最多两位小数',
+        '计分维度占比必须大于 0、不超过 100 且最多两位小数',
       );
     } else {
       total = total.plus(weight);
     }
-    if (dimension.scoringMethod !== expectedType) {
+    if (!['RATING', 'SCORE'].includes(String(dimension.scoringMethod))) {
       issue(
         issues,
-        'SCORING_ITEM_INCOMPATIBLE',
+        'SCORING_METHOD_REQUIRED',
         `${path}.dimensions[${index}].scoringMethod`,
-        `当前阶段模式要求所有计分维度使用 ${expectedType}`,
+        '计分维度必须选择评级或 0～100 分',
       );
     }
   });
@@ -383,7 +237,7 @@ function validateWeightedSubform(
       issues,
       'DIMENSION_WEIGHT_TOTAL_INVALID',
       path,
-      '常规维度权重必须严格合计 100%',
+      '计分维度占比必须严格合计 100%',
     );
   }
 }
@@ -438,27 +292,7 @@ function validateBindings(
         '绑定表单缺少 SELF 子表单',
       );
     } else {
-      const regular = self.dimensions.filter(
-        (dimension) => dimension.type === 'SCORING',
-      );
-      if (regular.length === 0) {
-        issue(
-          issues,
-          'SELF_REGULAR_DIMENSION_REQUIRED',
-          `${path}.subforms.SELF`,
-          'SELF 子表单至少需要一个常规评级维度',
-        );
-      }
-      regular.forEach((dimension, dimensionIndex) => {
-        if (dimension.scoringMethod !== 'RATING') {
-          issue(
-            issues,
-            'SELF_SCORING_ITEM_INCOMPATIBLE',
-            `${path}.subforms.SELF.dimensions[${dimensionIndex}].scoringMethod`,
-            '当前配置模板要求员工自评计分维度使用 RATING',
-          );
-        }
-      });
+      validateWeightedSubform(self.dimensions, `${path}.subforms.SELF`, issues);
     }
     if (!peer) {
       issue(
@@ -468,12 +302,7 @@ function validateBindings(
         '绑定表单缺少 PEER 子表单',
       );
     } else {
-      validateWeightedSubform(
-        peer.dimensions,
-        input.stageModes.PEER === 'WEIGHTED_SCORE' ? 'SCORE' : 'RATING',
-        `${path}.subforms.PEER`,
-        issues,
-      );
+      validateWeightedSubform(peer.dimensions, `${path}.subforms.PEER`, issues);
     }
     if (!manager) {
       issue(
@@ -485,7 +314,6 @@ function validateBindings(
     } else {
       validateWeightedSubform(
         manager.dimensions,
-        input.stageModes.MANAGER === 'WEIGHTED_RATING' ? 'RATING' : 'SCORE',
         `${path}.subforms.MANAGER`,
         issues,
       );
@@ -680,9 +508,7 @@ export function validateConfigTemplatePublication(
   input: ConfigTemplateVersionContract,
 ): ConfigTemplatePublicationIssue[] {
   const issues: ConfigTemplatePublicationIssue[] = [];
-  validateStageModes(input, issues);
   validateRatings(input, issues);
-  validateConstraints(input, issues);
   validateRelationWeights(input, issues);
   validateBindings(input, issues);
   validateSchedule(input, issues);

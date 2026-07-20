@@ -21,11 +21,10 @@ import type { ConfigTemplateSection } from './config-template-utils'
 export type ConfigNavDestination = Exclude<ConfigTemplateSection, never>
 
 const RULE_ITEMS: Array<{
-  id: Extract<ConfigNavDestination, 'ratings' | 'constraints' | 'relations' | 'bindings' | 'schedule'>
+  id: Extract<ConfigNavDestination, 'ratings' | 'relations' | 'bindings' | 'schedule'>
   label: string
 }> = [
-  { id: 'ratings', label: '评级与模式' },
-  { id: 'constraints', label: '等级约束' },
+  { id: 'ratings', label: '评级区间' },
   { id: 'relations', label: '关系权重' },
   { id: 'bindings', label: '表单绑定' },
   { id: 'schedule', label: '日程通知' }
@@ -33,8 +32,7 @@ const RULE_ITEMS: Array<{
 
 const DESTINATION_LABEL: Record<ConfigNavDestination, string> = {
   basic: '基本与来源',
-  ratings: '评级与模式',
-  constraints: '等级约束',
+  ratings: '评级区间',
   relations: '关系权重',
   bindings: '表单绑定',
   schedule: '日程通知',
@@ -70,11 +68,7 @@ export const ConfigTemplateNav = ({
 }: Props) => (
   <div className='grid gap-6 md:grid-cols-[13rem_minmax(0,1fr)]'>
     <nav className='flex flex-col gap-1 border-r pr-3' aria-label='配置模板导航'>
-      <NavButton
-        label='基本与来源'
-        active={destination === 'basic'}
-        onClick={() => onDestinationChange('basic')}
-      />
+      <NavButton label='基本与来源' active={destination === 'basic'} onClick={() => onDestinationChange('basic')} />
 
       <div className='text-muted-foreground mt-3 mb-1 px-2 text-[11px] font-medium tracking-wide uppercase'>
         规则配置
@@ -91,16 +85,8 @@ export const ConfigTemplateNav = ({
 
       <div className='bg-border my-3 h-px' />
 
-      <NavButton
-        label='计算预览'
-        active={destination === 'preview'}
-        onClick={() => onDestinationChange('preview')}
-      />
-      <NavButton
-        label='版本历史'
-        active={destination === 'history'}
-        onClick={() => onDestinationChange('history')}
-      />
+      <NavButton label='计算预览' active={destination === 'preview'} onClick={() => onDestinationChange('preview')} />
+      <NavButton label='版本历史' active={destination === 'history'} onClick={() => onDestinationChange('history')} />
     </nav>
 
     <div className='min-w-0'>
@@ -210,9 +196,7 @@ const DestinationBody = ({
 
   if (destination === 'history') {
     if (versions.length === 0) {
-      return (
-        <p className='text-muted-foreground py-8 text-center text-sm'>当前角色没有可查看的其他版本</p>
-      )
+      return <p className='text-muted-foreground py-8 text-center text-sm'>当前角色没有可查看的其他版本</p>
     }
 
     return (

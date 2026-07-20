@@ -779,25 +779,12 @@ const CONFIG_TEMPLATE_PREVIEW_VALUE: PerfConfigTemplateVersion = {
   version: 1,
   status: 'DRAFT',
   updatedAt: '2026-07-14T12:00:00.000Z',
-  stageModes: { SELF: 'DIRECT_RATING', PEER: 'WEIGHTED_RATING', MANAGER: 'WEIGHTED_SCORE', AI: 'DIRECT_RATING' },
   ratings: [
-    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
-    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
-    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
-    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95' },
+    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85' },
+    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70' },
+    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50' }
   ],
-  constraintProfiles: {
-    WEIGHTED_RATING: [
-      { id: 'rating-core-force', type: 'CORE_RATING_FORCE', enabled: true, triggerRating: 'C', targetLevel: 'C' },
-      { id: 'rating-core-cap', type: 'CORE_RATING_CAP', enabled: true, triggerRating: 'B', targetLevel: 'B' },
-      { id: 'rating-any-cap', type: 'ANY_RATING_CAP', enabled: true, triggerRating: 'C', targetLevel: 'B' }
-    ],
-    WEIGHTED_SCORE: [
-      { id: 'score-core-force', type: 'CORE_SCORE_FORCE', enabled: true, threshold: '60', targetLevel: 'C' },
-      { id: 'score-core-cap', type: 'CORE_SCORE_CAP', enabled: true, threshold: '80', targetLevel: 'B' },
-      { id: 'score-any-cap', type: 'ANY_SCORE_CAP', enabled: true, threshold: '60', targetLevel: 'B' }
-    ]
-  },
   reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' },
   formTemplateVersionIds: [9001],
   schedulePreset: {
@@ -1055,9 +1042,7 @@ const SNAPSHOT_PROVENANCE_PREVIEW_VALUE: PerfCycleConfigSnapshot = {
     name: CONFIG_TEMPLATE_PREVIEW_VALUE.name,
     version: CONFIG_TEMPLATE_PREVIEW_VALUE.version
   },
-  stageModes: CONFIG_TEMPLATE_PREVIEW_VALUE.stageModes,
   ratings: CONFIG_TEMPLATE_PREVIEW_VALUE.ratings,
-  constraintProfiles: CONFIG_TEMPLATE_PREVIEW_VALUE.constraintProfiles,
   reviewerRelationWeights: CONFIG_TEMPLATE_PREVIEW_VALUE.reviewerRelationWeights,
   notificationRules: CONFIG_TEMPLATE_PREVIEW_VALUE.notificationRules,
   allowStageOverlap: CONFIG_TEMPLATE_PREVIEW_VALUE.schedulePreset.allowStageOverlap,
@@ -1090,8 +1075,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '大幅超出预期，可作为标杆案例',
     minScore: '90',
     maxScore: '100',
-    mappingScore: '95',
-    commentRequired: true
+    mappingScore: '95'
   },
   {
     symbol: 'A',
@@ -1099,8 +1083,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '完全达成目标，多项亮点',
     minScore: '80',
     maxScore: '90',
-    mappingScore: '85',
-    commentRequired: false
+    mappingScore: '85'
   },
   {
     symbol: 'B',
@@ -1108,8 +1091,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '基本达成目标，符合预期',
     minScore: '60',
     maxScore: '80',
-    mappingScore: '70',
-    commentRequired: false
+    mappingScore: '70'
   },
   {
     symbol: 'C',
@@ -1117,8 +1099,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '未达成目标，需重点关注',
     minScore: '0',
     maxScore: '60',
-    mappingScore: '50',
-    commentRequired: true
+    mappingScore: '50'
   }
 ]
 

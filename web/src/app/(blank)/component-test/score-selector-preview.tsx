@@ -17,8 +17,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '工作结果、成长速度等方面有重大突破和创新',
     minScore: '90',
     maxScore: '100',
-    mappingScore: '95',
-    commentRequired: true
+    mappingScore: '95'
   },
   {
     symbol: 'A',
@@ -26,8 +25,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现超出预期',
     minScore: '80',
     maxScore: '90',
-    mappingScore: '85',
-    commentRequired: false
+    mappingScore: '85'
   },
   {
     symbol: 'B',
@@ -35,8 +33,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现符合预期',
     minScore: '60',
     maxScore: '80',
-    mappingScore: '70',
-    commentRequired: false
+    mappingScore: '70'
   },
   {
     symbol: 'C',
@@ -44,8 +41,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '绩效目标、工作态度或价值观表现不符合预期',
     minScore: '0',
     maxScore: '60',
-    mappingScore: '50',
-    commentRequired: true
+    mappingScore: '50'
   }
 ]
 
@@ -81,7 +77,13 @@ export default function ScoreSelectorPreview() {
           <Field className='gap-2'>
             <div className='flex w-full items-center justify-between gap-x-3'>
               <FieldTitle className='shrink-0'>只读</FieldTitle>
-              <ScoreSelector value='95' onChange={() => undefined} disabled ratings={SAMPLE_RATINGS} aria-label='只读' />
+              <ScoreSelector
+                value='95'
+                onChange={() => undefined}
+                disabled
+                ratings={SAMPLE_RATINGS}
+                aria-label='只读'
+              />
             </div>
           </Field>
         </CardContent>

@@ -14,15 +14,17 @@ import {
   type CalculationPreviewDimensionInput,
 } from './calculation-preview';
 import type {
-  ConfigConstraintProfiles,
   ConfigRatingDefinition,
-  ConfigStageModes,
   ConfigTemplateVersionContract,
   NotificationRules,
   ReviewerRelationWeight,
   SchedulePreset,
 } from './config-template.contract';
 import { buildDefaultConfigTemplate } from './default-config-template';
+import {
+  omitPersistedConfigInternals,
+  toPublicRatings,
+} from './config-template.public';
 import { validateConfigTemplatePublication } from './publication-validator';
 
 export type CreateConfigTemplateInput = {
@@ -68,7 +70,13 @@ export type ConfigTemplatePreviewInput = {
   dimensions?: Array<{
     dimensionId: number;
     relations: Array<{
-      type: 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT' | 'LEADER';
+      type:
+        | 'ORG_OWNER'
+        | 'PROJECT_OWNER'
+        | 'PEER'
+        | 'CROSS_DEPT'
+        | 'LEADER'
+        | 'DIRECT';
       rawValues: string[];
     }>;
   }>;
@@ -335,12 +343,13 @@ export class ConfigTemplateService {
             name: copySource.name,
             description: copySource.description,
             sourceVersionId: copySource.id,
-            selfStageMode: copySource.selfStageMode,
-            peerStageMode: copySource.peerStageMode,
-            managerStageMode: copySource.managerStageMode,
-            aiStageMode: copySource.aiStageMode,
-            ratings: this.inputJson(copySource.ratings),
-            constraintProfiles: this.inputJson(copySource.constraintProfiles),
+            // 新草稿只继承仍公开的评级定义；旧模式列固定填充，旧约束档案不再传播。
+            selfStageMode: 'DIRECT_RATING',
+            peerStageMode: 'WEIGHTED_RATING',
+            managerStageMode: 'WEIGHTED_SCORE',
+            aiStageMode: 'DIRECT_RATING',
+            ratings: this.inputJson(toPublicRatings(copySource.ratings)),
+            constraintProfiles: this.inputJson({}),
             orgOwnerWeight: copySource.orgOwnerWeight,
             projectOwnerWeight: copySource.projectOwnerWeight,
             peerWeight: copySource.peerWeight,
@@ -426,7 +435,7 @@ export class ConfigTemplateService {
     );
 
     const authoritativeDimensions: CalculationPreviewDimensionInput[] = [];
-    if (binding && ['PEER', 'MANAGER'].includes(input.stage)) {
+    if (binding && ['SELF', 'PEER', 'MANAGER'].includes(input.stage)) {
       const subform = binding.formTemplateVersion.subforms.find(
         (candidate) => candidate.type === input.stage,
       );
@@ -481,6 +490,7 @@ export class ConfigTemplateService {
         authoritativeDimensions.push({
           id: String(dimension.id),
           name: dimension.name,
+          scoringMethod: dimension.scoringMethod as 'RATING' | 'SCORE',
           weight: dimension.weight?.toString() ?? '0',
           isCore: dimension.isCore,
           relations: requested.relations.map((relation) => ({
@@ -544,13 +554,13 @@ export class ConfigTemplateService {
               },
             ]
           : [];
+    // expand 期数据库仍保留旧列，但任何接口响应都不能再暴露阶段模式、双约束档位或全局评语必填。
+    const publicVersion = omitPersistedConfigInternals(version);
     return {
-      ...version,
+      ...publicVersion,
       systemKey: version.template?.systemKey ?? null,
       source: version.sourceVersion ?? null,
-      stageModes: contract.stageModes,
       ratings: contract.ratings,
-      constraintProfiles: contract.constraintProfiles,
       reviewerRelationWeights: contract.reviewerRelationWeights,
       schedulePreset: contract.schedulePreset,
       notificationRules: contract.notificationRules,
@@ -581,15 +591,7 @@ export class ConfigTemplateService {
     return {
       name: version.name,
       description: version.description,
-      stageModes: {
-        SELF: version.selfStageMode,
-        PEER: version.peerStageMode,
-        MANAGER: version.managerStageMode,
-        AI: version.aiStageMode,
-      } as ConfigStageModes,
-      ratings: version.ratings as unknown as ConfigRatingDefinition[],
-      constraintProfiles:
-        version.constraintProfiles as unknown as ConfigConstraintProfiles,
+      ratings: toPublicRatings(version.ratings),
       reviewerRelationWeights: {
         ORG_OWNER: version.orgOwnerWeight.toString(),
         PROJECT_OWNER: version.projectOwnerWeight.toString(),
@@ -619,21 +621,20 @@ export class ConfigTemplateService {
   }
 
   private toPersistedContent(input: {
-    stageModes: ConfigStageModes;
     ratings: readonly ConfigRatingDefinition[];
-    constraintProfiles: ConfigConstraintProfiles;
     reviewerRelationWeights: ReviewerRelationWeight;
     schedulePreset: SchedulePreset;
     notificationRules:
       NotificationRules | ReplaceConfigTemplateDraftInput['notificationRules'];
   }) {
     return {
-      selfStageMode: input.stageModes.SELF,
-      peerStageMode: input.stageModes.PEER,
-      managerStageMode: input.stageModes.MANAGER,
-      aiStageMode: input.stageModes.AI,
-      ratings: this.inputJson(input.ratings),
-      constraintProfiles: this.inputJson(input.constraintProfiles),
+      // 旧列只为 expand 期数据库兼容保留，运行时不可配置且不进入 API 契约。
+      selfStageMode: 'DIRECT_RATING' as const,
+      peerStageMode: 'WEIGHTED_RATING' as const,
+      managerStageMode: 'WEIGHTED_SCORE' as const,
+      aiStageMode: 'DIRECT_RATING' as const,
+      ratings: this.inputJson(toPublicRatings(input.ratings)),
+      constraintProfiles: this.inputJson({}),
       orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
       projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
       peerWeight: input.reviewerRelationWeights.PEER,

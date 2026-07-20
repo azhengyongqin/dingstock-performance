@@ -89,9 +89,7 @@ describe('CycleController 四步创建 API', () => {
 
   it('高级配置只更新周期快照并传递当前操作者', async () => {
     const dto = {
-      stageModes: {},
       ratings: [],
-      constraintProfiles: {},
       reviewerRelationWeights: {},
     } as never;
 

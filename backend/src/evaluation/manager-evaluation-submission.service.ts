@@ -14,6 +14,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import type { SaveManagerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
+import { omitStageResultMode } from './stage-result.public';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
@@ -162,7 +163,7 @@ export class ManagerEvaluationSubmissionService {
         )
       ).map((profile) => [profile.open_id, profile]),
     );
-    const peerResultForManager = {
+    const peerResultForManager = omitStageResultMode({
       ...peerResult,
       analysis: {
         ...peerResult.analysis,
@@ -172,9 +173,11 @@ export class ManagerEvaluationSubmissionService {
           reviewer: peerReviewerProfiles.get(review.reviewerOpenId) ?? null,
         })),
       },
-    };
+    });
     const managerResult = submitted
-      ? await this.managerStageResultService.recalculate(participant.id)
+      ? omitStageResultMode(
+          await this.managerStageResultService.recalculate(participant.id),
+        )
       : null;
 
     return {
@@ -212,7 +215,9 @@ export class ManagerEvaluationSubmissionService {
   async getManagerResult(leaderOpenId: string, participantId: number) {
     await this.requireManagedParticipant(leaderOpenId, participantId);
     // 读接口只返回提交事务已生成的权威结果，归档后不得因查询暗中重算写库。
-    return this.managerStageResultService.getCurrent(participantId);
+    return omitStageResultMode(
+      await this.managerStageResultService.getCurrent(participantId),
+    );
   }
 
   /** 保存不完整的独立更新草稿，不覆盖当前生效答卷和权威阶段结果。 */
@@ -402,7 +407,7 @@ export class ManagerEvaluationSubmissionService {
         stageLevel: result.stageLevel,
       },
     });
-    return { ok: true, result };
+    return { ok: true, result: omitStageResultMode(result) };
   }
 
   /**

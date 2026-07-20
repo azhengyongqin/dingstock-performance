@@ -18,7 +18,6 @@ import {
 } from '../calculation/stage-result-calculator';
 import type {
   ConfigConstraintProfiles,
-  ConfigStageModes,
   ConfigTemplateVersionContract,
   ReviewerRelation,
   ReviewerRelationWeight,
@@ -30,9 +29,7 @@ import type {
 
 export type ActiveConfigInput = {
   expectedConfigVersionId: number;
-  stageModes: ConfigStageModes;
   ratings: ConfigTemplateVersionContract['ratings'];
-  constraintProfiles: ConfigConstraintProfiles;
   reviewerRelationWeights: ReviewerRelationWeight;
   dimensionOverrides: Array<{
     jobLevelPrefix: 'D' | 'M';
@@ -276,7 +273,12 @@ export function buildActiveConfigImpact(
               : [],
           }
         : null;
-      const calculated = calculateParticipantStage(participant, stage, input);
+      const calculated = calculateParticipantStage(
+        participant,
+        stage,
+        input,
+        cycle.currentConfigVersion!,
+      );
       const after = {
         compositeScore: calculated?.compositeScore ?? null,
         stageLevel: calculated?.finalLevel ?? null,
@@ -361,9 +363,7 @@ export function impactRevisionOf(cycle: ImpactCycle, input: ActiveConfigInput) {
         currentConfigVersionId: cycle.currentConfigVersionId,
         input: {
           expectedConfigVersionId: input.expectedConfigVersionId,
-          stageModes: input.stageModes,
           ratings: input.ratings,
-          constraintProfiles: input.constraintProfiles,
           reviewerRelationWeights: input.reviewerRelationWeights,
           dimensionOverrides: input.dimensionOverrides,
         },
@@ -423,6 +423,7 @@ function calculateParticipantStage(
   participant: ImpactCycle['participants'][number],
   stage: ImpactStage,
   input: ActiveConfigInput,
+  current: NonNullable<ImpactCycle['currentConfigVersion']>,
 ): StageResult | null {
   const policy = STAGE_POLICIES[stage];
   const submissions = participant.evaluationSubmissions.filter(
@@ -442,7 +443,13 @@ function calculateParticipantStage(
     input.dimensionOverrides,
   );
 
-  const mode = input.stageModes[stage];
+  // 旧结果消费者尚未切换前只读取数据库兼容列；这些值不再由 API 输入或页面配置。
+  const persistedMode =
+    stage === 'PEER' ? current.peerStageMode : current.managerStageMode;
+  if (persistedMode === 'DIRECT_RATING') {
+    throw new ConflictException(`${stage} 阶段缺少可用的旧链路加权模式`);
+  }
+  const mode: StageResultMode = persistedMode;
   const dimensions = content.subforms
     .filter((subform) => subform.type === stage)
     .flatMap((subform) => subform.dimensions)
@@ -465,7 +472,10 @@ function calculateParticipantStage(
         mappingScore: rating.mappingScore,
       })) satisfies RatingScaleEntry[],
       dimensions,
-      constraints: constraintsOf(input.constraintProfiles, mode),
+      constraints: constraintsOf(
+        current.constraintProfiles as unknown as ConfigConstraintProfiles,
+        mode,
+      ),
       confirmedRedLine:
         stage === 'MANAGER' && activeRedLine
           ? {

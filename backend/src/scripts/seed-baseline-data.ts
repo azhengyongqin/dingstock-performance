@@ -6,7 +6,7 @@
  * - 评估表单模板（PerfFormTemplate D/M）：内容取自 form-template/default-form-templates，
  *   维度/权重与《盯潮-绩效系统-评估维度规则说明》一致（普通岗 35/45/20，管理岗 40/35/25 等）。
  * - 配置模板（PerfConfigTemplate，systemKey=DEFAULT_CONFIG）：评级 S/A/B/C 区间与映射分、
- *   加权/评分约束取自 config-template/default-config-template 与《绩效等级定义和计算方式》，
+ *   固定统一维度约束取自《绩效等级定义和计算方式》，
  *   并补齐一套可发布的默认日程（default-config-template 故意留 0/0 不可发布，这里覆盖为可发布值）。
  * - 绩效周期草稿：名称固定「2026年中绩效评定」，从上面已发布的配置模板版本复制配置快照与 D/M 表单快照，
  *   复刻 CycleSetupService.createFromPublishedConfig 的快照写入逻辑（保持与四步创建一致）。
@@ -27,10 +27,7 @@ import {
   DEFAULT_FORM_TEMPLATES,
   toDefaultLegacyPromotionCreateData,
 } from '../form-template/default-form-templates';
-import type {
-  FormTemplateSubformContract,
-  LegacyFormItemConfig,
-} from '../form-template/form-template.contract';
+import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
 import { FORM_SUBFORM_TYPES } from '../form-template/form-template.contract';
 import {
   toPerformanceSubformContracts,
@@ -338,12 +335,13 @@ async function seedConfigTemplate(
         status: 'DRAFT',
         name: CONFIG_TEMPLATE_NAME,
         description: defaults.description,
-        selfStageMode: defaults.stageModes.SELF,
-        peerStageMode: defaults.stageModes.PEER,
-        managerStageMode: defaults.stageModes.MANAGER,
-        aiStageMode: defaults.stageModes.AI,
+        // expand 期旧列使用固定兼容值，不再构成可配置业务规则。
+        selfStageMode: 'DIRECT_RATING',
+        peerStageMode: 'WEIGHTED_RATING',
+        managerStageMode: 'WEIGHTED_SCORE',
+        aiStageMode: 'DIRECT_RATING',
         ratings: inputJson(defaults.ratings),
-        constraintProfiles: inputJson(defaults.constraintProfiles),
+        constraintProfiles: inputJson({}),
         orgOwnerWeight: defaults.reviewerRelationWeights.ORG_OWNER,
         projectOwnerWeight: defaults.reviewerRelationWeights.PROJECT_OWNER,
         peerWeight: defaults.reviewerRelationWeights.PEER,
@@ -383,13 +381,14 @@ async function seedConfigTemplate(
  * 保持稳定 key 生成规则一致，评估项结果据 key 定位。
  */
 function toFormSnapshotContent(version: FormVersionWithContent) {
+  const subforms = toPerformanceSubformContracts(version.subforms);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name: version.name,
     description: version.description,
     jobLevelPrefix: version.jobLevelPrefix,
-    subforms: version.subforms
-      .filter((subform) => FORM_SUBFORM_TYPES.includes(subform.type as never))
+    subforms: subforms
+      .filter((subform) => FORM_SUBFORM_TYPES.includes(subform.type))
       .map((subform) => ({
         key: `subform:${subform.type}`,
         type: subform.type,
@@ -397,23 +396,30 @@ function toFormSnapshotContent(version: FormVersionWithContent) {
         description: subform.description,
         sortOrder: subform.sortOrder,
         dimensions: subform.dimensions.map((dimension) => ({
-          key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
-          kind: dimension.kind,
+          sourceDimensionId: dimension.id,
+          key: dimension.key,
+          type: dimension.type,
           audience: dimension.audience,
           name: dimension.name,
           description: dimension.description,
-          weight: dimension.weight?.toString() ?? null,
+          scoringMethod: dimension.scoringMethod ?? null,
+          weight:
+            dimension.type === 'SCORING' && dimension.weight != null
+              ? dimension.weight.toString()
+              : null,
           isCore: dimension.isCore,
           sortOrder: dimension.sortOrder,
-          items: dimension.items.map((item) => ({
-            key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
-            type: item.type,
-            title: item.title,
-            description: item.description,
-            placeholder: item.placeholder,
-            required: item.required,
-            sortOrder: item.sortOrder,
-            config: item.config as LegacyFormItemConfig | null,
+          fields: dimension.fields.map((field) => ({
+            sourceFieldId: field.id,
+            key: field.key,
+            type: field.type,
+            title: field.title,
+            description: field.description,
+            placeholder: field.placeholder,
+            requiredRule: field.requiredRule,
+            requiredLevels: [...field.requiredLevels],
+            sortOrder: field.sortOrder,
+            config: field.config ?? null,
           })),
         })),
       })),

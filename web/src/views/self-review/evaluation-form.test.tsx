@@ -24,7 +24,14 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
       items: [
         { key: 'item:rating', type: 'RATING', title: '自评等级', required: true, sortOrder: 0 },
         { key: 'item:score', type: 'SCORE', title: '目标完成度', required: false, sortOrder: 1 },
-        { key: 'item:short', type: 'SHORT_TEXT', title: '一句话总结', required: true, sortOrder: 2, config: { maxLength: 20 } },
+        {
+          key: 'item:short',
+          type: 'SHORT_TEXT',
+          title: '一句话总结',
+          required: true,
+          sortOrder: 2,
+          config: { maxLength: 20 }
+        },
         { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
         { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: false, sortOrder: 4 },
         {
@@ -71,10 +78,10 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
 }
 
 const RATINGS: PerfConfigTemplateRating[] = [
-  { symbol: 'S', name: '卓越', description: '超预期完成', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
-  { symbol: 'A', name: '优秀', description: '完全达成目标', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
-  { symbol: 'B', name: '良好', description: '基本达成目标', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
-  { symbol: 'C', name: '待改进', description: '未达成目标', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+  { symbol: 'S', name: '卓越', description: '超预期完成', minScore: '90', maxScore: '100', mappingScore: '95' },
+  { symbol: 'A', name: '优秀', description: '完全达成目标', minScore: '80', maxScore: '90', mappingScore: '85' },
+  { symbol: 'B', name: '良好', description: '基本达成目标', minScore: '60', maxScore: '80', mappingScore: '70' },
+  { symbol: 'C', name: '待改进', description: '未达成目标', minScore: '0', maxScore: '60', mappingScore: '50' }
 ]
 
 const PROMOTION_SUBFORM: PerfEvalFormSubform = {
@@ -211,6 +218,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
     const scoreInput = screen.getByRole('textbox', { name: '目标完成度' })
 
     await user.type(scoreInput, '85.5')
+
     // 「.」被拦截；继续输入「5」后为 855，即时钳制为 100
     expect(scoreInput).toHaveValue('100')
   })

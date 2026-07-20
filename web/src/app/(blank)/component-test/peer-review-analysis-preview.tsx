@@ -4,7 +4,6 @@ import PeerReviewAnalysisPanel from '@/views/review-tasks/fill/peer-review-analy
 
 const SAMPLE_RESULT: PerfPeerStageResult = {
   status: 'READY',
-  mode: 'WEIGHTED_RATING',
   reviewerCount: 5,
   compositeScore: '79.16',
   initialLevel: 'B',

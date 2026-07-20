@@ -107,8 +107,10 @@ describe('CycleSetupService', () => {
             sortOrder: 0,
             dimensions: [
               {
+                businessKey: 'dimension:self:delivery',
                 audience: 'EMPLOYEE',
                 kind: 'REGULAR',
+                scoringMethod: 'RATING',
                 name: '业绩',
                 description: null,
                 weight: 100,
@@ -116,6 +118,7 @@ describe('CycleSetupService', () => {
                 sortOrder: 0,
                 items: [
                   {
+                    businessKey: 'compat-scoring:dimension:self:delivery',
                     type: 'RATING',
                     title: '评级',
                     description: null,
@@ -123,6 +126,18 @@ describe('CycleSetupService', () => {
                     required: true,
                     sortOrder: 0,
                     config: null,
+                  },
+                  {
+                    businessKey: 'field:self:comment',
+                    type: 'LONG_TEXT',
+                    title: '评价说明',
+                    description: '请说明事实依据',
+                    placeholder: '请输入评价说明',
+                    required: false,
+                    requiredRule: 'CONDITIONAL',
+                    requiredLevels: ['S', 'C'],
+                    sortOrder: 1,
+                    config: { maxLength: 2000 },
                   },
                 ],
               },
@@ -205,7 +220,7 @@ describe('CycleSetupService', () => {
       'endDate',
     );
     const snapshotData = tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
-    // 阶段模式、评级、约束、四个关系权重、日程预设、通知规则均须与来源模板版本一致地复制到周期快照。
+    // 旧列仍由 expand 期数据库兼容默认值承载，但对外规则只复制评级、关系权重、日程和通知。
     expect(snapshotData).toMatchObject({
       cycle: { connect: { id: 9 } },
       sourceConfigVersion: { connect: { id: 30 } },
@@ -227,7 +242,7 @@ describe('CycleSetupService', () => {
       jobLevelPrefix: 'D',
       sourceFormVersion: { connect: { id: 100 } },
       content: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         name: 'D 表单',
         jobLevelPrefix: 'D',
         subforms: [
@@ -236,16 +251,20 @@ describe('CycleSetupService', () => {
             title: '自评',
             dimensions: [
               expect.objectContaining({
-                kind: 'REGULAR',
+                key: 'dimension:self:delivery',
+                type: 'SCORING',
                 audience: 'EMPLOYEE',
                 name: '业绩',
+                scoringMethod: 'RATING',
                 weight: '100',
                 isCore: true,
-                items: [
+                fields: [
                   expect.objectContaining({
-                    type: 'RATING',
-                    title: '评级',
-                    required: true,
+                    key: 'field:self:comment',
+                    type: 'LONG_TEXT',
+                    title: '评价说明',
+                    requiredRule: 'CONDITIONAL',
+                    requiredLevels: ['S', 'C'],
                   }),
                 ],
               }),

@@ -266,6 +266,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
     ]);
     managerStageResult.recalculate.mockResolvedValue({
       status: 'READY',
+      mode: 'WEIGHTED_SCORE',
       compositeScore: '88.00',
       initialLevel: 'A',
       stageLevel: 'A',
@@ -438,6 +439,7 @@ describe('ManagerEvaluationSubmissionService 上级评估公开流程', () => {
       ok: true,
       result: { compositeScore: '88.00', stageLevel: 'A' },
     });
+    expect(result.result).not.toHaveProperty('mode');
     expect(input).not.toHaveProperty('initialLevel');
   });
 

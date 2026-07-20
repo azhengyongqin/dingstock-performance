@@ -81,7 +81,7 @@ export const ConfigRatingsPreviewDialog = ({ open, onOpenChange, ratings }: Prop
             <div
               ref={barRef}
               onPointerDown={startDrag}
-              className='relative h-9 w-full cursor-ew-resize touch-none select-none rounded-md'
+              className='relative h-9 w-full cursor-ew-resize touch-none rounded-md select-none'
             >
               <div className='flex h-full overflow-hidden rounded-md border'>
                 {sorted.map(rating => {
@@ -89,16 +89,13 @@ export const ConfigRatingsPreviewDialog = ({ open, onOpenChange, ratings }: Prop
                     minScore: Number(rating.minScore),
                     maxScore: Number(rating.maxScore)
                   })
+
                   const width = Math.max(0, Number(rating.maxScore) - Number(rating.minScore))
 
                   return (
                     <div
                       key={rating.symbol}
-                      className={cn(
-                        'flex items-center justify-center text-xs font-semibold',
-                        color.bg,
-                        color.text
-                      )}
+                      className={cn('flex items-center justify-center text-xs font-semibold', color.bg, color.text)}
                       style={{ flexBasis: `${width}%` }}
                     >
                       {rating.symbol}
@@ -119,9 +116,7 @@ export const ConfigRatingsPreviewDialog = ({ open, onOpenChange, ratings }: Prop
                 >
                   {boundedScore} 分 · {active?.symbol ?? '-'}
                 </span>
-                <span
-                  className={cn('h-full w-1 transition-colors', dragging ? 'bg-primary' : 'bg-foreground/60')}
-                />
+                <span className={cn('h-full w-1 transition-colors', dragging ? 'bg-primary' : 'bg-foreground/60')} />
               </div>
             </div>
 
@@ -140,13 +135,11 @@ export const ConfigRatingsPreviewDialog = ({ open, onOpenChange, ratings }: Prop
                 minScore: Number(rating.minScore),
                 maxScore: Number(rating.maxScore)
               })
+
               const hit = active?.symbol === rating.symbol
 
               return (
-                <div
-                  key={rating.symbol}
-                  className={cn('flex gap-3 py-3', hit && 'bg-primary/5 -mx-2 rounded-md px-2')}
-                >
+                <div key={rating.symbol} className={cn('flex gap-3 py-3', hit && 'bg-primary/5 -mx-2 rounded-md px-2')}>
                   <Badge
                     variant='outline'
                     className={cn('h-fit min-w-12 justify-center', color.bg, color.text, color.border)}
@@ -158,12 +151,9 @@ export const ConfigRatingsPreviewDialog = ({ open, onOpenChange, ratings }: Prop
                       <span>{rating.name}</span>
                       <span className='text-muted-foreground text-xs font-normal'>
                         {rating.minScore}–{rating.maxScore} · 映射 {rating.mappingScore}
-                        {rating.commentRequired ? ' · 评语必填' : ''}
                       </span>
                     </div>
-                    <p className='text-muted-foreground mt-1 text-sm'>
-                      {rating.description || '未配置说明'}
-                    </p>
+                    <p className='text-muted-foreground mt-1 text-sm'>{rating.description || '未配置说明'}</p>
                   </div>
                 </div>
               )

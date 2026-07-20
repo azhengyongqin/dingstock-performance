@@ -135,7 +135,6 @@ const context = {
   },
   peerResult: {
     status: 'READY',
-    mode: 'WEIGHTED_RATING',
     reviewerCount: 2,
     compositeScore: '85.00',
     initialLevel: 'A',

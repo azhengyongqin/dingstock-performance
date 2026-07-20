@@ -425,7 +425,6 @@ export const archivePerfFormTemplateVersion = (versionId: number) =>
 // ===== 版本化配置模板 =====
 
 export type PerfConfigTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
-export type PerfConfigStageMode = 'DIRECT_RATING' | 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
 export type PerfPerformanceLevel = 'S' | 'A' | 'B' | 'C'
 export type PerfConfigReviewerRelation = 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT'
 export type PerfConfigScheduleStage = 'SELF' | 'PEER' | 'MANAGER'
@@ -437,28 +436,6 @@ export type PerfConfigTemplateRating = {
   minScore: string
   maxScore: string
   mappingScore: string
-  commentRequired: boolean
-}
-
-export type PerfConfigRatingConstraint = {
-  id: string
-  type: 'CORE_RATING_FORCE' | 'CORE_RATING_CAP' | 'ANY_RATING_CAP'
-  enabled: boolean
-  triggerRating: PerfPerformanceLevel
-  targetLevel: PerfPerformanceLevel
-}
-
-export type PerfConfigScoreConstraint = {
-  id: string
-  type: 'CORE_SCORE_FORCE' | 'CORE_SCORE_CAP' | 'ANY_SCORE_CAP'
-  enabled: boolean
-  threshold: string
-  targetLevel: PerfPerformanceLevel
-}
-
-export type PerfConfigConstraintProfiles = {
-  WEIGHTED_RATING: PerfConfigRatingConstraint[]
-  WEIGHTED_SCORE: PerfConfigScoreConstraint[]
 }
 
 export type PerfConfigSchedulePreset = {
@@ -557,9 +534,7 @@ export type PerfCycleConfigSnapshot = {
     name: string
     version: number
   } | null
-  stageModes: PerfConfigTemplateVersion['stageModes']
   ratings: PerfConfigTemplateRating[]
-  constraintProfiles: PerfConfigConstraintProfiles
   reviewerRelationWeights: Record<PerfConfigReviewerRelation, string>
   notificationRules: PerfConfigNotificationRules
   allowStageOverlap: boolean
@@ -580,10 +555,7 @@ export type UpdatePerfCycleBasicInput = {
   plannedStartAt: string
 }
 
-export type UpdatePerfCycleAdvancedConfigInput = Pick<
-  PerfConfigTemplateVersion,
-  'stageModes' | 'ratings' | 'constraintProfiles' | 'reviewerRelationWeights'
->
+export type UpdatePerfCycleAdvancedConfigInput = Pick<PerfConfigTemplateVersion, 'ratings' | 'reviewerRelationWeights'>
 
 export type ActivePerfCycleConfigInput = UpdatePerfCycleAdvancedConfigInput & {
 
@@ -693,14 +665,7 @@ export type PerfConfigTemplateVersion = PerfConfigTemplateVersionSummary & {
   publishedByOpenId?: string | null
   archivedByOpenId?: string | null
   createdAt?: string
-  stageModes: {
-    SELF: 'DIRECT_RATING'
-    PEER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
-    MANAGER: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE'
-    AI: 'DIRECT_RATING'
-  }
   ratings: PerfConfigTemplateRating[]
-  constraintProfiles: PerfConfigConstraintProfiles
   reviewerRelationWeights: Record<PerfConfigReviewerRelation, string>
   formTemplateVersionIds: number[]
   formBindings?: PerfConfigFormBinding[]
@@ -717,9 +682,7 @@ export type UpdatePerfConfigTemplateVersionInput = Pick<
   PerfConfigTemplateVersion,
   | 'name'
   | 'description'
-  | 'stageModes'
   | 'ratings'
-  | 'constraintProfiles'
   | 'reviewerRelationWeights'
   | 'formTemplateVersionIds'
   | 'schedulePreset'
@@ -733,7 +696,7 @@ export type PerfConfigCalculationPreviewInput = {
   dimensions?: Array<{
     dimensionId: number
     relations: Array<{
-      type: 'LEADER' | PerfConfigReviewerRelation
+      type: 'LEADER' | 'DIRECT' | PerfConfigReviewerRelation
       rawValues: string[]
     }>
   }>
@@ -1035,7 +998,6 @@ export type PerfStageDimensionResultView = {
 
 export type PerfManagerStageResult = {
   status: 'READY' | 'NO_DATA'
-  mode?: PerfConfigStageMode
   reviewerCount: number
   compositeScore: string | null
   initialLevel: PerfPerformanceLevel | null

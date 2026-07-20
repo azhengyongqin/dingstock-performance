@@ -21,7 +21,12 @@ import { getPerfFormTemplateVersion, previewPerfConfigTemplateCalculation } from
 
 import { resolveBindingSubforms } from './config-template-utils'
 
-type PreviewDimension = { id: number; name: string; value: string }
+type PreviewDimension = {
+  id: number
+  name: string
+  scoringMethod: 'RATING' | 'SCORE'
+  value: string
+}
 
 const ConfigCalculationPreview = ({
   version,
@@ -51,7 +56,7 @@ const ConfigCalculationPreview = ({
   })()
 
   const prepare = async () => {
-    if (stage === 'SELF' || stage === 'AI') {
+    if (stage === 'AI') {
       setDimensions([])
       setUnavailable([])
       setResult(null)
@@ -72,20 +77,20 @@ const ConfigCalculationPreview = ({
     try {
       const subforms = resolveBindingSubforms(binding) ?? (await getPerfFormTemplateVersion(bindingId)).subforms
       const subform = subforms.find(item => item.type === stage)
-      const expectedType = version.stageModes[stage] === 'WEIGHTED_RATING' ? 'RATING' : 'SCORE'
 
       const nextDimensions = (subform?.dimensions ?? [])
         .filter(dimension => dimension.type === 'SCORING')
-        .filter(dimension => dimension.scoringMethod === expectedType)
+        .filter(dimension => dimension.scoringMethod === 'RATING' || dimension.scoringMethod === 'SCORE')
         .filter(dimension => dimension.id != null)
         .map(dimension => ({
           id: dimension.id as number,
           name: dimension.name,
-          value: expectedType === 'RATING' ? 'B' : '75'
+          scoringMethod: dimension.scoringMethod as 'RATING' | 'SCORE',
+          value: dimension.scoringMethod === 'RATING' ? 'B' : '75'
         }))
 
       if (nextDimensions.length === 0) {
-        setUnavailable([`${prefix} 表单没有与${stage === 'PEER' ? '360°' : '上级'}阶段模式兼容的常规计分维度`])
+        setUnavailable([`${prefix} 表单没有可预览的常规计分维度`])
       }
 
       setDimensions(nextDimensions)
@@ -104,8 +109,8 @@ const ConfigCalculationPreview = ({
       const response = await previewPerfConfigTemplateCalculation(version.id, {
         stage,
         jobLevelPrefix: prefix,
-        ...(stage === 'SELF' || stage === 'AI' ? { directRating } : {}),
-        ...(stage === 'PEER' || stage === 'MANAGER'
+        ...(stage === 'AI' ? { directRating } : {}),
+        ...(stage !== 'AI'
           ? {
               dimensions: dimensions.map(dimension => ({
                 dimensionId: dimension.id,
@@ -115,7 +120,12 @@ const ConfigCalculationPreview = ({
                         type: type as 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT',
                         rawValues: [String(dimension.value)]
                       }))
-                    : [{ type: 'LEADER' as const, rawValues: [String(dimension.value)] }]
+                    : [
+                        {
+                          type: stage === 'MANAGER' ? ('LEADER' as const) : ('DIRECT' as const),
+                          rawValues: [String(dimension.value)]
+                        }
+                      ]
               }))
             }
           : {})
@@ -133,8 +143,6 @@ const ConfigCalculationPreview = ({
       setLoading(false)
     }
   }
-
-  const mode = version.stageModes[stage]
 
   return (
     <div className='flex flex-col gap-5'>
@@ -215,7 +223,7 @@ const ConfigCalculationPreview = ({
         </Alert>
       )}
 
-      {(stage === 'SELF' || stage === 'AI') && (
+      {stage === 'AI' && (
         <div className='flex flex-col gap-3 rounded-lg border p-4'>
           <Field className='max-w-xs gap-2'>
             <FieldLabel>直接评级样例</FieldLabel>
@@ -245,7 +253,7 @@ const ConfigCalculationPreview = ({
       {dimensions.length > 0 && (
         <div className='flex flex-col gap-3'>
           <div className='flex items-center gap-2'>
-            <Badge variant='outline'>{mode === 'WEIGHTED_RATING' ? '加权评级' : '加权评分'}</Badge>
+            <Badge variant='outline'>按维度独立计分</Badge>
             <span className='text-muted-foreground text-sm'>修改样例值后发起权威预览</span>
           </div>
           {dimensions.map((dimension, index) => (
@@ -254,7 +262,7 @@ const ConfigCalculationPreview = ({
               className='grid items-center gap-3 rounded-md border p-3 sm:grid-cols-[1fr_12rem]'
             >
               <FieldLabel>{dimension.name}</FieldLabel>
-              {mode === 'WEIGHTED_RATING' ? (
+              {dimension.scoringMethod === 'RATING' ? (
                 <Select
                   value={dimension.value}
                   items={['S', 'A', 'B', 'C'].map(value => ({ value, label: value }))}
@@ -306,7 +314,7 @@ const ConfigCalculationPreview = ({
 }
 
 const PreviewResult = ({ result }: { result: Record<string, unknown> }) => {
-  if (result.type === 'DIRECT_RATING') {
+  if (result.type === 'AI_DIRECT_RATING') {
     return (
       <Alert>
         <AlertTitle>计算完成</AlertTitle>

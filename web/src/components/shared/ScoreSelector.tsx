@@ -17,8 +17,7 @@ const FALLBACK_RATINGS: PerfConfigTemplateRating[] = [
     description: '工作结果、成长速度等方面有重大突破和创新',
     minScore: '90',
     maxScore: '100',
-    mappingScore: '95',
-    commentRequired: true
+    mappingScore: '95'
   },
   {
     symbol: 'A',
@@ -26,8 +25,7 @@ const FALLBACK_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现超出预期',
     minScore: '80',
     maxScore: '90',
-    mappingScore: '85',
-    commentRequired: false
+    mappingScore: '85'
   },
   {
     symbol: 'B',
@@ -35,8 +33,7 @@ const FALLBACK_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现符合预期',
     minScore: '60',
     maxScore: '80',
-    mappingScore: '70',
-    commentRequired: false
+    mappingScore: '70'
   },
   {
     symbol: 'C',
@@ -44,8 +41,7 @@ const FALLBACK_RATINGS: PerfConfigTemplateRating[] = [
     description: '绩效目标、工作态度或价值观表现不符合预期',
     minScore: '0',
     maxScore: '60',
-    mappingScore: '50',
-    commentRequired: true
+    mappingScore: '50'
   }
 ]
 
@@ -118,7 +114,6 @@ function ScoreLevelHoverPanel({ rating, color }: { rating: PerfConfigTemplateRat
           <span className={cn('text-sm font-semibold', color.text)}>{rating.name}</span>
           <span className='text-foreground/60 text-xs font-normal'>
             {rating.minScore}–{rating.maxScore} · 映射 {rating.mappingScore}
-            {rating.commentRequired ? ' · 评语必填' : ''}
           </span>
         </div>
         <p className='text-foreground/75 mt-1.5 text-sm leading-relaxed'>{rating.description || '未配置说明'}</p>

@@ -38,20 +38,6 @@ export class CreateConfigTemplateDto {
   description?: string | null;
 }
 
-export class ConfigStageModesDto {
-  @IsIn(['DIRECT_RATING'])
-  SELF!: 'DIRECT_RATING';
-
-  @IsIn(['WEIGHTED_RATING', 'WEIGHTED_SCORE'])
-  PEER!: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE';
-
-  @IsIn(['WEIGHTED_RATING', 'WEIGHTED_SCORE'])
-  MANAGER!: 'WEIGHTED_RATING' | 'WEIGHTED_SCORE';
-
-  @IsIn(['DIRECT_RATING'])
-  AI!: 'DIRECT_RATING';
-}
-
 export class ConfigRatingDto {
   @IsIn(LEVELS)
   symbol!: (typeof LEVELS)[number];
@@ -77,60 +63,6 @@ export class ConfigRatingDto {
   @IsString()
   @Matches(DECIMAL_TEXT)
   mappingScore!: string;
-
-  @IsBoolean()
-  commentRequired!: boolean;
-}
-
-class RatingConstraintRuleDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  id!: string;
-
-  @IsIn(['CORE_RATING_FORCE', 'CORE_RATING_CAP', 'ANY_RATING_CAP'])
-  type!: 'CORE_RATING_FORCE' | 'CORE_RATING_CAP' | 'ANY_RATING_CAP';
-
-  @IsBoolean()
-  enabled!: boolean;
-
-  @IsIn(LEVELS)
-  triggerRating!: (typeof LEVELS)[number];
-
-  @IsIn(LEVELS)
-  targetLevel!: (typeof LEVELS)[number];
-}
-
-class ScoreConstraintRuleDto {
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  id!: string;
-
-  @IsIn(['CORE_SCORE_FORCE', 'CORE_SCORE_CAP', 'ANY_SCORE_CAP'])
-  type!: 'CORE_SCORE_FORCE' | 'CORE_SCORE_CAP' | 'ANY_SCORE_CAP';
-
-  @IsBoolean()
-  enabled!: boolean;
-
-  @IsString()
-  @Matches(DECIMAL_TEXT)
-  threshold!: string;
-
-  @IsIn(LEVELS)
-  targetLevel!: (typeof LEVELS)[number];
-}
-
-export class ConstraintProfilesDto {
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => RatingConstraintRuleDto)
-  WEIGHTED_RATING!: RatingConstraintRuleDto[];
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => ScoreConstraintRuleDto)
-  WEIGHTED_SCORE!: ScoreConstraintRuleDto[];
 }
 
 export class ReviewerRelationWeightsDto {
@@ -245,11 +177,6 @@ export class NotificationRulesDto {
 }
 
 export class ReplaceConfigTemplateDraftDto extends CreateConfigTemplateDto {
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ConfigStageModesDto)
-  stageModes!: ConfigStageModesDto;
-
   @IsArray()
   @ArrayMinSize(4)
   @ArrayMaxSize(4)
@@ -257,11 +184,6 @@ export class ReplaceConfigTemplateDraftDto extends CreateConfigTemplateDto {
   @ValidateNested({ each: true })
   @Type(() => ConfigRatingDto)
   ratings!: ConfigRatingDto[];
-
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ConstraintProfilesDto)
-  constraintProfiles!: ConstraintProfilesDto;
 
   @IsObject()
   @ValidateNested()
@@ -288,8 +210,16 @@ export class ReplaceConfigTemplateDraftDto extends CreateConfigTemplateDto {
 }
 
 class PreviewRelationDto {
-  @IsIn(['ORG_OWNER', 'PROJECT_OWNER', 'PEER', 'CROSS_DEPT', 'LEADER'])
-  type!: 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT' | 'LEADER';
+  @IsIn([
+    'ORG_OWNER',
+    'PROJECT_OWNER',
+    'PEER',
+    'CROSS_DEPT',
+    'LEADER',
+    'DIRECT',
+  ])
+  type!:
+    'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT' | 'LEADER' | 'DIRECT';
 
   @IsArray()
   @ArrayMinSize(1)

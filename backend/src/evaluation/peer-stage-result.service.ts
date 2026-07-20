@@ -34,6 +34,7 @@ import type {
   FormSnapshotContent,
   FormSnapshotDimension,
 } from './evaluation.service-types';
+import { omitStageResultMode } from './stage-result.public';
 
 type PeerStageResultDb = Pick<
   Prisma.TransactionClient,
@@ -455,7 +456,7 @@ export class PeerStageResultService {
       throw new NotFoundException('参与者不存在');
     }
     await this.assertCanView(operatorOpenId, participant);
-    return this.recalculate(participantId);
+    return omitStageResultMode(await this.recalculate(participantId));
   }
 
   private buildDimensions(

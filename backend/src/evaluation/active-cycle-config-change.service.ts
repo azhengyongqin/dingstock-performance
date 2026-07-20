@@ -105,12 +105,12 @@ export class ActiveCycleConfigChangeService {
             sourceConfigTemplateVersionId:
               current.sourceConfigTemplateVersionId,
             ...toCycleConfigSnapshotData({
-              selfStageMode: input.stageModes.SELF,
-              peerStageMode: input.stageModes.PEER,
-              managerStageMode: input.stageModes.MANAGER,
-              aiStageMode: input.stageModes.AI,
+              selfStageMode: current.selfStageMode,
+              peerStageMode: current.peerStageMode,
+              managerStageMode: current.managerStageMode,
+              aiStageMode: current.aiStageMode,
               ratings: input.ratings,
-              constraintProfiles: input.constraintProfiles,
+              constraintProfiles: current.constraintProfiles,
               orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
               projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
               peerWeight: input.reviewerRelationWeights.PEER,
@@ -328,12 +328,7 @@ export class ActiveCycleConfigChangeService {
       cycle.currentConfigVersion!,
       input,
     );
-    const relevantPrefixes = [
-      'stageModes',
-      'ratings',
-      'constraintProfiles',
-      'reviewerRelationWeights',
-    ];
+    const relevantPrefixes = ['ratings', 'reviewerRelationWeights'];
     const dimensionIssueCodes = new Set([
       'CORE_DIMENSION_COUNT_INVALID',
       'DIMENSION_WEIGHT_INVALID',
@@ -364,9 +359,7 @@ export class ActiveCycleConfigChangeService {
   ): ConfigTemplateVersionContract {
     return {
       name: '周期配置',
-      stageModes: input.stageModes,
       ratings: input.ratings,
-      constraintProfiles: input.constraintProfiles,
       reviewerRelationWeights: input.reviewerRelationWeights,
       formBindings: current.formSnapshots.map((snapshot) => {
         const content = applyDimensionOverrides(

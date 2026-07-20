@@ -296,9 +296,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
 
     try {
       const config = {
-        stageModes: value.stageModes,
         ratings: value.ratings,
-        constraintProfiles: value.constraintProfiles,
         reviewerRelationWeights: value.reviewerRelationWeights
       }
 

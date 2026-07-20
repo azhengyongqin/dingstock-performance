@@ -7,15 +7,7 @@ import type {
   PerfJobLevelPrefix
 } from '@/lib/perf-api'
 
-export type ConfigTemplateSection =
-  | 'basic'
-  | 'ratings'
-  | 'constraints'
-  | 'relations'
-  | 'bindings'
-  | 'schedule'
-  | 'preview'
-  | 'history'
+export type ConfigTemplateSection = 'basic' | 'ratings' | 'relations' | 'bindings' | 'schedule' | 'preview' | 'history'
 
 export const getConfigTemplateActions = (status: PerfConfigTemplateVersionStatus, isAdmin: boolean) => {
   const canEdit = isAdmin && status === 'DRAFT'
@@ -121,8 +113,7 @@ export const mergeConfigTemplateIssues = (
 /** 后端问题路径映射到编辑器 Tab，点击问题即可跳到可修正的位置。 */
 export const issueSectionForPath = (path?: string): ConfigTemplateSection => {
   if (!path) return 'basic'
-  if (path.startsWith('ratings') || path.startsWith('stageModes')) return 'ratings'
-  if (path.startsWith('constraintProfiles')) return 'constraints'
+  if (path.startsWith('ratings')) return 'ratings'
   if (path.startsWith('reviewerRelationWeights')) return 'relations'
   if (path.startsWith('formTemplateVersionIds') || path.startsWith('formBindings')) return 'bindings'
   if (path.startsWith('schedulePreset') || path.startsWith('notificationRules')) return 'schedule'

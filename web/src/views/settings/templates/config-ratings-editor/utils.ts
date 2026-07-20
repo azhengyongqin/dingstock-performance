@@ -1,9 +1,5 @@
 import { clampScore, getRatingColor, setBoundary } from '@/components/shared/evaluation-rule-editor/utils'
-import type {
-  EvaluationRating,
-  PerfConfigTemplateRating,
-  PerfPerformanceLevel
-} from '@/lib/perf-api'
+import type { EvaluationRating, PerfConfigTemplateRating, PerfPerformanceLevel } from '@/lib/perf-api'
 
 export type ConfigRatingDraft = PerfConfigTemplateRating
 
@@ -24,7 +20,7 @@ export const toEvaluationLevels = (ratings: ConfigRatingDraft[]): EvaluationRati
   }))
 }
 
-/** 拖边界后写回配置模板 ratings，保留 mappingScore / commentRequired。 */
+/** 拖边界后写回配置模板 ratings，保留各档映射分。 */
 export const applyBoundary = (
   ratings: ConfigRatingDraft[],
   boundaryIndex: number,
@@ -49,8 +45,7 @@ export const patchRatingBySymbol = (
   ratings: ConfigRatingDraft[],
   symbol: PerfPerformanceLevel,
   patch: Partial<ConfigRatingDraft>
-): ConfigRatingDraft[] =>
-  ratings.map(item => (item.symbol === symbol ? { ...item, ...patch } : item))
+): ConfigRatingDraft[] => ratings.map(item => (item.symbol === symbol ? { ...item, ...patch } : item))
 
 export const scoreFromClientX = (clientX: number, rect: DOMRect | undefined) => {
   if (!rect || rect.width <= 0) return 0

@@ -44,12 +44,12 @@ describe('ConfigTemplateService', () => {
     name: validContract.name,
     description: validContract.description,
     sourceVersionId: null,
-    selfStageMode: validContract.stageModes.SELF,
-    peerStageMode: validContract.stageModes.PEER,
-    managerStageMode: validContract.stageModes.MANAGER,
-    aiStageMode: validContract.stageModes.AI,
+    selfStageMode: 'DIRECT_RATING',
+    peerStageMode: 'WEIGHTED_RATING',
+    managerStageMode: 'WEIGHTED_SCORE',
+    aiStageMode: 'DIRECT_RATING',
     ratings: validContract.ratings,
-    constraintProfiles: validContract.constraintProfiles,
+    constraintProfiles: {},
     orgOwnerWeight: validContract.reviewerRelationWeights.ORG_OWNER,
     projectOwnerWeight: validContract.reviewerRelationWeights.PROJECT_OWNER,
     peerWeight: validContract.reviewerRelationWeights.PEER,
@@ -142,7 +142,6 @@ describe('ConfigTemplateService', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         id: 20,
-        stageModes: validContract.stageModes,
         reviewerRelationWeights: validContract.reviewerRelationWeights,
         formTemplateVersionIds: [],
         publicationIssues: expect.arrayContaining([
@@ -154,6 +153,13 @@ describe('ConfigTemplateService', () => {
         available: false,
       }),
     );
+    rbacMock.isAdmin.mockResolvedValue(true);
+    const result = await service.getVersion('admin-open-id', 20);
+    expect(result).not.toHaveProperty('stageModes');
+    expect(result).not.toHaveProperty('constraintProfiles');
+    result.ratings.forEach((rating) => {
+      expect(rating).not.toHaveProperty('commentRequired');
+    });
 
     expect(txMock.perfConfigTemplateVersion.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
