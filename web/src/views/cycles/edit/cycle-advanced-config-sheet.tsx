@@ -53,7 +53,7 @@ const CycleAdvancedConfigSheet = ({
 }) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-full gap-0 p-0 sm:max-w-5xl'>
+      <SheetContent side='right' className='w-full gap-0 p-0 data-[side=right]:sm:max-w-5xl'>
         <SheetHeader className='border-b px-6 py-4'>
           <SheetTitle>高级配置</SheetTitle>
           <SheetDescription>调整周期自己的评级区间和关系权重；不会回写来源模板或 D/M 表单。</SheetDescription>
