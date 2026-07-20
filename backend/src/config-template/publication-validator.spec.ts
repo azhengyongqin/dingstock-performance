@@ -177,8 +177,8 @@ describe('validateConfigTemplatePublication', () => {
     const dManager = bindings[0].subforms.find(
       (item) => item.type === 'MANAGER',
     )!;
-    (dPeer.dimensions[0].items[0] as { type: string }).type = 'SCORE';
-    (dManager.dimensions[0].items[0] as { type: string }).type = 'RATING';
+    dPeer.dimensions[0].scoringMethod = 'SCORE';
+    dManager.dimensions[0].scoringMethod = 'RATING';
     (value as { formBindings: typeof bindings }).formBindings = bindings;
 
     expect(

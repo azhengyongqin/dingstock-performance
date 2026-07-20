@@ -19,7 +19,7 @@ import type {
   NotificationRules,
 } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
-import type { FormItemConfig } from '../form-template/form-template.contract';
+import type { LegacyFormItemConfig } from '../form-template/form-template.contract';
 import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
 import {
   generateCyclePlan,
@@ -972,7 +972,7 @@ export class CycleSetupService {
             placeholder: item.placeholder,
             required: item.required,
             sortOrder: item.sortOrder,
-            config: item.config as FormItemConfig | null,
+            config: item.config as LegacyFormItemConfig | null,
           })),
         })),
       })),

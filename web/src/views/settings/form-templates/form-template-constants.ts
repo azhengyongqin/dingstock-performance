@@ -1,7 +1,7 @@
 import type {
+  PerfFormFieldType,
   PerfFormItemConfig,
-  PerfFormItemType,
-  PerfFormSubformType,
+  PerfFormTemplateSubformType,
   PerfFormTemplateVersionStatus,
   PerfJobLevelPrefix
 } from '@/lib/perf-api'
@@ -21,16 +21,13 @@ export const JOB_LEVEL_PREFIX_LABEL: Record<PerfJobLevelPrefix, string> = {
 
 export const JOB_LEVEL_PREFIX_OPTIONS = Object.values(JOB_LEVEL_PREFIX_LABEL)
 
-export const FORM_SUBFORM_LABEL: Record<PerfFormSubformType, string> = {
+export const FORM_SUBFORM_LABEL: Record<PerfFormTemplateSubformType, string> = {
   SELF: '员工自评',
   PEER: '360°评估',
-  MANAGER: '上级评估',
-  PROMOTION: '晋升评估'
+  MANAGER: '上级评估'
 }
 
-export const FORM_ITEM_TYPES: { value: PerfFormItemType; label: string }[] = [
-  { value: 'RATING', label: '评级选择' },
-  { value: 'SCORE', label: '0～100 分数' },
+export const FORM_FIELD_TYPES: { value: PerfFormFieldType; label: string }[] = [
   { value: 'SHORT_TEXT', label: '单行文本' },
   { value: 'LONG_TEXT', label: '多行文本' },
   { value: 'MARKDOWN', label: 'Markdown' },
@@ -40,13 +37,12 @@ export const FORM_ITEM_TYPES: { value: PerfFormItemType; label: string }[] = [
   { value: 'LINK', label: '链接' }
 ]
 
-export const FORM_ITEM_TYPE_LABEL = Object.fromEntries(FORM_ITEM_TYPES.map(item => [item.value, item.label])) as Record<
-  PerfFormItemType,
-  string
->
+export const FORM_FIELD_TYPE_LABEL = Object.fromEntries(
+  FORM_FIELD_TYPES.map(item => [item.value, item.label])
+) as Record<PerfFormFieldType, string>
 
-/** 切换评估项类型时清理旧配置，并提供满足受控 Schema 的最小初始值。 */
-export const createDefaultItemConfig = (type: PerfFormItemType): PerfFormItemConfig | null => {
+/** 切换表单字段类型时清理旧配置，并提供满足受控 Schema 的最小初始值。 */
+export const createDefaultFieldConfig = (type: PerfFormFieldType): PerfFormItemConfig | null => {
   if (type === 'SINGLE_SELECT') return { options: [{ value: 'OPTION_1', label: '选项 1' }] }
 
   if (type === 'MULTI_SELECT') {

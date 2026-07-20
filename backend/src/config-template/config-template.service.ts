@@ -5,10 +5,8 @@ import {
 } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import type {
-  FormItemConfig,
-  FormTemplateSubformContract,
-} from '../form-template/form-template.contract';
+import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import { toPerformanceSubformContracts } from '../form-template/form-template.persistence';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import {
@@ -432,8 +430,12 @@ export class ConfigTemplateService {
       const subform = binding.formTemplateVersion.subforms.find(
         (candidate) => candidate.type === input.stage,
       );
+      const isScoringDimension = (dimension: {
+        kind?: string;
+        type?: string;
+      }) => dimension.kind === 'REGULAR' || dimension.type === 'SCORING';
       const regularDimensions = (subform?.dimensions ?? []).filter(
-        (dimension) => dimension.kind === 'REGULAR',
+        isScoringDimension,
       );
       const dimensionsById = new Map(
         regularDimensions.map((dimension) => [dimension.id, dimension]),
@@ -464,7 +466,7 @@ export class ConfigTemplateService {
       }
       for (const requested of requestedDimensions) {
         const dimension = dimensionsById.get(requested.dimensionId);
-        if (!dimension || dimension.kind !== 'REGULAR') {
+        if (!dimension || !isScoringDimension(dimension)) {
           return {
             status: 'UNAVAILABLE' as const,
             issues: [
@@ -613,30 +615,7 @@ export class ConfigTemplateService {
   private toFormSubformContracts(
     subforms: ConfigVersionRecord['formBindings'][number]['formTemplateVersion']['subforms'],
   ): FormTemplateSubformContract[] {
-    return subforms.map((subform) => ({
-      type: subform.type,
-      title: subform.title,
-      description: subform.description,
-      sortOrder: subform.sortOrder,
-      dimensions: subform.dimensions.map((dimension) => ({
-        kind: dimension.kind,
-        audience: dimension.audience,
-        name: dimension.name,
-        description: dimension.description,
-        weight: dimension.weight?.toString() ?? null,
-        isCore: dimension.isCore,
-        sortOrder: dimension.sortOrder,
-        items: dimension.items.map((item) => ({
-          type: item.type,
-          title: item.title,
-          description: item.description,
-          placeholder: item.placeholder,
-          required: item.required,
-          sortOrder: item.sortOrder,
-          config: item.config as FormItemConfig | null,
-        })),
-      })),
-    }));
+    return toPerformanceSubformContracts(subforms);
   }
 
   private toPersistedContent(input: {

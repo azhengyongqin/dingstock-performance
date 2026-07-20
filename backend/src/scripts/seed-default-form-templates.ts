@@ -4,9 +4,12 @@
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { loadAppConfig } from '../config/configuration';
-import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
+import {
+  DEFAULT_FORM_TEMPLATES,
+  toDefaultLegacyPromotionCreateData,
+} from '../form-template/default-form-templates';
+import { toPerformanceSubformCreateData } from '../form-template/form-template.persistence';
 import { validateFormTemplatePublication } from '../form-template/publication-validator';
-import type { Prisma } from '../generated/prisma/client';
 import { PrismaClient } from '../generated/prisma/client';
 
 const SYSTEM_OPERATOR = 'SYSTEM_FORM_TEMPLATE_SEED';
@@ -56,36 +59,10 @@ async function main() {
             createdByOpenId: SYSTEM_OPERATOR,
             updatedByOpenId: SYSTEM_OPERATOR,
             subforms: {
-              create: template.subforms.map((subform) => ({
-                type: subform.type,
-                title: subform.title,
-                description: subform.description,
-                sortOrder: subform.sortOrder,
-                dimensions: {
-                  create: subform.dimensions.map((dimension) => ({
-                    kind: dimension.kind,
-                    audience: dimension.audience,
-                    name: dimension.name,
-                    description: dimension.description,
-                    weight: dimension.weight,
-                    isCore: dimension.isCore,
-                    sortOrder: dimension.sortOrder,
-                    items: {
-                      create: dimension.items.map((item) => ({
-                        type: item.type,
-                        title: item.title,
-                        description: item.description,
-                        placeholder: item.placeholder,
-                        required: item.required,
-                        sortOrder: item.sortOrder,
-                        config: item.config
-                          ? (item.config as Prisma.InputJsonValue)
-                          : undefined,
-                      })),
-                    },
-                  })),
-                },
-              })),
+              create: [
+                ...toPerformanceSubformCreateData(template.subforms),
+                toDefaultLegacyPromotionCreateData(),
+              ],
             },
           },
         });

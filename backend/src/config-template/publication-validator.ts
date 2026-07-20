@@ -332,7 +332,7 @@ function validateWeightedSubform(
   issues: ConfigTemplatePublicationIssue[],
 ) {
   const regular = dimensions.filter(
-    (dimension) => dimension.kind === 'REGULAR',
+    (dimension) => dimension.type === 'SCORING',
   );
   if (regular.length === 0) {
     issue(
@@ -369,15 +369,12 @@ function validateWeightedSubform(
     } else {
       total = total.plus(weight);
     }
-    const scoringItems = dimension.items.filter((item) =>
-      ['RATING', 'SCORE'].includes(item.type),
-    );
-    if (scoringItems.length !== 1 || scoringItems[0]?.type !== expectedType) {
+    if (dimension.scoringMethod !== expectedType) {
       issue(
         issues,
         'SCORING_ITEM_INCOMPATIBLE',
-        `${path}.dimensions[${index}].items`,
-        `每个常规维度必须恰好包含一个 ${expectedType} 计分项`,
+        `${path}.dimensions[${index}].scoringMethod`,
+        `当前阶段模式要求所有计分维度使用 ${expectedType}`,
       );
     }
   });
@@ -442,7 +439,7 @@ function validateBindings(
       );
     } else {
       const regular = self.dimensions.filter(
-        (dimension) => dimension.kind === 'REGULAR',
+        (dimension) => dimension.type === 'SCORING',
       );
       if (regular.length === 0) {
         issue(
@@ -453,15 +450,12 @@ function validateBindings(
         );
       }
       regular.forEach((dimension, dimensionIndex) => {
-        const scoringItems = dimension.items.filter((item) =>
-          ['RATING', 'SCORE'].includes(item.type),
-        );
-        if (scoringItems.length !== 1 || scoringItems[0]?.type !== 'RATING') {
+        if (dimension.scoringMethod !== 'RATING') {
           issue(
             issues,
             'SELF_SCORING_ITEM_INCOMPATIBLE',
-            `${path}.subforms.SELF.dimensions[${dimensionIndex}].items`,
-            'SELF 常规维度必须使用唯一 RATING 计分项',
+            `${path}.subforms.SELF.dimensions[${dimensionIndex}].scoringMethod`,
+            '当前配置模板要求员工自评计分维度使用 RATING',
           );
         }
       });

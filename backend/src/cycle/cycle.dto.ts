@@ -26,13 +26,13 @@ import {
 } from '../config-template/config-template.dto';
 import {
   FORM_AUDIENCES,
-  FORM_DIMENSION_TYPES,
-  FORM_ITEM_TYPES,
-  FORM_SUBFORM_TYPES,
+  LEGACY_FORM_DIMENSION_TYPES,
+  LEGACY_FORM_ITEM_TYPES,
+  LEGACY_FORM_SUBFORM_TYPES,
   type FormAudience,
-  type FormDimensionType,
-  type FormItemType,
-  type FormSubformType,
+  type LegacyFormDimensionType,
+  type LegacyFormItemType,
+  type LegacyFormSubformType,
 } from '../form-template/form-template.contract';
 
 export class CreateCycleDto {
@@ -183,8 +183,8 @@ export class CycleFormItemChangeDto {
   @MaxLength(200)
   key!: string;
 
-  @IsIn(FORM_ITEM_TYPES)
-  type!: FormItemType;
+  @IsIn(LEGACY_FORM_ITEM_TYPES)
+  type!: LegacyFormItemType;
 
   @IsString()
   @MaxLength(200)
@@ -217,8 +217,8 @@ export class CycleFormDimensionChangeDto {
   @MaxLength(200)
   key!: string;
 
-  @IsIn(FORM_DIMENSION_TYPES)
-  kind!: FormDimensionType;
+  @IsIn(LEGACY_FORM_DIMENSION_TYPES)
+  kind!: LegacyFormDimensionType;
 
   @IsIn(FORM_AUDIENCES)
   audience!: FormAudience;
@@ -255,8 +255,8 @@ export class CycleFormSubformChangeDto {
   @MaxLength(200)
   key!: string;
 
-  @IsIn(FORM_SUBFORM_TYPES)
-  type!: FormSubformType;
+  @IsIn(LEGACY_FORM_SUBFORM_TYPES)
+  type!: LegacyFormSubformType;
 
   @IsString()
   @MaxLength(200)

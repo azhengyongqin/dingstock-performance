@@ -40,6 +40,12 @@ export type PerfFormItemType =
 
 export type PerfFormItemOption = { value: string; label: string }
 
+export type PerfFormTemplateSubformType = Exclude<PerfFormSubformType, 'PROMOTION'>
+export type PerfFormDimensionType = 'SCORING' | 'NON_SCORING'
+export type PerfFormScoringMethod = 'RATING' | 'SCORE'
+export type PerfFormFieldType = Exclude<PerfFormItemType, 'RATING' | 'SCORE'>
+export type PerfFormFieldRequiredRule = 'OPTIONAL' | 'ALWAYS' | 'CONDITIONAL'
+
 export type PerfFormItemConfig = {
   minLength?: number
   maxLength?: number
@@ -266,35 +272,41 @@ export type StartCheckItem = {
 
 // ===== 版本化评估表单模板 =====
 
-export type PerfFormTemplateItem = {
+export type PerfFormTemplateField = {
   id?: number
   dimensionId?: number
-  type: PerfFormItemType
+  key?: string
+  type: PerfFormFieldType
   title: string
   description?: string | null
   placeholder?: string | null
-  required: boolean
+  requiredRule: PerfFormFieldRequiredRule
+  requiredLevels: PerfPerformanceLevel[]
   sortOrder: number
   config?: PerfFormItemConfig | null
+  clientKey?: string
 }
 
 export type PerfFormTemplateDimension = {
   id?: number
   subformId?: number
-  kind: PerfFormDimensionKind
+  key?: string
+  type: PerfFormDimensionType
+  scoringMethod?: PerfFormScoringMethod | null
   audience: PerfFormAudience
   name: string
   description?: string | null
   weight?: string | number | null
   isCore: boolean
   sortOrder: number
-  items: PerfFormTemplateItem[]
+  fields: PerfFormTemplateField[]
+  clientKey?: string
 }
 
 export type PerfFormTemplateSubform = {
   id?: number
   versionId?: number
-  type: PerfFormSubformType
+  type: PerfFormTemplateSubformType
   title: string
   description?: string | null
   sortOrder: number
@@ -324,6 +336,16 @@ export type PerfFormTemplateVersion = PerfFormTemplateVersionSummary & {
   archivedByOpenId?: string | null
   createdAt?: string
   subforms: PerfFormTemplateSubform[]
+  legacyPromotionSubform?: {
+    title: string
+    description?: string | null
+    dimensions: Array<{
+      key: string
+      name: string
+      audience: 'EMPLOYEE' | 'LEADER'
+      fields: Array<{ key: string; title: string; type: PerfFormItemType; required: boolean }>
+    }>
+  } | null
 }
 
 export type FormTemplateValidationIssue = {

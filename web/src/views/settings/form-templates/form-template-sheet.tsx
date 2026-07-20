@@ -36,7 +36,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sh
 
 import { FORM_TEMPLATE_STATUS_LABEL, JOB_LEVEL_PREFIX_LABEL } from './form-template-constants'
 import { FormTemplateNav, type FormNavDestination } from './form-template-nav'
-import { getFormTemplateActions } from './form-template-utils'
+import { collectFormIssueMarkers, getFormTemplateActions, issueDestinationForPath } from './form-template-utils'
 
 const readValidationIssues = (error: unknown): FormTemplateValidationIssue[] => {
   if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return []
@@ -221,6 +221,11 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
   }
 
   const actions = detail ? getFormTemplateActions(detail.status, isAdmin) : null
+  const issueMarkers = collectFormIssueMarkers(issues)
+
+  const locateIssue = (issue: FormTemplateValidationIssue) => {
+    setDestination(issueDestinationForPath(issue.path))
+  }
 
   return (
     <>
@@ -242,12 +247,8 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge>{FORM_TEMPLATE_STATUS_LABEL[detail.status]}</Badge>
                     <Badge variant='outline'>{JOB_LEVEL_PREFIX_LABEL[detail.jobLevelPrefix]}</Badge>
-                    {detail.sourceVersionId && (
-                      <Badge variant='outline'>来源 #{detail.sourceVersionId}</Badge>
-                    )}
-                    {!actions?.canEdit && (
-                      <span className='text-muted-foreground text-sm'>当前版本只读</span>
-                    )}
+                    {detail.sourceVersionId && <Badge variant='outline'>来源 #{detail.sourceVersionId}</Badge>}
+                    {!actions?.canEdit && <span className='text-muted-foreground text-sm'>当前版本只读</span>}
                   </div>
 
                   {issues.length > 0 && (
@@ -255,11 +256,18 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
                       <AlertTriangleIcon />
                       <AlertTitle>发布校验发现 {issues.length} 个问题</AlertTitle>
                       <AlertDescription>
-                        <ul className='list-disc space-y-1 pl-5'>
+                        <div className='mt-2 flex flex-col gap-1'>
                           {issues.map((issue, index) => (
-                            <li key={`${issue.code}-${issue.path ?? index}`}>{issue.message}</li>
+                            <Button
+                              key={`${issue.code}-${issue.path ?? index}`}
+                              variant='ghost'
+                              className='text-destructive h-auto justify-start px-2 py-1 text-left whitespace-normal'
+                              onClick={() => locateIssue(issue)}
+                            >
+                              {index + 1}. {issue.message}
+                            </Button>
                           ))}
-                        </ul>
+                        </div>
                       </AlertDescription>
                     </Alert>
                   )}
@@ -270,6 +278,7 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
                     activeVersionId={activeVersionId}
                     canEdit={Boolean(actions?.canEdit)}
                     destination={destination}
+                    issueMarkers={issueMarkers}
                     onDestinationChange={setDestination}
                     onDetailChange={setDetail}
                     onSelectVersion={versionId => {
@@ -317,9 +326,7 @@ const FormTemplateSheet = ({ selected, isAdmin, onClose, onChanged }: FormTempla
         <DialogContent>
           <DialogHeader>
             <DialogTitle>归档当前版本</DialogTitle>
-            <DialogDescription>
-              归档后该版本不能再用于新的配置模板，但历史引用仍会保留。确定继续吗？
-            </DialogDescription>
+            <DialogDescription>归档后该版本不能再用于新的配置模板，但历史引用仍会保留。确定继续吗？</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant='outline' onClick={() => setArchiveOpen(false)}>

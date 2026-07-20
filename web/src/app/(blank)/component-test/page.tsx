@@ -156,7 +156,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'form-template',
     title: '评估表单设计器',
-    description: '四类子表单 / 维度 / 评估项',
+    description: '三类绩效子表单 / 计分维度 / 表单字段',
     icon: FileStackIcon
   },
   {
@@ -611,19 +611,29 @@ const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
       sortOrder: 1,
       dimensions: [
         {
-          kind: 'REGULAR',
+          key: 'component-test:peer:contribution',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
           audience: 'REVIEWER',
           name: '工作贡献与责任担当',
           description: '仅评价同级协作中能够观察到的行为。',
           weight: 35,
           isCore: true,
           sortOrder: 0,
-          items: [{ type: 'RATING', title: '请选择该维度评级', required: true, sortOrder: 0 }]
+          fields: [
+            {
+              key: 'component-test:peer:contribution:comment',
+              type: 'LONG_TEXT',
+              title: '补充评价',
+              requiredRule: 'CONDITIONAL',
+              requiredLevels: ['S', 'C'],
+              sortOrder: 0
+            }
+          ]
         }
       ]
     },
-    { type: 'MANAGER', title: '上级评估', sortOrder: 2, dimensions: [] },
-    { type: 'PROMOTION', title: '晋升评估', sortOrder: 3, dimensions: [] }
+    { type: 'MANAGER', title: '上级评估', sortOrder: 2, dimensions: [] }
   ]
 }
 
@@ -636,7 +646,7 @@ const FormTemplateEditorPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>草稿编辑态</CardTitle>
-          <CardDescription>验证四个 Tab、维度排序、核心标记与受控评估项编辑。</CardDescription>
+          <CardDescription>验证三个绩效 Tab、维度直接计分、核心标记与表单字段编辑。</CardDescription>
         </CardHeader>
         <CardContent>
           <FormTemplateEditor value={draft} editable onChange={setDraft} />

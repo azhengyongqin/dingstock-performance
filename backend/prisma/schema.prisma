@@ -655,6 +655,23 @@ enum PerfFormDimensionKind {
   @@schema("performance")
 }
 
+/// 计分维度直接持有的输入方式；旧评分项仅作为过渡兼容存储。
+enum PerfFormScoringMethod {
+  RATING /// S/A/B/C 评级选择
+  SCORE /// 0～100 分数输入
+
+  @@schema("performance")
+}
+
+/// 表单字段的正式提交必填规则。
+enum PerfFormFieldRequiredRule {
+  OPTIONAL /// 选填
+  ALWAYS /// 始终必填
+  CONDITIONAL /// 命中维度等级时必填
+
+  @@schema("performance")
+}
+
 /// 维度内容的填写对象；晋升内容只允许 EMPLOYEE 与 LEADER。
 enum PerfFormAudience {
   EMPLOYEE /// 被考核员工
@@ -763,7 +780,9 @@ model PerfFormSubform {
 model PerfFormDimension {
   id          Int                   @id @default(autoincrement()) /// 内部自增主键
   subformId   Int                   @map("subform_id") /// 所属子表单
+  businessKey String                @default(uuid()) @map("business_key") /// 跨版本不变的业务标识；改名、换序、改类型均不改变
   kind        PerfFormDimensionKind @default(REGULAR) /// 常规、文本或晋升维度
+  scoringMethod PerfFormScoringMethod? @map("scoring_method") /// 计分维度直接持有评级或分数方式；非计分维度为空
   audience    PerfFormAudience /// 填写对象；发布校验限制各子表单允许的对象
   name        String /// 维度名称
   description String? /// 维度说明与评价边界
@@ -777,7 +796,9 @@ model PerfFormDimension {
   items   PerfFormItem[]
 
   @@unique([subformId, audience, sortOrder])
+  @@unique([subformId, businessKey])
   @@index([subformId, kind])
+  @@index([businessKey])
   @@map("perf_form_dimensions")
   @@schema("performance")
 }
@@ -786,11 +807,14 @@ model PerfFormDimension {
 model PerfFormItem {
   id          Int              @id @default(autoincrement()) /// 内部自增主键
   dimensionId Int              @map("dimension_id") /// 所属表单维度
+  businessKey String           @default(uuid()) @map("business_key") /// 跨版本不变的字段业务标识；删除后不复用
   type        PerfFormItemType /// 受控组件类型
   title       String /// 评估项标题
   description String? /// 评估项说明
   placeholder String? /// 输入占位提示
-  required    Boolean          @default(false) /// 是否为正式提交必填项
+  required    Boolean          @default(false) /// 旧链路兼容必填值；新版字段以 requiredRule 为准
+  requiredRule PerfFormFieldRequiredRule @default(OPTIONAL) @map("required_rule") /// 新版字段必填规则
+  requiredLevels PerfRatingSymbol[] @default([]) @map("required_levels") /// CONDITIONAL 规则触发的维度等级
   sortOrder   Int              @default(0) @map("sort_order") /// 维度内展示顺序，必须非负且唯一
   config      Json? /// 类型专属配置；不允许存任意脚本或 HTML
   createdAt   DateTime         @default(now()) @map("created_at") /// 创建时间
@@ -799,6 +823,7 @@ model PerfFormItem {
   dimension PerfFormDimension @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
 
   @@unique([dimensionId, sortOrder])
+  @@index([businessKey])
   @@map("perf_form_items")
   @@schema("performance")
 }

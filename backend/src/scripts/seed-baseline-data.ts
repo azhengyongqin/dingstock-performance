@@ -23,11 +23,18 @@ import type {
 import { buildDefaultConfigTemplate } from '../config-template/default-config-template';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
-import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
+import {
+  DEFAULT_FORM_TEMPLATES,
+  toDefaultLegacyPromotionCreateData,
+} from '../form-template/default-form-templates';
 import type {
-  FormItemConfig,
+  LegacyFormItemConfig,
   FormTemplateSubformContract,
 } from '../form-template/form-template.contract';
+import {
+  toPerformanceSubformContracts,
+  toPerformanceSubformCreateData,
+} from '../form-template/form-template.persistence';
 import { validateFormTemplatePublication } from '../form-template/publication-validator';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaClient } from '../generated/prisma/client';
@@ -90,7 +97,7 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
  * 清理旧基线数据。已发布的模板版本被数据库 guard 触发器保护（只允许删除 DRAFT），
  * 因此需临时禁用「版本级」用户触发器；子层触发器在级联删除时会自行放行（父记录已不可见），
  * 外键约束（Restrict/Cascade）不受 DISABLE TRIGGER USER 影响，仍然生效。
- * 删除顺序：先删同名周期（级联清空配置/表单快照，释放对模板版本的 Restrict 占用），
+ * 删除顺序：先删同名周期的通知发送记录、通知事件与可复算阶段结果，再删周期（级联清空配置/表单快照，释放对模板版本的 Restrict 占用），
  * 再删配置模板版本+模板，最后删表单模板版本+模板。
  */
 async function cleanupBaseline(prisma: PrismaClient) {
@@ -115,8 +122,26 @@ async function cleanupBaseline(prisma: PrismaClient) {
         `基线周期 #${historicalRollback.cycleId} 已存在退回记录 #${historicalRollback.id}，不能由 seed 清理；请保留该历史并使用新的周期名称`,
       );
     }
-    const removedCycles = await tx.perfCycle.deleteMany({
+    const baselineCycles = await tx.perfCycle.findMany({
       where: { name: CYCLE_NAME },
+      select: { id: true },
+    });
+    const baselineCycleIds = baselineCycles.map((cycle) => cycle.id);
+    if (baselineCycleIds.length > 0) {
+      // 通知事件保留来源的 RESTRICT 外键；开发基线重建时必须先删除其发送记录和事件。
+      await tx.perfNotification.deleteMany({
+        where: { sourceEvent: { cycleId: { in: baselineCycleIds } } },
+      });
+      await tx.perfNotificationEvent.deleteMany({
+        where: { cycleId: { in: baselineCycleIds } },
+      });
+      // 阶段结果是可复算派生数据，但为保护计算证据使用 RESTRICT 外键，基线重建需显式清理。
+      await tx.perfStageResult.deleteMany({
+        where: { cycleId: { in: baselineCycleIds } },
+      });
+    }
+    const removedCycles = await tx.perfCycle.deleteMany({
+      where: { id: { in: baselineCycleIds } },
     });
 
     await tx.$executeRawUnsafe(
@@ -205,36 +230,10 @@ async function seedFormTemplates(
           createdByOpenId: SYSTEM_OPERATOR,
           updatedByOpenId: SYSTEM_OPERATOR,
           subforms: {
-            create: template.subforms.map((subform) => ({
-              type: subform.type,
-              title: subform.title,
-              description: subform.description,
-              sortOrder: subform.sortOrder,
-              dimensions: {
-                create: subform.dimensions.map((dimension) => ({
-                  kind: dimension.kind,
-                  audience: dimension.audience,
-                  name: dimension.name,
-                  description: dimension.description,
-                  weight: dimension.weight,
-                  isCore: dimension.isCore,
-                  sortOrder: dimension.sortOrder,
-                  items: {
-                    create: dimension.items.map((item) => ({
-                      type: item.type,
-                      title: item.title,
-                      description: item.description,
-                      placeholder: item.placeholder,
-                      required: item.required,
-                      sortOrder: item.sortOrder,
-                      config: item.config
-                        ? (item.config as Prisma.InputJsonValue)
-                        : undefined,
-                    })),
-                  },
-                })),
-              },
-            })),
+            create: [
+              ...toPerformanceSubformCreateData(template.subforms),
+              toDefaultLegacyPromotionCreateData(),
+            ],
           },
         },
       });
@@ -272,30 +271,7 @@ type FormVersionWithContent = Prisma.PerfFormTemplateVersionGetPayload<{
 function toSubformContracts(
   version: FormVersionWithContent,
 ): FormTemplateSubformContract[] {
-  return version.subforms.map((subform) => ({
-    type: subform.type,
-    title: subform.title,
-    description: subform.description,
-    sortOrder: subform.sortOrder,
-    dimensions: subform.dimensions.map((dimension) => ({
-      kind: dimension.kind,
-      audience: dimension.audience,
-      name: dimension.name,
-      description: dimension.description,
-      weight: dimension.weight?.toString() ?? null,
-      isCore: dimension.isCore,
-      sortOrder: dimension.sortOrder,
-      items: dimension.items.map((item) => ({
-        type: item.type,
-        title: item.title,
-        description: item.description,
-        placeholder: item.placeholder,
-        required: item.required,
-        sortOrder: item.sortOrder,
-        config: item.config as FormItemConfig | null,
-      })),
-    })),
-  }));
+  return toPerformanceSubformContracts(version.subforms);
 }
 
 /**
@@ -434,7 +410,7 @@ function toFormSnapshotContent(version: FormVersionWithContent) {
           placeholder: item.placeholder,
           required: item.required,
           sortOrder: item.sortOrder,
-          config: item.config as FormItemConfig | null,
+          config: item.config as LegacyFormItemConfig | null,
         })),
       })),
     })),

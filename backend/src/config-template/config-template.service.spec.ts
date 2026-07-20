@@ -384,7 +384,7 @@ describe('ConfigTemplateService', () => {
     rbacMock.isAdmin.mockResolvedValue(false);
     const peerDimensions = formBindingsWithIds[0].formTemplateVersion.subforms
       .find((subform) => subform.type === 'PEER')!
-      .dimensions.filter((dimension) => dimension.kind === 'REGULAR');
+      .dimensions.filter((dimension) => dimension.type === 'SCORING');
 
     await expect(
       service.calculatePreview('hr-open-id', 20, {
