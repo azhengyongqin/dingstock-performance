@@ -1367,7 +1367,7 @@ const PeerEvaluationFormPreview = () => (
   <PeerReviewFill assignmentId={11} previewContext={PEER_REVIEW_PREVIEW_CONTEXT} />
 )
 
-/** Ticket 09 业务组件示例：MANAGER 动态表单 + Leader 晋升区段 + 系统权威等级预览。 */
+/** 上级评估业务组件示例：混合计分维度、条件必填字段与系统权威等级预览。 */
 const MANAGER_REVIEW_PREVIEW_CONTEXT = {
   participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
   cycle: {
@@ -1396,42 +1396,48 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
         dimensions: [
           {
             key: 'dimension:MANAGER:LEADER:0',
+            type: 'SCORING',
             audience: 'LEADER',
             name: '核心业绩',
-            weight: '100',
+            scoringMethod: 'SCORE',
+            weight: '60',
             isCore: true,
             sortOrder: 0,
-            items: [
-              { key: 'item:manager-score', type: 'SCORE', title: '业绩分数', required: true, sortOrder: 0 },
-              { key: 'item:manager-comment', type: 'LONG_TEXT', title: '业绩评语', required: true, sortOrder: 1 }
-            ]
-          }
-        ]
-      },
-      {
-        key: 'subform:PROMOTION',
-        type: 'PROMOTION',
-        title: '晋升评估',
-        sortOrder: 1,
-        dimensions: [
-          {
-            key: 'dimension:PROMOTION:LEADER:0',
-            audience: 'LEADER',
-            name: 'Leader 晋升结论',
-            sortOrder: 0,
-            items: [
+            fields: [
               {
-                key: 'item:promotion-conclusion',
-                type: 'SINGLE_SELECT',
-                title: '晋升建议',
-                required: true,
-                sortOrder: 0,
-                config: {
-                  options: [
-                    { value: 'PROMOTE', label: '建议晋升' },
-                    { value: 'DEFER', label: '暂缓晋升' }
-                  ]
-                }
+                key: 'field:manager-comment',
+                type: 'LONG_TEXT',
+                title: '业绩说明',
+                requiredRule: 'CONDITIONAL',
+                requiredLevels: ['S', 'C'],
+                sortOrder: 0
+              }
+            ]
+          },
+          {
+            key: 'dimension:MANAGER:LEADER:1',
+            type: 'SCORING',
+            audience: 'LEADER',
+            name: '价值观',
+            scoringMethod: 'RATING',
+            weight: '40',
+            isCore: false,
+            sortOrder: 1,
+            fields: []
+          },
+          {
+            key: 'dimension:MANAGER:LEADER:2',
+            type: 'NON_SCORING',
+            audience: 'LEADER',
+            name: '综合建议',
+            sortOrder: 2,
+            fields: [
+              {
+                key: 'field:manager-summary',
+                type: 'MARKDOWN',
+                title: '综合建议',
+                requiredRule: 'ALWAYS',
+                sortOrder: 0
               }
             ]
           }
@@ -1449,15 +1455,21 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
     stage: 'SELF',
     reviewerOpenId: 'ou_preview_employee',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 901,
         submissionId: 90,
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-        itemKey: 'item:self-summary',
-        itemType: 'MARKDOWN',
-        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+        scoringMethod: null,
+        fields: [
+          {
+            id: 902,
+            fieldKey: 'field:self-summary',
+            fieldType: 'MARKDOWN',
+            value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+          }
+        ]
       }
     ]
   },

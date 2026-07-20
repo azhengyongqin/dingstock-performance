@@ -115,8 +115,8 @@ export class SaveManagerEvaluationDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => EvaluationItemAnswerDto)
-  items!: EvaluationItemAnswerDto[];
+  @Type(() => EvaluationDimensionAnswerDto)
+  dimensions!: EvaluationDimensionAnswerDto[];
 }
 
 /** HR/Admin 显式转移考核 Leader；expectedLeaderOpenId 用于乐观并发检查。 */

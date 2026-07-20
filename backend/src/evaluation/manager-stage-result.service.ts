@@ -11,21 +11,17 @@ import {
 } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import {
-  calculateStageResult,
-  type MatchedConstraint,
   type PerformanceLevel,
   type RatingScaleEntry,
-  type StageConstraintRule,
-  type StageDimensionInput,
-  type StageDimensionResult,
-  type StageResultMode,
 } from '../calculation/stage-result-calculator';
-import type { ConfigConstraintProfiles } from '../config-template/config-template.contract';
+import {
+  calculateUnifiedStageResult,
+  type UnifiedMatchedConstraint,
+  type UnifiedStageDimensionInput,
+  type UnifiedStageDimensionResult,
+} from '../calculation/unified-stage-result-calculator';
 import { PrismaService } from '../shared/database/prisma.service';
-import type {
-  FormSnapshotContent,
-  FormSnapshotDimension,
-} from './evaluation.service-types';
+import type { FormSnapshotContent } from './evaluation.service-types';
 
 type ManagerStageResultDb = Pick<
   Prisma.TransactionClient,
@@ -39,13 +35,14 @@ export type ManagerStageResultView = {
   participantId: number;
   cycleConfigVersionId: number;
   status: 'READY' | 'NO_DATA';
-  mode: StageResultMode;
+  /** 数据库旧列尚待最终清理 Ticket 删除；运行时不再读取配置模式。 */
+  mode: 'WEIGHTED_SCORE';
   reviewerCount: number;
   compositeScore: string | null;
   initialLevel: PerformanceLevel | null;
   stageLevel: PerformanceLevel | null;
-  constraintReasons: MatchedConstraint[];
-  dimensions: StageDimensionResult[];
+  constraintReasons: UnifiedMatchedConstraint[];
+  dimensions: UnifiedStageDimensionResult[];
   inputSummary: {
     effectiveSubmissionId: number | null;
     reviewerOpenId: string | null;
@@ -90,7 +87,7 @@ export class ManagerStageResultService {
     if (!result) return null;
     const detail = result.calculationDetail as unknown as {
       inputSummary?: ManagerStageResultView['inputSummary'];
-      dimensions?: StageDimensionResult[];
+      dimensions?: UnifiedStageDimensionResult[];
     };
     return {
       participantId,
@@ -102,7 +99,7 @@ export class ManagerStageResultService {
       initialLevel: result.initialLevel,
       stageLevel: result.stageLevel,
       constraintReasons:
-        result.constraintReasons as unknown as MatchedConstraint[],
+        result.constraintReasons as unknown as UnifiedMatchedConstraint[],
       dimensions: detail.dimensions ?? [],
       inputSummary: detail.inputSummary ?? {
         effectiveSubmissionId: null,
@@ -130,7 +127,6 @@ export class ManagerStageResultService {
     if (!participant.cycle.currentConfigVersionId || !config) {
       throw new ConflictException('周期缺少当前配置快照，无法计算上级评估结果');
     }
-    const mode = this.requireManagerMode(config.managerStageMode);
     const content = participant.formSnapshot?.content as
       FormSnapshotContent | undefined;
     if (!content) {
@@ -144,7 +140,12 @@ export class ManagerStageResultService {
         stage: PerfEvaluationTaskType.MANAGER,
         status: PerfReviewStatus.SUBMITTED,
       },
-      include: { items: true },
+      include: {
+        dimensionAnswers: {
+          include: { fields: true },
+          orderBy: { id: 'asc' },
+        },
+      },
     });
     const inputSummary = {
       effectiveSubmissionId: submission?.id ?? null,
@@ -156,7 +157,7 @@ export class ManagerStageResultService {
         participantId,
         cycleConfigVersionId: config.id,
         status: 'NO_DATA',
-        mode,
+        mode: 'WEIGHTED_SCORE',
         reviewerCount: 0,
         compositeScore: null,
         initialLevel: null,
@@ -178,11 +179,9 @@ export class ManagerStageResultService {
       select: { id: true, findingType: true, reason: true },
       orderBy: { id: 'desc' },
     });
-    const result = calculateStageResult({
-      mode,
+    const result = calculateUnifiedStageResult({
       ratings: this.ratingsOf(config.ratings),
-      dimensions: this.buildDimensions(content, mode, submission),
-      constraints: this.constraintsOf(config.constraintProfiles, mode),
+      dimensions: this.buildDimensions(content, submission),
       confirmedRedLine: confirmedRedLine
         ? {
             findingId: `red-line:${confirmedRedLine.id}`,
@@ -195,7 +194,7 @@ export class ManagerStageResultService {
       participantId,
       cycleConfigVersionId: config.id,
       status: 'READY',
-      mode,
+      mode: 'WEIGHTED_SCORE',
       reviewerCount: 1,
       compositeScore: result.compositeScore,
       initialLevel: result.initialLevel,
@@ -215,59 +214,51 @@ export class ManagerStageResultService {
 
   private buildDimensions(
     content: FormSnapshotContent,
-    mode: StageResultMode,
     submission: {
       id: number;
-      items: Array<{
-        itemKey: string;
+      dimensionAnswers: Array<{
         dimensionKey: string;
-        rawLevel: string | null;
+        rawLevel: PerformanceLevel | null;
         rawScore: { toString(): string } | number | string | null;
       }>;
     },
-  ): StageDimensionInput[] {
+  ): UnifiedStageDimensionInput[] {
     const dimensions = content.subforms
       .filter((subform) => subform.type === 'MANAGER')
       .flatMap((subform) => subform.dimensions)
       .filter(
         (dimension) =>
-          dimension.audience === 'LEADER' &&
-          (!dimension.kind || dimension.kind === 'REGULAR'),
+          dimension.audience === 'LEADER' && dimension.type === 'SCORING',
       );
     if (dimensions.length === 0) {
-      throw new ConflictException('MANAGER 表单快照缺少可计算维度');
+      throw new ConflictException('MANAGER 表单快照缺少计分维度');
     }
 
     return dimensions.map((dimension) => {
-      const scoringItem = this.scoringItemOf(dimension, mode);
-      const item = submission.items.find(
-        (candidate) =>
-          candidate.dimensionKey === dimension.key &&
-          candidate.itemKey === scoringItem.key,
+      const answer = submission.dimensionAnswers.find(
+        (candidate) => candidate.dimensionKey === dimension.key,
       );
-      const rawValue =
-        mode === 'WEIGHTED_RATING'
-          ? item?.rawLevel
-          : item?.rawScore?.toString();
-      if (rawValue === null || rawValue === undefined) {
+      if (!answer) {
         throw new ConflictException(
-          `有效上级评估缺少维度「${dimension.name ?? dimension.key}」的计分项`,
+          `有效上级评估缺少维度「${dimension.name ?? dimension.key}」的维度作答`,
         );
       }
       return {
         id: dimension.key,
         name: dimension.name ?? dimension.key,
+        scoringMethod: dimension.scoringMethod!,
         weight: dimension.weight ?? '0',
         isCore: Boolean(dimension.isCore),
         relations: [
           {
-            type: 'LEADER',
+            type: 'LEADER' as const,
             weight: '100',
             items: [
               {
-                itemId: scoringItem.key,
                 submissionId: String(submission.id),
-                rawValue,
+                ...(dimension.scoringMethod === 'RATING'
+                  ? { rawLevel: this.requirePerformanceLevel(answer.rawLevel) }
+                  : { rawScore: this.requireRawScore(answer.rawScore) }),
               },
             ],
           },
@@ -276,27 +267,20 @@ export class ManagerStageResultService {
     });
   }
 
-  private scoringItemOf(
-    dimension: FormSnapshotDimension,
-    mode: StageResultMode,
-  ) {
-    const expectedType = mode === 'WEIGHTED_RATING' ? 'RATING' : 'SCORE';
-    const items = dimension.items.filter((item) => item.type === expectedType);
-    if (items.length !== 1) {
-      throw new ConflictException(
-        `维度「${dimension.name ?? dimension.key}」必须且只能包含一个 ${expectedType} 计分项`,
-      );
+  private requirePerformanceLevel(value: unknown): PerformanceLevel {
+    if (value === 'S' || value === 'A' || value === 'B' || value === 'C') {
+      return value;
     }
-    return items[0];
+    throw new ConflictException('有效上级评估缺少原始评级');
   }
 
-  private requireManagerMode(mode: unknown): StageResultMode {
-    if (mode !== 'WEIGHTED_RATING' && mode !== 'WEIGHTED_SCORE') {
-      throw new ConflictException(
-        '上级评估阶段结果模式必须是加权评级或加权评分',
-      );
+  private requireRawScore(
+    value: { toString(): string } | number | string | null,
+  ) {
+    if (value === null) {
+      throw new ConflictException('有效上级评估缺少原始分数');
     }
-    return mode;
+    return value.toString();
   }
 
   private ratingsOf(value: unknown): RatingScaleEntry[] {
@@ -304,40 +288,6 @@ export class ManagerStageResultService {
       throw new ConflictException('周期配置快照缺少评级定义');
     }
     return value as RatingScaleEntry[];
-  }
-
-  private constraintsOf(
-    value: unknown,
-    mode: StageResultMode,
-  ): StageConstraintRule[] {
-    const profiles = value as ConfigConstraintProfiles | null;
-    if (!profiles) {
-      throw new ConflictException('周期配置快照缺少阶段约束配置');
-    }
-    if (mode === 'WEIGHTED_RATING') {
-      if (!Array.isArray(profiles.WEIGHTED_RATING)) {
-        throw new ConflictException('周期配置快照缺少阶段约束配置');
-      }
-      return profiles.WEIGHTED_RATING.filter((rule) => rule.enabled).map(
-        (rule) => ({
-          id: rule.id,
-          type: rule.type,
-          triggerRating: rule.triggerRating,
-          targetLevel: rule.targetLevel,
-        }),
-      );
-    }
-    if (!Array.isArray(profiles.WEIGHTED_SCORE)) {
-      throw new ConflictException('周期配置快照缺少阶段约束配置');
-    }
-    return profiles.WEIGHTED_SCORE.filter((rule) => rule.enabled).map(
-      (rule) => ({
-        id: rule.id,
-        type: rule.type,
-        threshold: rule.threshold,
-        targetLevel: rule.targetLevel,
-      }),
-    );
   }
 
   private async persist(

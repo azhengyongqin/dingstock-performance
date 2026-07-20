@@ -436,7 +436,7 @@ export class EvaluationSubmissionService {
     return ratings;
   }
 
-  /** 统一维度计算依赖完整等级区间；旧 MANAGER 策略暂时只要求 mappingScore。 */
+  /** 统一维度计算依赖完整等级区间。 */
   requireUnifiedRatings(participant: {
     cycle: { currentConfigVersion: { ratings: unknown } | null };
   }) {
@@ -447,7 +447,9 @@ export class EvaluationSubmissionService {
           rating.minScore === undefined || rating.maxScore === undefined,
       )
     ) {
-      throw new ConflictException('周期配置快照缺少评级区间，无法生成自评结果');
+      throw new ConflictException(
+        '周期配置快照缺少评级区间，无法生成人工评估结果',
+      );
     }
     return ratings as Array<{
       symbol: 'S' | 'A' | 'B' | 'C';
@@ -575,6 +577,16 @@ export class EvaluationSubmissionService {
     const peer = this.selectPeerSubforms(content)[0];
     if (!peer) throw new ConflictException('当前表单快照缺少 360°评估子表单');
     return this.validateDimensionAnswersInSubform(peer, answers, '360°评估');
+  }
+
+  /** 上级评估新版防伪造边界：只接受 MANAGER 子表单内稳定的维度与字段 key。 */
+  validateManagerDimensionAnswers(
+    content: FormSnapshotContent,
+    answers: EvaluationDimensionAnswerDto[],
+  ): ResolvedDimensionAnswer[] {
+    const manager = this.selectManagerSubforms(content)[0];
+    if (!manager) throw new ConflictException('当前表单快照缺少上级评估子表单');
+    return this.validateDimensionAnswersInSubform(manager, answers, '上级评估');
   }
 
   private validateDimensionAnswersInSubform(
@@ -817,30 +829,16 @@ export class EvaluationSubmissionService {
       }));
   }
 
-  /** 上级仅填写 MANAGER 子表单及启用晋升时 PROMOTION 的 LEADER 区段。 */
-  selectManagerSubforms(
-    content: FormSnapshotContent,
-    isPromotionEnabled: boolean,
-  ) {
-    const subforms: FormSnapshotSubform[] = [];
-    for (const subform of content.subforms) {
-      if (subform.type === 'MANAGER') {
-        subforms.push({
-          ...subform,
-          dimensions: subform.dimensions.filter(
-            (dimension) => dimension.audience === 'LEADER',
-          ),
-        });
-      } else if (subform.type === 'PROMOTION' && isPromotionEnabled) {
-        subforms.push({
-          ...subform,
-          dimensions: subform.dimensions.filter(
-            (dimension) => dimension.audience === 'LEADER',
-          ),
-        });
-      }
-    }
-    return subforms;
+  /** 晋升已退出绩效提交链；Leader 只填写 MANAGER 子表单。 */
+  selectManagerSubforms(content: FormSnapshotContent) {
+    return content.subforms
+      .filter((subform) => subform.type === 'MANAGER')
+      .map((subform) => ({
+        ...subform,
+        dimensions: subform.dimensions.filter(
+          (dimension) => dimension.audience === 'LEADER',
+        ),
+      }));
   }
 
   validatePeerAnswers(
@@ -852,20 +850,6 @@ export class EvaluationSubmissionService {
       this.selectPeerSubforms(content),
       answers,
       '360°评审员可填范围',
-    );
-  }
-
-  validateManagerAnswers(
-    content: FormSnapshotContent,
-    isPromotionEnabled: boolean,
-    answers: EvaluationItemAnswerDto[],
-  ) {
-    return this.validateAnswersInSubforms(
-      content,
-      this.selectManagerSubforms(content, isPromotionEnabled),
-      answers,
-      'Leader 可填范围',
-      isPromotionEnabled,
     );
   }
 

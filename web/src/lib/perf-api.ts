@@ -816,7 +816,7 @@ export const returnPerfCycleToDraft = (cycleId: number) =>
 
 // ===== 统一评估提交（Ticket 06，员工自评） =====
 
-/** 旧 MANAGER 链路暂时使用的评估项形状；SELF/PEER 已切换到维度 + 字段。 */
+/** 旧评估项形状仅供尚未迁移的结果消费者读取；三类填写链路均使用维度 + 字段。 */
 export type PerfEvalFormItem = {
   key: string
   type: PerfFormItemType
@@ -1124,7 +1124,7 @@ export type PerfManagerEvaluationContext = {
 
 export type SaveManagerEvaluationInput = {
   participantId: number
-  items: PerfEvaluationItemAnswer[]
+  dimensions: PerfEvaluationDimensionAnswerInput[]
 }
 
 export const getManagerEvaluationContext = (participantId: number) =>

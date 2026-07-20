@@ -68,7 +68,7 @@ const isLevel = (value: string): value is PerfPerformanceLevel =>
 const SelfReviewReferenceContent = ({ selfItems, selfDimensionAnswers = [], notice }: SelfReviewReferenceContentProps) => {
   const items = useMemo(
     () => {
-      // PEER 新链路只消费维度/字段作答；MANAGER 切票前仍可传旧 items。
+      // 三类填写链路均消费维度/字段作答；旧 items 仅供后续消费者迁移前兼容只读数据。
       const visibleItems: PerfEvaluationItemResult[] = selfDimensionAnswers.length
         ? selfDimensionAnswers.flatMap(dimension => [
             ...(dimension.rawLevel

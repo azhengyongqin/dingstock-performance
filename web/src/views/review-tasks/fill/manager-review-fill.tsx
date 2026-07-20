@@ -23,9 +23,9 @@ import {
 } from '@/lib/perf-api'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import {
-  buildDraftPayloadItems,
-  buildSubmitPayload,
-  toEvaluationAnswers,
+  buildDraftPayloadDimensions,
+  buildDimensionSubmitPayload,
+  toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
 } from '@/views/self-review/evaluation-form-types'
@@ -55,7 +55,9 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
   const [context, setContext] = useState<PerfManagerEvaluationContext | null>(previewContext ?? null)
 
   const [answers, setAnswers] = useState<EvaluationAnswers>(() =>
-    toEvaluationAnswers(previewContext?.draft?.items ?? previewContext?.submitted?.items ?? [])
+    toDimensionEvaluationAnswers(
+      previewContext?.draft?.dimensionAnswers ?? previewContext?.submitted?.dimensionAnswers ?? []
+    )
   )
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -84,7 +86,9 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
       const data = await getManagerEvaluationContext(participantId)
 
       setContext(data)
-      setAnswers(toEvaluationAnswers(data.draft?.items ?? data.submitted?.items ?? []))
+      setAnswers(
+        toDimensionEvaluationAnswers(data.draft?.dimensionAnswers ?? data.submitted?.dimensionAnswers ?? [])
+      )
       setEditing(data.state !== 'EFFECTIVE')
       setCalculatedResult(data.managerResult)
     } catch (caught) {
@@ -121,7 +125,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
       if (!previewContext) {
         await saveManagerEvaluationDraft({
           participantId,
-          items: buildDraftPayloadItems(context.form.subforms, answers)
+          dimensions: buildDraftPayloadDimensions(context.form.subforms, answers)
         })
       }
 
@@ -138,12 +142,12 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
 
   const submit = async () => {
     if (!context?.form) return
-    const payload = buildSubmitPayload(context.form.subforms, answers)
+    const payload = buildDimensionSubmitPayload(context.form.subforms, answers, ratings)
 
     setErrors(payload.errors)
 
     if (Object.keys(payload.errors).length > 0) {
-      toast.error('请先完成所有必填评估项')
+      toast.error('请先完成所有必填评估维度与表单字段')
 
       return
     }
@@ -153,7 +157,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
     try {
       const response = previewContext
         ? { ok: true as const, result: context.managerResult as PerfManagerStageResult }
-        : await submitManagerEvaluation({ participantId, items: payload.items })
+        : await submitManagerEvaluation({ participantId, dimensions: payload.dimensions })
 
       setCalculatedResult(response.result)
       toast.success(context.submitted ? '上级评估已重新提交并生效' : '上级评估已提交并完成系统计算')
@@ -240,6 +244,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
                 }
                 employee={context.employee}
                 selfItems={context.selfEvaluation?.items ?? []}
+                selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
                 peerResult={context.peerResult}
                 managerResult={calculatedResult}
                 history={context.history}
