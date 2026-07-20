@@ -559,6 +559,157 @@ describe('CycleFormChangeService 新版维度/字段公开契约', () => {
         }),
       ]),
     );
+    const auditPayload = tx.auditLog.create.mock.calls.at(-1)?.[0].data.after;
+    expect(JSON.stringify(auditPayload)).not.toContain('client-temp-dimension');
+    expect(JSON.stringify(auditPayload)).not.toContain('client-temp-field');
+    expect(auditPayload.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'DIMENSION_ADDED',
+          dimensionKey: added.key,
+        }),
+        expect.objectContaining({
+          kind: 'FIELD_ADDED',
+          dimensionKey: added.key,
+          fieldKey: added.fields[0].key,
+        }),
+      ]),
+    );
+  });
+
+  it('D/M 使用同名临时 key 时审计分别关联各自最终快照身份', async () => {
+    const cycle = cycleFixture();
+    const makeManagerSnapshot = <
+      T extends {
+        id: number;
+        jobLevelPrefix: string;
+        content: { name: string; jobLevelPrefix: string };
+      },
+    >(
+      snapshot: T,
+      id: number,
+    ): T => {
+      const manager = structuredClone(snapshot);
+      manager.id = id;
+      manager.jobLevelPrefix = 'M';
+      manager.content.name = 'M 表单';
+      manager.content.jobLevelPrefix = 'M';
+      return manager;
+    };
+    cycle.currentConfigVersion.formSnapshots.push(
+      makeManagerSnapshot(cycle.currentConfigVersion.formSnapshots[0], 141),
+    );
+    cycle.configVersions[0].formSnapshots.push(
+      makeManagerSnapshot(cycle.configVersions[0].formSnapshots[0], 140),
+    );
+    cycle.configVersions[1].formSnapshots.push(
+      makeManagerSnapshot(cycle.configVersions[1].formSnapshots[0], 141),
+    );
+    prisma.perfCycle.findFirst.mockResolvedValue(cycle);
+    tx.perfCycle.findFirst.mockResolvedValue(cycle);
+    tx.perfCycleConfigVersion.create.mockResolvedValue({
+      id: 32,
+      version: 3,
+      formSnapshots: [
+        { id: 42, jobLevelPrefix: 'D' },
+        { id: 142, jobLevelPrefix: 'M' },
+      ],
+    });
+
+    const d = structuredClone(form);
+    const m = structuredClone(form);
+    m.name = 'M 表单';
+    m.jobLevelPrefix = 'M';
+    for (const content of [d, m]) {
+      content.subforms[0].dimensions.push({
+        key: 'shared-preview-dimension',
+        type: 'NON_SCORING',
+        audience: 'EMPLOYEE',
+        name: '新增说明',
+        scoringMethod: null,
+        weight: null,
+        isCore: false,
+        sortOrder: 1,
+        fields: [field('shared-preview-field')],
+      });
+    }
+    const formSnapshots = [
+      { jobLevelPrefix: 'D' as const, content: d },
+      { jobLevelPrefix: 'M' as const, content: m },
+    ];
+    const preview = await service.preview('ou_admin', 8, {
+      expectedConfigVersionId: 31,
+      formSnapshots,
+    });
+    await service.apply('ou_admin', 8, {
+      expectedConfigVersionId: 31,
+      formSnapshots,
+      reason: 'D/M 同时新增说明维度',
+      confirmed: true,
+      impactRevision: preview.impactRevision,
+    });
+
+    const persisted = tx.perfCycleConfigVersion.create.mock.calls[0][0].data
+      .formSnapshots.create as Array<{
+      jobLevelPrefix: string;
+      content: {
+        subforms: Array<{
+          dimensions: Array<{
+            key: string;
+            fields: Array<{ key: string }>;
+          }>;
+        }>;
+      };
+    }>;
+    const finalIdentityByPrefix = new Map(
+      persisted.map((snapshot) => [
+        snapshot.jobLevelPrefix,
+        {
+          dimensionKey: snapshot.content.subforms[0].dimensions.at(-1).key,
+          fieldKey:
+            snapshot.content.subforms[0].dimensions.at(-1).fields[0].key,
+        },
+      ]),
+    );
+    expect(finalIdentityByPrefix.get('D')).not.toEqual(
+      finalIdentityByPrefix.get('M'),
+    );
+    const auditChanges =
+      tx.auditLog.create.mock.calls.at(-1)?.[0].data.after.changes;
+    expect(JSON.stringify(auditChanges)).not.toContain(
+      'shared-preview-dimension',
+    );
+    expect(JSON.stringify(auditChanges)).not.toContain('shared-preview-field');
+    expect(auditChanges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jobLevelPrefix: 'D',
+          kind: 'DIMENSION_ADDED',
+          dimensionKey: finalIdentityByPrefix.get('D')?.dimensionKey,
+          message: `新增评估维度 ${finalIdentityByPrefix.get('D')?.dimensionKey}`,
+        }),
+        expect.objectContaining({
+          jobLevelPrefix: 'M',
+          kind: 'DIMENSION_ADDED',
+          dimensionKey: finalIdentityByPrefix.get('M')?.dimensionKey,
+          message: `新增评估维度 ${finalIdentityByPrefix.get('M')?.dimensionKey}`,
+        }),
+        expect.objectContaining({
+          jobLevelPrefix: 'D',
+          kind: 'FIELD_ADDED',
+          dimensionKey: finalIdentityByPrefix.get('D')?.dimensionKey,
+          fieldKey: finalIdentityByPrefix.get('D')?.fieldKey,
+          message: `新增表单字段 ${finalIdentityByPrefix.get('D')?.fieldKey}`,
+        }),
+        expect.objectContaining({
+          jobLevelPrefix: 'M',
+          kind: 'FIELD_ADDED',
+          dimensionKey: finalIdentityByPrefix.get('M')?.dimensionKey,
+          fieldKey: finalIdentityByPrefix.get('M')?.fieldKey,
+          message: `新增表单字段 ${finalIdentityByPrefix.get('M')?.fieldKey}`,
+        }),
+      ]),
+    );
   });
 
   it('有正式提交的 ACTIVE 周期必须先整体退回 DRAFT', async () => {

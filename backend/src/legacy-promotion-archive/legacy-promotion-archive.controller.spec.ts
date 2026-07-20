@@ -26,4 +26,19 @@ describe('LegacyPromotionArchiveController', () => {
       ),
     ).toBeUndefined();
   });
+
+  it('把当前操作人 open_id 传给归档查询服务', async () => {
+    const service = { list: jest.fn() };
+    const controller = new LegacyPromotionArchiveController(service as never);
+    const query = { page: 1, page_size: 20 };
+
+    await controller.list({ user: { open_id: 'ou_operator' } } as never, query);
+
+    expect(service.list).toHaveBeenCalledWith('ou_operator', {
+      page: 1,
+      pageSize: 20,
+      cycleId: undefined,
+      sourceType: undefined,
+    });
+  });
 });

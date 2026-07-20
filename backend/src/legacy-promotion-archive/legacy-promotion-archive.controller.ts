@@ -1,5 +1,6 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { AuthenticatedRequest } from '../auth/jwt-auth.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PerfRole } from '../generated/prisma/enums';
 import { Roles } from '../rbac/roles.decorator';
@@ -17,8 +18,11 @@ export class LegacyPromotionArchiveController {
 
   @Get()
   @ApiOperation({ summary: '分页查看旧晋升答案只读归档（HR/ADMIN）' })
-  list(@Query() query: ListLegacyPromotionArchivesDto) {
-    return this.service.list({
+  list(
+    @Req() req: AuthenticatedRequest,
+    @Query() query: ListLegacyPromotionArchivesDto,
+  ) {
+    return this.service.list(req.user.open_id, {
       page: query.page,
       pageSize: query.page_size,
       cycleId: query.cycle_id,

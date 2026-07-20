@@ -7,6 +7,10 @@
 import { Client } from 'pg';
 import { loadAppConfig } from '../config/configuration';
 
+export const RESET_PERFORMANCE_CONFIRMATION_ENV =
+  'RESET_PERFORMANCE_DATA_CONFIRM';
+export const RESET_PERFORMANCE_CONFIRMATION = 'DELETE_LOCAL_PERFORMANCE_DATA';
+
 export const PERFORMANCE_TABLES = [
   'perf_ai_reports',
   'perf_appeals',
@@ -58,6 +62,23 @@ export type ResetPerformanceQueryClient = {
     text: string,
     values?: unknown[],
   ): Promise<{ rows: T[]; rowCount: number | null }>;
+};
+
+type ResetPerformanceCommandClient = ResetPerformanceQueryClient & {
+  connect(): Promise<unknown>;
+  end(): Promise<void>;
+};
+
+type ResetPerformanceCommandDependencies = {
+  loadDatabaseUrl(): string;
+  createClient(url: string): ResetPerformanceCommandClient;
+  reset(client: ResetPerformanceQueryClient): Promise<unknown>;
+};
+
+const commandDependencies: ResetPerformanceCommandDependencies = {
+  loadDatabaseUrl: () => loadAppConfig().database.url,
+  createClient: (url) => new Client({ connectionString: url }),
+  reset: resetPerformanceData,
 };
 
 const quotedPerformanceTables = PERFORMANCE_TABLES.map(
@@ -147,15 +168,42 @@ export async function resetPerformanceData(
   }
 }
 
-async function main() {
-  const client = new Client({ connectionString: loadAppConfig().database.url });
+/**
+ * 命令入口安全门禁：生产环境永久禁用；其他环境也必须提供精确确认值。
+ * resetPerformanceData 核心不读取环境变量，供隔离 PostgreSQL 验收直接调用。
+ */
+export async function runResetPerformanceDataCommand(
+  env: NodeJS.ProcessEnv = process.env,
+  dependencies: ResetPerformanceCommandDependencies = commandDependencies,
+) {
+  if (env.NODE_ENV?.trim().toLowerCase() === 'production') {
+    throw new Error('生产环境永久禁止执行绩效数据重置');
+  }
+  if (
+    env[RESET_PERFORMANCE_CONFIRMATION_ENV] !== RESET_PERFORMANCE_CONFIRMATION
+  ) {
+    throw new Error(
+      `缺少显式确认：请设置 ${RESET_PERFORMANCE_CONFIRMATION_ENV}=${RESET_PERFORMANCE_CONFIRMATION}`,
+    );
+  }
+
+  const client = dependencies.createClient(dependencies.loadDatabaseUrl());
   await client.connect();
   try {
-    const result = await resetPerformanceData(client);
-    console.log(JSON.stringify(result, null, 2));
+    return await dependencies.reset(client);
   } finally {
     await client.end();
   }
 }
 
-if (require.main === module) void main();
+async function main() {
+  const result = await runResetPerformanceDataCommand();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+if (require.main === module) {
+  void main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

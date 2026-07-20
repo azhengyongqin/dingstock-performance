@@ -175,10 +175,15 @@ export class CycleFormChangeService {
           cycle,
           input.formSnapshots,
         );
+        const auditImpact = this.materializeAuditImpact(
+          cycle,
+          impact,
+          materialized.formSnapshots,
+        );
 
         if (impact.category === 'COPY_ONLY') {
           await this.applyCopyOnly(tx, cycle, materialized.formSnapshots);
-          await this.writeAudit(tx, operatorOpenId, cycle, impact, reason);
+          await this.writeAudit(tx, operatorOpenId, cycle, auditImpact, reason);
           return {
             cycleId,
             category: impact.category,
@@ -207,7 +212,14 @@ export class CycleFormChangeService {
           data: { currentConfigVersionId: next.id },
         });
         await this.recalculateUnaffectedStages(tx, cycle, impact);
-        await this.writeAudit(tx, operatorOpenId, cycle, impact, reason, next);
+        await this.writeAudit(
+          tx,
+          operatorOpenId,
+          cycle,
+          auditImpact,
+          reason,
+          next,
+        );
         return {
           cycleId,
           category: impact.category,
@@ -769,12 +781,14 @@ export class CycleFormChangeService {
     formSnapshots: SnapshotInput[];
     identities: Array<{
       kind: 'DIMENSION' | 'FIELD';
+      jobLevelPrefix: 'D' | 'M';
       clientKey: string;
       serverKey: string;
     }>;
   } {
     const identities: Array<{
       kind: 'DIMENSION' | 'FIELD';
+      jobLevelPrefix: 'D' | 'M';
       clientKey: string;
       serverKey: string;
     }> = [];
@@ -796,6 +810,7 @@ export class CycleFormChangeService {
             dimension.key = randomUUID();
             identities.push({
               kind: 'DIMENSION',
+              jobLevelPrefix: input.jobLevelPrefix,
               clientKey,
               serverKey: dimension.key,
             });
@@ -806,6 +821,7 @@ export class CycleFormChangeService {
               field.key = randomUUID();
               identities.push({
                 kind: 'FIELD',
+                jobLevelPrefix: input.jobLevelPrefix,
                 clientKey,
                 serverKey: field.key,
               });
@@ -816,6 +832,21 @@ export class CycleFormChangeService {
       return { ...input, content };
     });
     return { formSnapshots, identities };
+  }
+
+  /** 审计只记录已持久化身份，避免预览临时 key 无法关联最终周期快照。 */
+  private materializeAuditImpact(
+    cycle: FormChangeCycle,
+    impact: ReturnType<CycleFormChangeService['buildImpact']>,
+    formSnapshots: SnapshotInput[],
+  ): ReturnType<CycleFormChangeService['buildImpact']> {
+    // 用最终快照重新分类，比字符串替换更安全：D/M 即使使用同名预览 key，
+    // 每条 change 的维度、字段及父级引用仍会落到所属快照的服务端身份。
+    const materialized = this.buildImpact(cycle, formSnapshots);
+    return {
+      ...impact,
+      classifications: materialized.classifications,
+    };
   }
 
   private assertExpectedVersion(cycle: FormChangeCycle, expectedId: number) {

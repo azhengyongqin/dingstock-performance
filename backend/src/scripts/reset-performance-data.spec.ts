@@ -1,7 +1,10 @@
 import {
   PERFORMANCE_AUDIT_TARGETS,
   PERFORMANCE_TABLES,
+  RESET_PERFORMANCE_CONFIRMATION,
+  RESET_PERFORMANCE_CONFIRMATION_ENV,
   resetPerformanceData,
+  runResetPerformanceDataCommand,
   type ResetPerformanceQueryClient,
 } from './reset-performance-data';
 
@@ -71,6 +74,72 @@ class ControlledClient implements ResetPerformanceQueryClient {
 }
 
 describe('绩效数据重置公开脚本接缝', () => {
+  const createCommandDependencies = () => {
+    const client = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      end: jest.fn().mockResolvedValue(undefined),
+    };
+    return {
+      client,
+      dependencies: {
+        loadDatabaseUrl: jest.fn(() => 'postgresql://isolated/reset'),
+        createClient: jest.fn(() => client),
+        reset: jest.fn().mockResolvedValue({ ok: true }),
+      },
+    };
+  };
+
+  it.each([
+    ['没有确认变量', {}],
+    ['确认变量值错误', { [RESET_PERFORMANCE_CONFIRMATION_ENV]: 'YES' }],
+  ])('%s 时命令入口拒绝连接数据库', async (_label, env) => {
+    const { dependencies } = createCommandDependencies();
+
+    await expect(
+      runResetPerformanceDataCommand(env, dependencies),
+    ).rejects.toThrow('显式确认');
+    expect(dependencies.loadDatabaseUrl).not.toHaveBeenCalled();
+    expect(dependencies.createClient).not.toHaveBeenCalled();
+    expect(dependencies.reset).not.toHaveBeenCalled();
+  });
+
+  it('生产环境即使提供正确确认值也永久拒绝重置', async () => {
+    const { dependencies } = createCommandDependencies();
+
+    await expect(
+      runResetPerformanceDataCommand(
+        {
+          NODE_ENV: 'production',
+          [RESET_PERFORMANCE_CONFIRMATION_ENV]: RESET_PERFORMANCE_CONFIRMATION,
+        },
+        dependencies,
+      ),
+    ).rejects.toThrow('生产环境');
+    expect(dependencies.loadDatabaseUrl).not.toHaveBeenCalled();
+    expect(dependencies.reset).not.toHaveBeenCalled();
+  });
+
+  it('非生产环境提供精确确认值后才连接并调用生产重置核心', async () => {
+    const { client, dependencies } = createCommandDependencies();
+
+    await expect(
+      runResetPerformanceDataCommand(
+        {
+          NODE_ENV: 'development',
+          [RESET_PERFORMANCE_CONFIRMATION_ENV]: RESET_PERFORMANCE_CONFIRMATION,
+        },
+        dependencies,
+      ),
+    ).resolves.toEqual({ ok: true });
+    expect(dependencies.loadDatabaseUrl).toHaveBeenCalledTimes(1);
+    expect(dependencies.createClient).toHaveBeenCalledWith(
+      'postgresql://isolated/reset',
+    );
+    expect(client.connect).toHaveBeenCalledTimes(1);
+    expect(dependencies.reset).toHaveBeenCalledWith(client);
+    expect(client.end).toHaveBeenCalledTimes(1);
+  });
+
   it('数据库 perf_* 表与固定白名单不一致时拒绝且没有任何写操作', async () => {
     const client = new ControlledClient([
       ...PERFORMANCE_TABLES,

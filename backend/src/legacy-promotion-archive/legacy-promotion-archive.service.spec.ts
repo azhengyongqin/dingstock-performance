@@ -8,10 +8,17 @@ describe('LegacyPromotionArchiveService', () => {
     },
     larkUser: { findMany: jest.fn() },
   };
+  const rbac = { getOrgScope: jest.fn() };
 
-  const service = new LegacyPromotionArchiveService(prisma as never);
+  const service = new LegacyPromotionArchiveService(
+    prisma as never,
+    rbac as never,
+  );
 
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    rbac.getOrgScope.mockResolvedValue(null);
+  });
 
   it('按受控分页返回周期、参与人、来源与旧答案的安全投影', async () => {
     prisma.perfLegacyPromotionArchive.findMany.mockResolvedValue([
@@ -54,7 +61,7 @@ describe('LegacyPromotionArchiveService', () => {
     ]);
 
     await expect(
-      service.list({ page: 2, pageSize: 20, cycleId: 2 }),
+      service.list('ou_admin', { page: 2, pageSize: 20, cycleId: 2 }),
     ).resolves.toEqual({
       items: [
         {
@@ -103,7 +110,11 @@ describe('LegacyPromotionArchiveService', () => {
     expect(prisma.perfLegacyPromotionArchive.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ skip: 20, take: 20 }),
     );
-    const response = await service.list({ page: 2, pageSize: 20, cycleId: 2 });
+    const response = await service.list('ou_admin', {
+      page: 2,
+      pageSize: 20,
+      cycleId: 2,
+    });
     expect(JSON.stringify(response)).not.toContain('ou_private_reviewer');
     expect(JSON.stringify(response)).not.toContain('privateInternalNote');
     expect(JSON.stringify(response)).not.toContain('private_token');
@@ -137,7 +148,10 @@ describe('LegacyPromotionArchiveService', () => {
     prisma.perfLegacyPromotionArchive.count.mockResolvedValue(1);
     prisma.larkUser.findMany.mockResolvedValue([]);
 
-    const result = await service.list({ page: 1, pageSize: 100 });
+    const result = await service.list('ou_admin', {
+      page: 1,
+      pageSize: 100,
+    });
 
     expect(result.items[0].payload).toEqual({
       kind: 'RESULT_SNAPSHOT',
@@ -146,5 +160,46 @@ describe('LegacyPromotionArchiveService', () => {
     });
     expect(JSON.stringify(result)).not.toContain('secret');
     expect(JSON.stringify(result)).not.toContain('internalCalibration');
+  });
+
+  it('部门 HR 的列表与 total 共享参与者部门快照范围', async () => {
+    rbac.getOrgScope.mockResolvedValue(['od_root', 'od_child']);
+    prisma.perfLegacyPromotionArchive.findMany.mockResolvedValue([]);
+    prisma.perfLegacyPromotionArchive.count.mockResolvedValue(0);
+    prisma.larkUser.findMany.mockResolvedValue([]);
+
+    await service.list('ou_dept_hr', { page: 1, pageSize: 20 });
+
+    const scopedWhere = {
+      cycleId: undefined,
+      sourceType: undefined,
+      participant: {
+        departmentIdSnapshot: { in: ['od_root', 'od_child'] },
+      },
+    };
+    expect(rbac.getOrgScope).toHaveBeenCalledWith('ou_dept_hr');
+    expect(prisma.perfLegacyPromotionArchive.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: scopedWhere }),
+    );
+    expect(prisma.perfLegacyPromotionArchive.count).toHaveBeenCalledWith({
+      where: scopedWhere,
+    });
+  });
+
+  it('管理员或全局 HR 使用无部门过滤的全局范围', async () => {
+    prisma.perfLegacyPromotionArchive.findMany.mockResolvedValue([]);
+    prisma.perfLegacyPromotionArchive.count.mockResolvedValue(0);
+    prisma.larkUser.findMany.mockResolvedValue([]);
+
+    await service.list('ou_global_admin', { page: 1, pageSize: 20 });
+
+    expect(prisma.perfLegacyPromotionArchive.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { cycleId: undefined, sourceType: undefined },
+      }),
+    );
+    expect(prisma.perfLegacyPromotionArchive.count).toHaveBeenCalledWith({
+      where: { cycleId: undefined, sourceType: undefined },
+    });
   });
 });

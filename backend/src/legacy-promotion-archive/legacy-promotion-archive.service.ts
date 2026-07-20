@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 import type { PerfLegacyPromotionArchiveSource } from '../generated/prisma/enums';
+import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 
 type JsonRecord = Record<string, unknown>;
@@ -40,17 +41,32 @@ const httpUrl = (value: unknown) => {
 /** 旧归档只读查询；原始 JSON 永不直接穿透到 API。 */
 @Injectable()
 export class LegacyPromotionArchiveService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rbacService: RbacService,
+  ) {}
 
-  async list(filters: {
-    page: number;
-    pageSize: number;
-    cycleId?: number;
-    sourceType?: PerfLegacyPromotionArchiveSource;
-  }) {
+  async list(
+    operatorOpenId: string,
+    filters: {
+      page: number;
+      pageSize: number;
+      cycleId?: number;
+      sourceType?: PerfLegacyPromotionArchiveSource;
+    },
+  ) {
+    const orgScope = await this.rbacService.getOrgScope(operatorOpenId);
     const where: Prisma.PerfLegacyPromotionArchiveWhereInput = {
       cycleId: filters.cycleId,
       sourceType: filters.sourceType,
+      // ADMIN 与全局 HR 的 null 范围不加过滤；部门 HR 只读取参与者周期部门快照命中的历史。
+      ...(orgScope === null
+        ? {}
+        : {
+            participant: {
+              departmentIdSnapshot: { in: orgScope },
+            },
+          }),
     };
     const [rows, total] = await Promise.all([
       this.prisma.perfLegacyPromotionArchive.findMany({
