@@ -70,6 +70,7 @@ import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
 import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
 import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
+import OrgMemberMultiSelectPreview from './org-member-multi-select-preview'
 import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
@@ -82,6 +83,7 @@ type ComponentKey =
   | 'feedback'
   | 'okr-reference'
   | 'member-picker'
+  | 'org-member-multi-select'
   | 'member-pill'
   | 'form-template'
   | 'config-template'
@@ -139,6 +141,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     key: 'member-picker',
     title: '人员选择弹窗',
     description: 'LarkMemberPickerDialog',
+    icon: UsersIcon
+  },
+  {
+    key: 'org-member-multi-select',
+    title: '组织人员多选',
+    description: 'LarkOrgMemberMultiSelectDialog · 原型三变体',
     icon: UsersIcon
   },
   {
@@ -1494,6 +1502,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'feedback') return <FeedbackPreview />
   if (activeComponent === 'okr-reference') return <OkrReferencePreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
+  if (activeComponent === 'org-member-multi-select') return <OrgMemberMultiSelectPreview />
   if (activeComponent === 'member-pill') return <MemberPillPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
