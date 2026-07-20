@@ -3,6 +3,7 @@
 /**
  * S/A/B/C 等级选择器：飞书式时间轴胶囊。
  * 选中用等级浅色；hover 白底介绍面板展示规则配置中的区间/映射/说明。
+ * 等级间距：min 2px，随父级可用宽度拉伸，整体上限限制最大间距。
  */
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -134,12 +135,19 @@ export function RatingSelector({
 }: RatingSelectorProps) {
   return (
     <TooltipProvider delay={120}>
-      {/* 固定宽度便于与 Label 同行两端对齐；勿用 w-full 以免撑满整行 */}
-      <div className={cn('relative w-72 shrink-0 py-2', className)}>
-        {/* 细线在前、pill 在后，靠文档顺序压线，避免 z-index 在滚动时盖住其它区块 */}
-        <div aria-hidden className='bg-border absolute top-1/2 right-8 left-8 h-px -translate-y-1/2' />
+      {/*
+        w-full!：压过外层 Field 的 *:w-auto，否则宽度塌成内容宽、间距无法伸缩。
+        max-w-80：约等于 4 胶囊 + 3×2rem，用来封顶最大间距。
+      */}
+      <div className={cn('relative ml-auto w-full! min-w-0 max-w-80 py-2', className)}>
+        {/* 细线在前、pill 在后，靠文档顺序压线 */}
+        <div aria-hidden className='bg-border absolute top-1/2 right-6 left-6 h-px -translate-y-1/2' />
 
-        <div role='radiogroup' aria-label={ariaLabel} className='relative flex items-center justify-between'>
+        <div
+          role='radiogroup'
+          aria-label={ariaLabel}
+          className='relative flex w-full items-center justify-between gap-[2px]'
+        >
           {ASCENDING_SYMBOLS.map(symbol => {
             const rating = resolveRating(symbol, ratings)
             const selected = value === symbol
@@ -157,7 +165,7 @@ export function RatingSelector({
                       disabled={disabled}
                       onClick={() => onChange(symbol)}
                       className={cn(
-                        'relative flex h-8 min-w-14 items-center justify-center rounded-full border px-5 text-sm font-medium outline-none',
+                        'relative flex h-8 min-w-12 shrink-0 items-center justify-center rounded-full border px-4 text-sm font-medium outline-none',
                         'transition-[transform,box-shadow,background-color,color,border-color] duration-200 ease-out',
                         'hover:scale-105 focus-visible:ring-2 focus-visible:ring-offset-2',
                         'active:scale-95',

@@ -246,6 +246,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
                 employee={context.employee}
                 relation={context.assignment?.relation}
                 selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
+                selfSubforms={context.form.selfSubforms}
                 collapsed={referenceCollapsed}
                 onCollapsedChange={setReferenceCollapsed}
               />

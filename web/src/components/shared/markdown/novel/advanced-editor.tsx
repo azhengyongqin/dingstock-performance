@@ -1,6 +1,15 @@
 'use client'
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject
+} from 'react'
 
 import {
   EditorCommand,
@@ -31,10 +40,17 @@ import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
 import { EditorBubbleMenu } from './editor-bubble-menu'
+import { EditorToolbar } from './editor-toolbar'
 import { createDefaultExtensions } from './extensions'
 import { createNovelImageUpload } from './image-upload'
+import { pasteMarkdownText } from './paste-markdown'
 import { createSlashCommand, type EmbedType } from './slash-command'
-import type { ImageUploadHandler } from './types'
+import {
+  hasBubbleMenuFeatures,
+  resolveMarkdownEditorFeatures,
+  type ImageUploadHandler,
+  type MarkdownEditorFeatures
+} from './types'
 
 type ValueSyncProps = {
   value: string
@@ -109,6 +125,25 @@ const ValueSync = ({ value }: ValueSyncProps) => {
   return null
 }
 
+type EditorInstanceBridgeProps = {
+  editorRef: RefObject<EditorInstance | null>
+}
+
+/** 把当前 TipTap 实例挂到外部 ref，供 handlePaste 等 editorProps 回调使用。 */
+const EditorInstanceBridge = ({ editorRef }: EditorInstanceBridgeProps) => {
+  const { editor } = useEditor()
+
+  useLayoutEffect(() => {
+    editorRef.current = editor ?? null
+
+    return () => {
+      editorRef.current = null
+    }
+  }, [editor, editorRef])
+
+  return null
+}
+
 /** 保留 Novel 源码编辑器的实时词数，并跟随受控值和用户输入更新。 */
 const EditorWordCount = () => {
   const { editor } = useEditor()
@@ -147,6 +182,7 @@ export type AdvancedEditorProps = {
   placeholder: string
   invalid?: boolean
   className?: string
+  features?: MarkdownEditorFeatures
 }
 
 /**
@@ -159,12 +195,18 @@ export const AdvancedEditor = ({
   uploadImage,
   placeholder,
   invalid,
-  className
+  className,
+  features
 }: AdvancedEditorProps) => {
   const imageInputId = useId()
+  const editorRef = useRef<EditorInstance | null>(null)
   const [embedDialog, setEmbedDialog] = useState<EmbedDialogState>(null)
   const [embedUrl, setEmbedUrl] = useState('')
   const [embedError, setEmbedError] = useState('')
+  const resolvedFeatures = useMemo(() => resolveMarkdownEditorFeatures(features), [features])
+
+  // TipTap 扩展集合变更需重建实例；用稳定 key 强制 remount。
+  const editorKey = useMemo(() => JSON.stringify(resolvedFeatures), [resolvedFeatures])
   const uploadFn = useMemo(() => createNovelImageUpload(uploadImage), [uploadImage])
 
   const requestImageUpload = useCallback(() => {
@@ -178,14 +220,29 @@ export const AdvancedEditor = ({
   }, [])
 
   const { slashCommand, suggestionItems } = useMemo(
-    () => createSlashCommand(requestImageUpload, requestEmbed),
-    [requestEmbed, requestImageUpload]
+    () =>
+      createSlashCommand(requestImageUpload, requestEmbed, {
+        imageUpload: resolvedFeatures.imageUpload,
+        mediaEmbed: resolvedFeatures.mediaEmbed
+      }),
+    [requestEmbed, requestImageUpload, resolvedFeatures.imageUpload, resolvedFeatures.mediaEmbed]
   )
 
-  const extensions = useMemo(
-    () => [...createDefaultExtensions({ placeholder }), slashCommand],
-    [placeholder, slashCommand]
-  )
+  const extensions = useMemo(() => {
+    const base = createDefaultExtensions({
+      placeholder,
+      dragHandle: resolvedFeatures.dragHandle,
+      pasteMarkdown: resolvedFeatures.pasteMarkdown
+    })
+
+    return resolvedFeatures.slashCommand ? [...base, slashCommand] : base
+  }, [
+    placeholder,
+    resolvedFeatures.dragHandle,
+    resolvedFeatures.pasteMarkdown,
+    resolvedFeatures.slashCommand,
+    slashCommand
+  ])
 
   // tiptap-markdown 会在编辑器创建前解析字符串；Novel 的声明仍只接受 JSONContent。
   const initialContent = value as unknown as JSONContent
@@ -228,18 +285,40 @@ export const AdvancedEditor = ({
           className
         )}
       >
-        <EditorRoot>
+        <EditorRoot key={editorKey}>
           <EditorContent
             initialContent={initialContent}
             immediatelyRender={false}
             extensions={extensions}
             className='relative'
+            slotBefore={
+              resolvedFeatures.toolbar ? (
+                <EditorToolbar
+                  features={resolvedFeatures}
+                  onRequestImageUpload={requestImageUpload}
+                  onRequestEmbed={requestEmbed}
+                />
+              ) : null
+            }
             editorProps={{
               handleDOMEvents: {
-                keydown: (_view, event) => handleCommandNavigation(event)
+                keydown: (_view, event) =>
+                  resolvedFeatures.slashCommand ? handleCommandNavigation(event) : false
               },
-              handlePaste: (view, event) => handleImagePaste(view, event, uploadFn),
-              handleDrop: (view, event, _slice, moved) => handleImageDrop(view, event, moved, uploadFn),
+              handlePaste: (view, event) => {
+                // 图片优先；再按 Markdown 源码解析，避免 HTML 源码包装导致原样显示。
+                if (resolvedFeatures.imagePaste && handleImagePaste(view, event, uploadFn)) {
+                  return true
+                }
+
+                if (resolvedFeatures.pasteMarkdown && pasteMarkdownText(editorRef.current, event)) {
+                  return true
+                }
+
+                return false
+              },
+              handleDrop: (view, event, _slice, moved) =>
+                resolvedFeatures.imageDrop ? handleImageDrop(view, event, moved, uploadFn) : false,
               attributes: {
                 role: 'textbox',
                 'aria-label': ariaLabel,
@@ -249,6 +328,9 @@ export const AdvancedEditor = ({
                   '[&_h1]:mb-3 [&_h1]:text-2xl [&_h1]:font-bold',
                   '[&_h2]:mb-2 [&_h2]:text-xl [&_h2]:font-semibold',
                   '[&_h3]:mb-2 [&_h3]:text-lg [&_h3]:font-semibold',
+                  '[&_h4]:mb-2 [&_h4]:text-base [&_h4]:font-semibold',
+                  '[&_h5]:mb-1.5 [&_h5]:text-sm [&_h5]:font-semibold',
+                  '[&_h6]:mb-1.5 [&_h6]:text-sm [&_h6]:font-medium',
                   '[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0',
                   '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
                   '[&_blockquote]:my-2 [&_blockquote]:border-l-4 [&_blockquote]:pl-3 [&_blockquote]:italic',
@@ -264,33 +346,36 @@ export const AdvancedEditor = ({
               }
             }}
             onUpdate={({ editor }) => onChange(editor.storage.markdown.getMarkdown())}
-            slotAfter={<ImageResizer />}
+            slotAfter={resolvedFeatures.imageResize ? <ImageResizer /> : null}
           >
-            <EditorCommand className='bg-popover text-popover-foreground z-50 h-auto max-h-80 overflow-y-auto rounded-md border p-1 shadow-lg'>
-              <CommandEmpty className='px-2 py-4 text-center text-sm'>没有匹配的内容块</CommandEmpty>
-              <CommandList>
-                {suggestionItems.map(item => (
-                  <EditorCommandItem
-                    key={item.title}
-                    value={item.title}
-                    onCommand={value => item.command?.(value)}
-                    className='hover:bg-muted aria-selected:bg-muted flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
-                  >
-                    <span className='bg-background flex size-9 shrink-0 items-center justify-center rounded-md border'>
-                      {item.icon}
-                    </span>
-                    <span>
-                      <span className='block font-medium'>{item.title}</span>
-                      <span className='text-muted-foreground block text-xs'>{item.description}</span>
-                    </span>
-                  </EditorCommandItem>
-                ))}
-              </CommandList>
-            </EditorCommand>
+            {resolvedFeatures.slashCommand ? (
+              <EditorCommand className='bg-popover text-popover-foreground z-50 h-auto max-h-80 overflow-y-auto rounded-md border p-1 shadow-lg'>
+                <CommandEmpty className='px-2 py-4 text-center text-sm'>没有匹配的内容块</CommandEmpty>
+                <CommandList>
+                  {suggestionItems.map(item => (
+                    <EditorCommandItem
+                      key={item.title}
+                      value={item.title}
+                      onCommand={value => item.command?.(value)}
+                      className='hover:bg-muted aria-selected:bg-muted flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm'
+                    >
+                      <span className='bg-background flex size-9 shrink-0 items-center justify-center rounded-md border'>
+                        {item.icon}
+                      </span>
+                      <span>
+                        <span className='block font-medium'>{item.title}</span>
+                        <span className='text-muted-foreground block text-xs'>{item.description}</span>
+                      </span>
+                    </EditorCommandItem>
+                  ))}
+                </CommandList>
+              </EditorCommand>
+            ) : null}
 
-            <EditorWordCount />
-            <EditorBubbleMenu />
-            <ImageUploadInput id={imageInputId} uploadFn={uploadFn} />
+            {resolvedFeatures.wordCount ? <EditorWordCount /> : null}
+            {hasBubbleMenuFeatures(resolvedFeatures) ? <EditorBubbleMenu features={resolvedFeatures} /> : null}
+            {resolvedFeatures.imageUpload ? <ImageUploadInput id={imageInputId} uploadFn={uploadFn} /> : null}
+            <EditorInstanceBridge editorRef={editorRef} />
             <ValueSync value={value} />
           </EditorContent>
         </EditorRoot>

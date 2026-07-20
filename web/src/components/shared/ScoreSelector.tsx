@@ -175,11 +175,12 @@ export function ScoreSelector({
             onBlur={() => {
               if (value.trim() !== '') onChange(normalizeScoreInput(value))
             }}
-            className='w-20 flex-none text-center tabular-nums'
+            className='w-14 flex-none px-1.5 text-center tabular-nums'
           />
           <InputGroupText className='px-1 text-xs'>分</InputGroupText>
 
-          <InputGroupAddon align='inline-end' className='pl-0'>
+          {/* 与等级徽章拉开间距，避免和「分」挤在一起 */}
+          <InputGroupAddon align='inline-end' className='pl-2.5'>
             {level && color ? (
               <Tooltip>
                 <TooltipTrigger

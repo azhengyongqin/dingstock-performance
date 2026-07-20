@@ -1,7 +1,8 @@
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, ValidationPipe } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client';
+import { SaveSelfEvaluationDto } from './evaluation.dto';
 
 jest.mock(
   '../generated/prisma/client',
@@ -78,6 +79,145 @@ const snapshotContent = {
 };
 
 describe('员工自评维度回答链路', () => {
+  it('全局 DTO 白名单转换后仍能提交合法的 Markdown 字段值', async () => {
+    const content = {
+      schemaVersion: 2,
+      subforms: [
+        {
+          key: 'subform:SELF',
+          type: 'SELF',
+          dimensions: [
+            {
+              key: 'self:performance',
+              type: 'SCORING',
+              audience: 'EMPLOYEE',
+              name: '绩效自评',
+              scoringMethod: 'RATING',
+              weight: '100',
+              isCore: true,
+              fields: [],
+            },
+            {
+              key: 'self:summary-and-plan',
+              type: 'NON_SCORING',
+              audience: 'EMPLOYEE',
+              name: '总结与规划',
+              scoringMethod: null,
+              weight: null,
+              isCore: false,
+              fields: [
+                {
+                  key: 'self:summary',
+                  type: 'MARKDOWN',
+                  title: '年中总结',
+                  requiredRule: 'ALWAYS',
+                  config: { defaultValue: '## 年中总结' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const ratings = [
+      { symbol: 'S', minScore: '90', maxScore: '100', mappingScore: '95' },
+      { symbol: 'A', minScore: '80', maxScore: '90', mappingScore: '85' },
+      { symbol: 'B', minScore: '60', maxScore: '80', mappingScore: '70' },
+      { symbol: 'C', minScore: '0', maxScore: '60', mappingScore: '50' },
+    ];
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([
+        {
+          id: 7,
+          employee_open_id: 'ou_employee',
+          status: 'ACTIVE',
+          cycle_status: 'ACTIVE',
+          evaluation_locked_at: null,
+        },
+      ]),
+      perfEvaluationSubmission: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 101 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      perfEvaluationDimensionAnswer: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        create: jest.fn().mockResolvedValue({ id: 201 }),
+      },
+      perfStageResult: {
+        upsert: jest.fn().mockResolvedValue({ id: 301 }),
+      },
+      perfStageDimensionResult: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      perfEvaluationTask: {
+        update: jest.fn().mockResolvedValue({ id: 401 }),
+      },
+    };
+    const prisma = {
+      perfParticipant: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 7,
+          cycleId: 3,
+          employeeOpenId: 'ou_employee',
+          formSnapshotId: 8,
+          formSnapshot: { id: 8, content },
+          cycle: {
+            id: 3,
+            status: 'ACTIVE',
+            deletedAt: null,
+            currentConfigVersion: { id: 9, ratings },
+          },
+        }),
+      },
+      $transaction: jest.fn(
+        async (callback: (client: typeof tx) => Promise<unknown>) =>
+          callback(tx),
+      ),
+    };
+    const auditService = { record: jest.fn().mockResolvedValue(undefined) };
+    const service = new EvaluationSubmissionService(
+      prisma as never,
+      auditService as never,
+      {
+        ensureWritable: jest.fn().mockResolvedValue({ openedAt: new Date() }),
+      } as never,
+      {
+        refreshForParticipant: jest.fn().mockResolvedValue(undefined),
+      } as never,
+      { lockSelfWrite: jest.fn().mockResolvedValue(undefined) } as never,
+      { getDetailed: jest.fn() } as never,
+    );
+    const dto = await new ValidationPipe({
+      whitelist: true,
+      transform: true,
+    }).transform(
+      {
+        cycleId: 3,
+        dimensions: [
+          {
+            subformKey: 'subform:SELF',
+            dimensionKey: 'self:performance',
+            rawLevel: 'A',
+            fields: [],
+          },
+          {
+            subformKey: 'subform:SELF',
+            dimensionKey: 'self:summary-and-plan',
+            fields: [{ fieldKey: 'self:summary', value: '你好' }],
+          },
+        ],
+      },
+      { type: 'body', metatype: SaveSelfEvaluationDto },
+    );
+
+    await expect(service.submitSelf('ou_employee', dto)).resolves.toEqual({
+      ok: true,
+    });
+    expect(auditService.record).toHaveBeenCalled();
+  });
+
   it('上下文只下发 SELF 子表单，并返回维度/字段作答及待重新提交状态', async () => {
     const content = {
       ...snapshotContent,

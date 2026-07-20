@@ -44,68 +44,89 @@ const DimensionBlock = ({
   const dimensionAnswer = answers[dimension.key]
   const level = levelForDimensionAnswer(dimension, dimensionAnswer, ratings ?? [])
   const fields = dimension.fields ?? []
+  // 计分控件（评级 / 0～100 分）与维度标题同一行两端对齐，与组件实验台一致
+  const isScoringDimension = dimension.type === 'SCORING'
+  const scoringError = errors?.[dimension.key]
 
   return (
     <section className='flex flex-col'>
-    {/* 实底吸顶：铺满滚动区横向，避免半透明/顶间距透出下层内容 */}
-    <div className='bg-card sticky top-0 z-10 -mx-5 px-5 pt-4 pb-3 sm:-mx-6 sm:px-6'>
-      <div className='space-y-1'>
-        {/* 色条与标题同一行 items-center，避免 mt/h 与 text-xs 行高错位 */}
-        <div className='flex items-center gap-2'>
-          <span className='bg-primary h-3.5 w-1 shrink-0 rounded-full' aria-hidden />
-          <div className='flex min-w-0 flex-wrap items-center gap-2'>
-            <h2 className='text-xs font-semibold'>{dimension.name}</h2>
-            {dimension.weight != null && <Badge variant='outline'>占比 {dimension.weight}%</Badge>}
-            {dimension.isCore && <Badge variant='secondary'>核心</Badge>}
+      {/* 实底吸顶：铺满滚动区横向，避免半透明/顶间距透出下层内容 */}
+      <div className='bg-card sticky top-0 z-10 -mx-5 px-5 pt-4 pb-3 sm:-mx-6 sm:px-6'>
+        <div className='space-y-1'>
+          {/* 色条与标题同一行 items-center，避免 mt/h 与 text-xs 行高错位 */}
+          <div
+            className={cn(
+              'flex items-center gap-2',
+              isScoringDimension && 'w-full justify-between gap-x-3'
+            )}
+          >
+            <div className='flex min-w-0 items-center gap-2'>
+              <span className='bg-primary h-3.5 w-1 shrink-0 rounded-full' aria-hidden />
+              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                <h2 className='text-xs font-semibold'>{dimension.name}</h2>
+                {dimension.weight != null && <Badge variant='outline'>占比 {dimension.weight}%</Badge>}
+                {dimension.isCore && <Badge variant='secondary'>核心</Badge>}
+              </div>
+            </div>
+            {isScoringDimension && (
+              <Field
+                data-invalid={!!scoringError}
+                className={cn(
+                  'gap-1',
+                  // 评级占满剩余行宽，子项 w-full 才能让间距随宽度伸缩；分数保持内容宽
+                  dimension.scoringMethod === 'RATING'
+                    ? 'min-w-0 max-w-full flex-1 *:w-full'
+                    : 'w-auto shrink-0 *:w-auto'
+                )}
+              >
+                {dimension.scoringMethod === 'RATING' ? (
+                  <RatingSelector
+                    aria-label={dimension.name}
+                    value={dimensionAnswer?.rawLevel ?? null}
+                    onChange={rawLevel => onAnswerChange(dimension.key, { rawLevel })}
+                    disabled={disabled}
+                    ratings={ratings}
+                  />
+                ) : (
+                  <ScoreSelector
+                    aria-label={dimension.name}
+                    value={dimensionAnswer?.rawScoreText ?? ''}
+                    onChange={rawScoreText => onAnswerChange(dimension.key, { rawScoreText })}
+                    disabled={disabled}
+                    ratings={ratings}
+                  />
+                )}
+                {scoringError && <FieldError>{scoringError}</FieldError>}
+              </Field>
+            )}
           </div>
-        </div>
-        {dimension.description && (
-          <p className='text-muted-foreground pl-3 text-sm'>{dimension.description}</p>
-        )}
-      </div>
-    </div>
-    <div className='flex flex-col gap-5 pb-8 pl-4'>
-      {dimension.type === 'SCORING' && (
-        <Field data-invalid={!!errors?.[dimension.key]} className='gap-2'>
-          {dimension.scoringMethod === 'RATING' ? (
-            <RatingSelector
-              aria-label={dimension.name}
-              value={dimensionAnswer?.rawLevel ?? null}
-              onChange={rawLevel => onAnswerChange(dimension.key, { rawLevel })}
-              disabled={disabled}
-            />
-          ) : (
-            <ScoreSelector
-              aria-label={dimension.name}
-              value={dimensionAnswer?.rawScoreText ?? ''}
-              onChange={rawScoreText => onAnswerChange(dimension.key, { rawScoreText })}
-              disabled={disabled}
-            />
+          {dimension.description && (
+            <p className='text-muted-foreground pl-3 text-sm'>{dimension.description}</p>
           )}
-          {errors?.[dimension.key] && <FieldError>{errors[dimension.key]}</FieldError>}
-        </Field>
-      )}
-      {fields.map(field => {
-        const conditionalRequired =
-          field.requiredRule === 'CONDITIONAL' && level != null && (field.requiredLevels ?? []).includes(level)
+        </div>
+      </div>
+      <div className='flex flex-col gap-5 pb-8 pl-4'>
+        {fields.map(field => {
+          const conditionalRequired =
+            field.requiredRule === 'CONDITIONAL' && level != null && (field.requiredLevels ?? []).includes(level)
 
-        const required = field.requiredRule === 'ALWAYS' || conditionalRequired
+          const required = field.requiredRule === 'ALWAYS' || conditionalRequired
 
-        return (
-          <div key={field.key} className='flex flex-col gap-1.5'>
-            {conditionalRequired && <span className='text-destructive text-xs'>选择 {level} 时必填</span>}
-            <EvaluationItemField
-              item={{ ...field, required }}
-              answer={answers[field.key]}
-              onChange={answer => onAnswerChange(field.key, answer)}
-              disabled={disabled}
-              error={errors?.[field.key]}
-            />
-          </div>
-        )
-      })}
-    </div>
-  </section>
+          return (
+            <div key={field.key} className='flex flex-col gap-1.5'>
+              {conditionalRequired && <span className='text-destructive text-xs'>选择 {level} 时必填</span>}
+              <EvaluationItemField
+                item={{ ...field, required }}
+                answer={answers[field.key]}
+                onChange={answer => onAnswerChange(field.key, answer)}
+                disabled={disabled}
+                error={errors?.[field.key]}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 

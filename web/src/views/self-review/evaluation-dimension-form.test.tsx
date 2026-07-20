@@ -104,6 +104,17 @@ describe('新版统一维度填写表单', () => {
     expect(screen.getByText('选择 S 时必填')).toBeInTheDocument()
   })
 
+  it('评级计分维度：标题与评级选择器同一行两端对齐', () => {
+    render(<Harness />)
+
+    const title = screen.getByText('自评结论')
+    const radiogroup = screen.getByRole('radiogroup', { name: '自评结论' })
+    const row = title.closest('.justify-between')
+
+    expect(row).not.toBeNull()
+    expect(row).toContainElement(radiogroup)
+  })
+
   it('分数维度允许输入 0-100、最多两位小数', async () => {
     const user = userEvent.setup()
 
@@ -113,5 +124,16 @@ describe('新版统一维度填写表单', () => {
     await user.type(input, '85.55')
 
     expect(input).toHaveValue('85.55')
+  })
+
+  it('0～100 分计分维度：标题与分数输入同一行两端对齐', () => {
+    render(<ScoreHarness />)
+
+    const title = screen.getByText('自评结论')
+    const input = screen.getByRole('textbox', { name: '自评结论' })
+    const row = title.closest('.justify-between')
+
+    expect(row).not.toBeNull()
+    expect(row).toContainElement(input)
   })
 })

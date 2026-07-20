@@ -193,6 +193,8 @@ export class ManagerEvaluationSubmissionService {
       form: {
         formSnapshotId: participant.formSnapshotId,
         subforms: this.submissionPolicy.selectManagerSubforms(content),
+        // 左侧「员工自评」参考区用来解析维度名 / 字段 title
+        selfSubforms: this.submissionPolicy.selectSelfSubforms(content),
       },
       submitted,
       draft,

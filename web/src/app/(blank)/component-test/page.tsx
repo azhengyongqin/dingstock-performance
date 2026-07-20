@@ -23,7 +23,6 @@ import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
 import { LarkMemberPickerDialog, MemberPill, type LarkPickerMember } from '@/components/shared/lark'
-import { MarkdownEditor } from '@/components/shared/markdown'
 import {
   DatePicker,
   DateRangePicker,
@@ -71,6 +70,7 @@ import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
 import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
 import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
+import MarkdownPreview from './markdown-preview'
 import FormTemplateEditor, { FormTemplateEditorSection } from '@/views/settings/form-templates/form-template-editor'
 import FormTemplatePreview from '@/views/settings/form-templates/form-template-preview'
 import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-template-utils'
@@ -439,39 +439,6 @@ const FormControlsPreview = () => {
         <CardContent className='text-muted-foreground flex min-h-38 flex-col justify-center gap-2 text-sm'>
           <CheckCircle2Icon className='text-primary size-5' />
           <span>当前角色：{role === 'hr' ? 'HR 管理员' : role === 'manager' ? '直属上级' : '普通员工'}</span>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-/** 共享 Markdown 能力示例：左侧富文本编辑，右侧实时验证持久化字符串的只读渲染结果。 */
-const MarkdownPreview = () => {
-  const [content, setContent] = useState(
-    '## 本周期总结\n\n完成了 **关键目标**，并沉淀以下成果：\n\n- 交付绩效评审流程\n- 优化跨团队协作\n\n> 下一周期继续提升交付效率。'
-  )
-
-  return (
-    <div className='grid gap-4 xl:grid-cols-2'>
-      <Card>
-        <CardHeader>
-          <CardTitle>Novel 源码编辑态</CardTitle>
-          <CardDescription>
-            支持 Ask AI、完整斜杠菜单、文本格式/颜色/公式、媒体嵌入、块拖拽和图片选择/粘贴/拖入/缩放。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MarkdownEditor ariaLabel='Markdown 示例编辑器' value={content} onChange={setContent} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>总结只读态</CardTitle>
-          <CardDescription>使用纯 Markdown 渲染组件，不显示工具栏或可编辑区域。</CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-4'>
-          <MarkdownEditor ariaLabel='Markdown 只读示例' value={content} onChange={() => {}} disabled />
-          <pre className='bg-muted max-h-48 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>{content}</pre>
         </CardContent>
       </Card>
     </div>

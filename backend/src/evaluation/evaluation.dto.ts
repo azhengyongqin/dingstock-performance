@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  Allow,
   IsArray,
   IsEnum,
   IsInt,
@@ -20,6 +21,8 @@ export class EvaluationFieldAnswerDto {
   @MaxLength(200)
   fieldKey!: string;
 
+  // 字段值是由表单快照决定类型的多态 JSON；@Allow 用于避免全局 whitelist 将其静默删除。
+  @Allow()
   value!: unknown;
 }
 

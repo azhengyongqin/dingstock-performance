@@ -956,7 +956,12 @@ export type PerfPeerEvaluationContext = {
   } | null
   employee: PerfPeerSafeEmployeeProfile | null
   task: PerfSelfEvaluationTask
-  form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
+  form: {
+    formSnapshotId: number | null
+    subforms: PerfEvalFormSubform[]
+    /** SELF 子表单，供左侧员工自评参考区解析标题 */
+    selfSubforms?: PerfEvalFormSubform[]
+  } | null
   submitted: PerfEvaluationSubmissionRecord | null
   draft: PerfEvaluationSubmissionRecord | null
   state: PerfPeerEvaluationState
@@ -1114,7 +1119,12 @@ export type PerfManagerEvaluationContext = {
   }
   employee: PerfDetailedEmployeeProfile | null
   task: PerfSelfEvaluationTask
-  form: { formSnapshotId: number | null; subforms: PerfEvalFormSubform[] } | null
+  form: {
+    formSnapshotId: number | null
+    subforms: PerfEvalFormSubform[]
+    /** SELF 子表单，供左侧员工自评参考区解析标题 */
+    selfSubforms?: PerfEvalFormSubform[]
+  } | null
   submitted: PerfEvaluationSubmissionRecord | null
   draft: PerfEvaluationSubmissionRecord | null
   state: PerfPeerEvaluationState

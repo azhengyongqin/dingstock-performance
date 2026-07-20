@@ -249,7 +249,8 @@ const PeerReviewAnalysisPanel = ({ result }: { result: PerfPeerStageResult }) =>
   return (
     <Tabs defaultValue='overview' className='gap-4'>
       {/* 吸顶时保留与上方 ScrollableTabsList 相同的 pt-4 间距 */}
-      <div className='bg-background sticky top-0 z-10 space-y-3 pt-4 pb-1'>
+      {/* 与左侧参考区 Card 同底，避免 dark 下 bg-background 更深显出黑块 */}
+      <div className='bg-card sticky top-0 z-10 space-y-3 pt-4 pb-1'>
         <PeerResultSummary
           analysis={analysis}
           compositeScore={result.compositeScore}

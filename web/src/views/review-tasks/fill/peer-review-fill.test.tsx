@@ -65,6 +65,35 @@ const context = {
   task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: {
     formSnapshotId: 88,
+    selfSubforms: [
+      {
+        key: 'subform:SELF',
+        type: 'SELF',
+        title: '员工自评',
+        sortOrder: 0,
+        dimensions: [
+          {
+            key: 'dimension:SELF:EMPLOYEE:0',
+            type: 'SCORING',
+            audience: 'EMPLOYEE',
+            name: '自评等级',
+            scoringMethod: 'RATING',
+            weight: '100',
+            isCore: true,
+            sortOrder: 0,
+            fields: [
+              {
+                key: 'field:self:summary',
+                type: 'MARKDOWN',
+                title: '自评总结',
+                requiredRule: 'OPTIONAL',
+                sortOrder: 0
+              }
+            ]
+          }
+        ]
+      }
+    ],
     subforms: [
       {
         key: 'subform:PEER',

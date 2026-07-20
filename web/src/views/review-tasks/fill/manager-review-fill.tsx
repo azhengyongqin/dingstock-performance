@@ -245,6 +245,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
                 }
                 employee={context.employee}
                 selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
+                selfSubforms={context.form?.selfSubforms}
                 peerResult={context.peerResult}
                 managerResult={calculatedResult}
                 history={context.history}

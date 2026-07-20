@@ -159,7 +159,7 @@ export class EvaluationSubmissionService {
       task,
       form: {
         formSnapshotId: participant.formSnapshotId,
-        subforms: this.selectEmployeeSubforms(content),
+        subforms: this.selectSelfSubforms(content),
       },
       submitted,
       draft,
@@ -235,13 +235,13 @@ export class EvaluationSubmissionService {
     const resolved = this.validateSelfDimensionAnswers(content, dto.dimensions);
     const ratings = this.requireUnifiedRatings(participant);
     const stageResult = this.calculateDimensionStageResult(
-      this.selectEmployeeSubforms(content)[0],
+      this.selectSelfSubforms(content)[0],
       resolved,
       ratings,
       { relationType: 'LEADER', submissionId: `self:${employeeOpenId}` },
     );
     this.assertDimensionAnswersComplete(
-      this.selectEmployeeSubforms(content)[0],
+      this.selectSelfSubforms(content)[0],
       resolved,
       stageResult,
     );
@@ -410,7 +410,7 @@ export class EvaluationSubmissionService {
       })),
     );
     const result = this.calculateDimensionStageResult(
-      this.selectEmployeeSubforms(content)[0],
+      this.selectSelfSubforms(content)[0],
       resolved,
       this.requireUnifiedRatings(participant),
       { relationType: 'LEADER', submissionId: String(submission.id) },
@@ -611,10 +611,8 @@ export class EvaluationSubmissionService {
     }
   }
 
-  /** 员工自评只读取 SELF 子表单；晋升已退出绩效评估提交链（ADR-0066）。 */
-  private selectEmployeeSubforms(
-    content: FormSnapshotContent,
-  ): FormSnapshotSubform[] {
+  /** 员工自评 / 参考区共用：读取 SELF 子表单；晋升已退出绩效评估提交链（ADR-0066）。 */
+  selectSelfSubforms(content: FormSnapshotContent): FormSnapshotSubform[] {
     return content.subforms.filter((subform) => subform.type === 'SELF');
   }
 
@@ -626,7 +624,7 @@ export class EvaluationSubmissionService {
     content: FormSnapshotContent,
     answers: EvaluationDimensionAnswerDto[],
   ): ResolvedDimensionAnswer[] {
-    const self = this.selectEmployeeSubforms(content)[0];
+    const self = this.selectSelfSubforms(content)[0];
     if (!self) throw new ConflictException('当前表单快照缺少员工自评子表单');
     return this.validateDimensionAnswersInSubform(self, answers, '员工自评');
   }
