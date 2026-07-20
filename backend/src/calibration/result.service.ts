@@ -7,6 +7,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import type {
   FormSnapshotContent,
+  FormSnapshotField,
   FormSnapshotItem,
 } from '../evaluation/evaluation.service-types';
 import type { Prisma } from '../generated/prisma/client';
@@ -34,6 +35,15 @@ type SnapshotAnswer = {
 type SnapshotSubmission = {
   stage: PerfEvaluationTaskType;
   items: SnapshotAnswer[];
+  dimensionAnswers?: Array<{
+    subformKey: string;
+    dimensionKey: string;
+    fields: Array<{
+      fieldKey: string;
+      fieldType: string;
+      value: Prisma.JsonValue;
+    }>;
+  }>;
 };
 
 type VisibleAnswer = {
@@ -523,7 +533,14 @@ export class ResultService {
             },
             status: PerfReviewStatus.SUBMITTED,
           },
-          include: { items: { orderBy: { id: 'asc' } } },
+          include: {
+            // SELF 已切换到维度/字段作答；旧 items 暂为 MANAGER 兼容保留。
+            items: { orderBy: { id: 'asc' } },
+            dimensionAnswers: {
+              orderBy: { id: 'asc' },
+              include: { fields: { orderBy: { id: 'asc' } } },
+            },
+          },
         },
         formSnapshot: { select: { content: true } },
       },
@@ -585,12 +602,14 @@ export class ResultService {
             (item) => item.itemType === 'RATING' && item.rawLevel,
           )?.rawLevel ??
           null,
-        items: this.visibleAnswers(
-          (selfSubmission?.items ?? []).filter(
-            (item) => !item.subformKey.includes('PROMOTION'),
-          ),
-          content,
-        ),
+        items: selfSubmission?.dimensionAnswers?.length
+          ? this.visibleFieldAnswers(selfSubmission.dimensionAnswers, content)
+          : this.visibleAnswers(
+              (selfSubmission?.items ?? []).filter(
+                (item) => !item.subformKey.includes('PROMOTION'),
+              ),
+              content,
+            ),
       },
       promotion: this.buildVisiblePromotion(
         participant.isPromotionEnabled,
@@ -652,6 +671,28 @@ export class ResultService {
         value: answer.value,
       };
     });
+  }
+
+  /** 将新版字段作答投影到既有员工结果快照协议，避免前端结果页感知存储迁移。 */
+  private visibleFieldAnswers(
+    dimensions: NonNullable<SnapshotSubmission['dimensionAnswers']>,
+    content: FormSnapshotContent | null,
+  ): VisibleAnswer[] {
+    return dimensions.flatMap((dimension) =>
+      dimension.fields.map((answer) => {
+        const metadata = this.findField(content, answer.fieldKey);
+        return {
+          subformKey: dimension.subformKey,
+          dimensionKey: dimension.dimensionKey,
+          itemKey: answer.fieldKey,
+          title: metadata?.title ?? answer.fieldKey,
+          type: answer.fieldType,
+          rawLevel: null,
+          rawScore: null,
+          value: answer.value,
+        };
+      }),
+    );
   }
 
   private sanitizeResultSnapshot(value: Prisma.JsonValue): ResultSnapshot {
@@ -747,6 +788,16 @@ export class ResultService {
       .flatMap((subform) => subform.dimensions)
       .flatMap((dimension) => dimension.items)
       .find((item) => item.key === itemKey);
+  }
+
+  private findField(
+    content: FormSnapshotContent | null,
+    fieldKey: string,
+  ): FormSnapshotField | undefined {
+    return content?.subforms
+      .flatMap((subform) => subform.dimensions)
+      .flatMap((dimension) => dimension.fields ?? [])
+      .find((field) => field.key === fieldKey);
   }
 
   private employeeExplanation(

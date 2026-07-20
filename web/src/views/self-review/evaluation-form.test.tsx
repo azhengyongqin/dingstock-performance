@@ -211,7 +211,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
     expect(screen.getByRole('button', { name: '添加附件' })).not.toBeDisabled()
   })
 
-  it('SCORE 仅接受 0-100 整数，小数点无法输入且超出会钳制', async () => {
+  it('SCORE 接受 0-100 范围内最多两位小数', async () => {
     const user = userEvent.setup()
 
     render(<Harness subforms={[ALL_TYPES_SUBFORM]} />)
@@ -219,8 +219,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
 
     await user.type(scoreInput, '85.5')
 
-    // 「.」被拦截；继续输入「5」后为 855，即时钳制为 100
-    expect(scoreInput).toHaveValue('100')
+    expect(scoreInput).toHaveValue('85.5')
   })
 })
 

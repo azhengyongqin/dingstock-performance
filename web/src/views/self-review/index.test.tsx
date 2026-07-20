@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type * as PerfApi from '@/lib/perf-api'
-import type { PerfEvaluationItemResult, PerfSelfEvaluationContext } from '@/lib/perf-api'
+import type { PerfEvaluationDimensionAnswer, PerfSelfEvaluationContext } from '@/lib/perf-api'
 
 import SelfReview from './index'
 
@@ -47,17 +47,17 @@ const mockedSubmit = vi.mocked(submitSelfEvaluation)
 const mockedGetOkr = vi.mocked(getParticipantOkr)
 const mockedTriggerOkrSync = vi.mocked(triggerParticipantOkrSync)
 
-const ratingItemResult = (itemKey: string, rawLevel: string | null): PerfEvaluationItemResult => ({
+const ratingDimensionAnswer = (rawLevel: string | null): PerfEvaluationDimensionAnswer => ({
   id: 1,
   submissionId: 10,
   subformKey: 'subform:SELF',
   dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-  itemKey,
-  itemType: 'RATING',
+  scoringMethod: 'RATING',
   rawLevel: rawLevel as never,
   rawScore: null,
   calculationScore: null,
-  value: null
+  derivedLevel: rawLevel as never,
+  fields: []
 })
 
 const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSelfEvaluationContext => ({
@@ -90,10 +90,14 @@ const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSe
         dimensions: [
           {
             key: 'dimension:SELF:EMPLOYEE:0',
+            type: 'SCORING',
+            scoringMethod: 'RATING',
             audience: 'EMPLOYEE',
             name: '自评等级',
+            weight: '100',
+            isCore: true,
             sortOrder: 0,
-            items: [{ key: 'item:SELF:EMPLOYEE:0:0', type: 'RATING', title: '自评等级', required: true, sortOrder: 0 }]
+            fields: []
           }
         ]
       }
@@ -104,6 +108,22 @@ const baseContext = (overrides: Partial<PerfSelfEvaluationContext> = {}): PerfSe
   state: 'DRAFT',
   ...overrides
 })
+
+const contextWithRequiredField = () => {
+  const context = baseContext()
+
+  context.form!.subforms[0].dimensions[0].fields = [
+    {
+      key: 'field:self:summary',
+      type: 'SHORT_TEXT',
+      title: '自评总结',
+      requiredRule: 'ALWAYS',
+      sortOrder: 0
+    }
+  ]
+
+  return context
+}
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -136,6 +156,29 @@ describe('SelfReview 加载自评上下文并渲染动态表单', () => {
 })
 
 describe('SelfReview 保存草稿', () => {
+  it('草稿提交嵌套字段作答载荷', async () => {
+    const user = userEvent.setup()
+
+    mockedGetContext.mockResolvedValue(contextWithRequiredField())
+    mockedSaveDraft.mockResolvedValue({} as never)
+
+    render(<SelfReview />)
+    await screen.findByText('2026 上半年绩效评定')
+    await user.type(screen.getByRole('textbox', { name: '自评总结' }), '完成关键项目')
+    await user.click(screen.getByRole('button', { name: '保存草稿' }))
+
+    expect(mockedSaveDraft).toHaveBeenCalledWith({
+      cycleId: 1,
+      dimensions: [
+        {
+          subformKey: 'subform:SELF',
+          dimensionKey: 'dimension:SELF:EMPLOYEE:0',
+          fields: [{ fieldKey: 'field:self:summary', value: '完成关键项目' }]
+        }
+      ]
+    })
+  })
+
   it('填写评级后点击保存草稿会调用 PUT /evaluations/self/draft', async () => {
     const user = userEvent.setup()
 
@@ -150,12 +193,12 @@ describe('SelfReview 保存草稿', () => {
 
     expect(mockedSaveDraft).toHaveBeenCalledWith({
       cycleId: 1,
-      items: [
+      dimensions: [
         {
           subformKey: 'subform:SELF',
           dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-          itemKey: 'item:SELF:EMPLOYEE:0:0',
-          rawLevel: 'A'
+          rawLevel: 'A',
+          fields: []
         }
       ]
     })
@@ -175,7 +218,7 @@ describe('SelfReview 保存草稿', () => {
           reviewerOpenId: 'ou_me',
           status: 'SUBMITTED',
           submittedAt: '2026-08-02T01:00:00.000Z',
-          items: [ratingItemResult('item:SELF:EMPLOYEE:0:0', 'A')]
+          dimensionAnswers: [ratingDimensionAnswer('A')]
         }
       })
     )
@@ -196,6 +239,31 @@ describe('SelfReview 保存草稿', () => {
 })
 
 describe('SelfReview 提交', () => {
+  it('正式提交同时携带维度计分与嵌套字段作答', async () => {
+    const user = userEvent.setup()
+
+    mockedGetContext.mockResolvedValue(contextWithRequiredField())
+    mockedSubmit.mockResolvedValue({ ok: true })
+
+    render(<SelfReview />)
+    await screen.findByText('2026 上半年绩效评定')
+    await user.click(screen.getByRole('radio', { name: 'A · 优秀' }))
+    await user.type(screen.getByRole('textbox', { name: '自评总结' }), '完成关键项目')
+    await user.click(screen.getByRole('button', { name: '提交自评' }))
+
+    expect(mockedSubmit).toHaveBeenCalledWith({
+      cycleId: 1,
+      dimensions: [
+        {
+          subformKey: 'subform:SELF',
+          dimensionKey: 'dimension:SELF:EMPLOYEE:0',
+          rawLevel: 'A',
+          fields: [{ fieldKey: 'field:self:summary', value: '完成关键项目' }]
+        }
+      ]
+    })
+  })
+
   it('缺必填项时前端拦截提交，不发起请求，且展示错误提示', async () => {
     const user = userEvent.setup()
 
@@ -207,7 +275,7 @@ describe('SelfReview 提交', () => {
     await user.click(screen.getByRole('button', { name: '提交自评' }))
 
     expect(mockedSubmit).not.toHaveBeenCalled()
-    expect(screen.getByText('「自评等级」为必填项，请选择评级')).toBeInTheDocument()
+    expect(screen.getByText('计分维度「自评等级」请选择评级')).toBeInTheDocument()
   })
 
   it('必填项齐全时提交成功，并刷新为已生效状态', async () => {
@@ -226,7 +294,7 @@ describe('SelfReview 提交', () => {
           reviewerOpenId: 'ou_me',
           status: 'SUBMITTED',
           submittedAt: '2026-08-03T01:00:00.000Z',
-          items: [ratingItemResult('item:SELF:EMPLOYEE:0:0', 'B')]
+          dimensionAnswers: [ratingDimensionAnswer('B')]
         }
       })
     )
@@ -239,12 +307,12 @@ describe('SelfReview 提交', () => {
 
     expect(mockedSubmit).toHaveBeenCalledWith({
       cycleId: 1,
-      items: [
+      dimensions: [
         {
           subformKey: 'subform:SELF',
           dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-          itemKey: 'item:SELF:EMPLOYEE:0:0',
-          rawLevel: 'B'
+          rawLevel: 'B',
+          fields: []
         }
       ]
     })

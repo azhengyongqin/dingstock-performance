@@ -1209,6 +1209,7 @@ model PerfEvaluationSubmission {
   formSnapshot       PerfCycleFormSnapshot      @relation(fields: [formSnapshotId], references: [id], onDelete: Restrict)
   reviewerAssignment PerfReviewerAssignment?    @relation(fields: [reviewerAssignmentId, participantId, reviewerOpenId], references: [id, participantId, reviewerOpenId], onDelete: Restrict)
   items              PerfEvaluationItemResult[]
+  dimensionAnswers   PerfEvaluationDimensionAnswer[]
 
   @@unique([id, formSnapshotId]) /// 供评估项结果复合外键锁定表单快照，防止跨快照写入
   @@index([cycleId, stage])
@@ -1243,6 +1244,48 @@ model PerfEvaluationItemResult {
   @@index([formSnapshotId, itemKey]) /// 跨提交按评估项聚合（360°关系加权、维度汇总）
   @@index([formSnapshotId, subformKey, dimensionKey])
   @@map("perf_evaluation_item_results")
+  @@schema("performance")
+}
+
+/// 新版维度作答：计分值直接归属维度；草稿允许计分值为空，正式提交完整性由业务服务校验。
+model PerfEvaluationDimensionAnswer {
+  id               Int                    @id @default(autoincrement()) /// 内部自增主键
+  submissionId     Int                    @map("submission_id") /// 所属统一评估提交
+  formSnapshotId   Int                    @map("form_snapshot_id") /// 冗余快照 ID；复合外键保证与提交一致
+  subformKey       String                 @map("subform_key") /// 周期快照中的稳定子表单 key
+  dimensionKey     String                 @map("dimension_key") /// 周期快照中的稳定维度 key
+  scoringMethod    PerfFormScoringMethod? @map("scoring_method") /// 计分维度的评级/分数方式；非计分维度为空
+  rawLevel         PerfRatingSymbol?      @map("raw_level") /// 评级维度原始选择
+  rawScore         Decimal?               @map("raw_score") @db.Decimal(5, 2) /// 分数维度原始 0～100 分
+  calculationScore Decimal?               @map("calculation_score") @db.Decimal(5, 2) /// 按周期规则统一换算后的 0～100 分
+  derivedLevel     PerfRatingSymbol?      @map("derived_level") /// 计算分按周期评级区间派生的维度等级
+  createdAt        DateTime               @default(now()) @map("created_at") /// 创建时间
+  updatedAt        DateTime               @updatedAt @map("updated_at") /// 草稿或重新提交最近替换时间
+
+  submission PerfEvaluationSubmission @relation(fields: [submissionId, formSnapshotId], references: [id, formSnapshotId], onDelete: Cascade)
+  fields     PerfEvaluationFieldAnswer[]
+
+  @@unique([submissionId, dimensionKey]) /// 同一提交内同一维度最多一条作答
+  @@index([formSnapshotId, dimensionKey]) /// 跨提交按稳定维度聚合
+  @@map("perf_evaluation_dimension_answers")
+  @@schema("performance")
+}
+
+/// 新版字段作答：只承载非计分字段的受控 JSON 值，并从属于一条维度作答。
+model PerfEvaluationFieldAnswer {
+  id                Int              @id @default(autoincrement()) /// 内部自增主键
+  dimensionAnswerId Int              @map("dimension_answer_id") /// 所属维度作答
+  fieldKey          String           @map("field_key") /// 周期快照中的稳定字段 key
+  fieldType         PerfFormItemType @map("field_type") /// 提交时字段类型快照；数据库排除 RATING/SCORE
+  value             Json /// 与字段类型匹配的受控结构化值
+  createdAt         DateTime         @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime         @updatedAt @map("updated_at") /// 草稿或重新提交最近替换时间
+
+  dimensionAnswer PerfEvaluationDimensionAnswer @relation(fields: [dimensionAnswerId], references: [id], onDelete: Cascade)
+
+  @@unique([dimensionAnswerId, fieldKey]) /// 同一维度作答内同一字段最多一条作答
+  @@index([fieldKey]) /// 跨提交按稳定字段查询
+  @@map("perf_evaluation_field_answers")
   @@schema("performance")
 }
 

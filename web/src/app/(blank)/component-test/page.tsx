@@ -64,7 +64,7 @@ import ActiveConfigImpactDialog from '@/views/cycles/edit/active-config-impact-d
 import OkrReferencePreview from '@/views/component-test/okr-reference-preview'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
-import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
+import { buildSelfSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
 import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
@@ -1103,7 +1103,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
   }
 ]
 
-/** Ticket 06 业务组件示例：覆盖全部 9 种评估项类型 + 必填/禁用态，固定 mock 子表单数据，不访问后端 */
+/** 新版员工自评示例：维度直接评分，非计分字段只负责补充说明。 */
 const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
   {
     key: 'subform:SELF',
@@ -1112,38 +1112,57 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
     sortOrder: 0,
     dimensions: [
       {
-        key: 'dimension:SELF:EMPLOYEE:0',
+        key: 'dimension:self:result',
+        type: 'SCORING',
+        scoringMethod: 'RATING',
         audience: 'EMPLOYEE',
-        name: '综合评估',
-        description: '按维度逐项完成自评',
+        name: '结果贡献',
+        description: '评级直接属于维度；选择 S 时复盘总结变为必填。',
+        weight: '60',
         isCore: true,
         sortOrder: 0,
-        items: [
-          { key: 'item:rating', type: 'RATING', title: '本周期综合评级', required: true, sortOrder: 0 },
+        fields: [
           {
-            key: 'item:score',
-            type: 'SCORE',
-            title: '目标完成度',
-            description: '按 OKR 完成百分比填写',
-            required: false,
-            sortOrder: 1
-          },
-          {
-            key: 'item:short',
+            key: 'field:self:summary',
             type: 'SHORT_TEXT',
             title: '一句话总结',
-            required: true,
-            sortOrder: 2,
+            requiredRule: 'ALWAYS',
+            sortOrder: 0,
             config: { maxLength: 30 }
           },
-          { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
-          { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: true, sortOrder: 4 },
           {
-            key: 'item:single',
+            key: 'field:self:reflection',
+            type: 'MARKDOWN',
+            title: '标杆复盘总结',
+            requiredRule: 'CONDITIONAL',
+            requiredLevels: ['S'],
+            sortOrder: 1
+          }
+        ]
+      },
+      {
+        key: 'dimension:self:execution',
+        type: 'SCORING',
+        scoringMethod: 'SCORE',
+        audience: 'EMPLOYEE',
+        name: '目标执行',
+        description: '支持输入 0～100、最多两位小数。',
+        weight: '40',
+        sortOrder: 1,
+        fields: [
+          {
+            key: 'field:self:details',
+            type: 'LONG_TEXT',
+            title: '详细说明',
+            requiredRule: 'OPTIONAL',
+            sortOrder: 0
+          },
+          {
+            key: 'field:self:intention',
             type: 'SINGLE_SELECT',
-            title: '是否有晋升意愿',
-            required: true,
-            sortOrder: 5,
+            title: '下周期挑战意愿',
+            requiredRule: 'ALWAYS',
+            sortOrder: 1,
             config: {
               options: [
                 { value: 'YES', label: '是' },
@@ -1152,12 +1171,12 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
             }
           },
           {
-            key: 'item:multi',
+            key: 'field:self:collaboration',
             type: 'MULTI_SELECT',
             title: '本周期协作方式',
             description: '至少选择 1 项，最多选择 2 项',
-            required: true,
-            sortOrder: 6,
+            requiredRule: 'ALWAYS',
+            sortOrder: 2,
             config: {
               options: [
                 { value: 'A', label: '跨团队协作' },
@@ -1167,33 +1186,33 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
               minSelections: 1,
               maxSelections: 2
             }
-          },
+          }
+        ]
+      },
+      {
+        key: 'dimension:self:evidence',
+        type: 'NON_SCORING',
+        scoringMethod: null,
+        audience: 'EMPLOYEE',
+        name: '补充材料',
+        description: '非计分维度只展示字段，不参与结果计算。',
+        sortOrder: 2,
+        fields: [
           {
-            key: 'item:attachment',
+            key: 'field:self:attachment',
             type: 'ATTACHMENT',
             title: '证明材料',
-            required: false,
-            sortOrder: 7,
+            requiredRule: 'OPTIONAL',
+            sortOrder: 0,
             config: { maxFiles: 3 }
           },
-          { key: 'item:link', type: 'LINK', title: '参考链接', required: false, sortOrder: 8 }
-        ]
-      }
-    ]
-  },
-  {
-    key: 'subform:PROMOTION',
-    type: 'PROMOTION',
-    title: '晋升评估',
-    sortOrder: 1,
-    dimensions: [
-      {
-        key: 'dimension:PROMOTION:EMPLOYEE:0',
-        audience: 'EMPLOYEE',
-        name: '突出贡献',
-        sortOrder: 0,
-        items: [
-          { key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }
+          {
+            key: 'field:self:link',
+            type: 'LINK',
+            title: '参考链接',
+            requiredRule: 'OPTIONAL',
+            sortOrder: 1
+          }
         ]
       }
     ]
@@ -1210,9 +1229,14 @@ const EvaluationFormEditablePreview = () => {
       <Card>
         <CardContent className='flex items-center justify-between gap-3'>
           <CardDescription>
-            点击「校验」触发与自评页提交前一致的必填/格式校验，观察错误如何内联展示在对应评估项下方。
+            点击「校验」触发与自评页提交前一致的维度评分、字段必填与格式校验。
           </CardDescription>
-          <Button type='button' onClick={() => setErrors(buildSubmitPayload(EVALUATION_FORM_SUBFORMS, answers).errors)}>
+          <Button
+            type='button'
+            onClick={() =>
+              setErrors(buildSelfSubmitPayload(EVALUATION_FORM_SUBFORMS, answers, EVALUATION_FORM_RATINGS).errors)
+            }
+          >
             校验
           </Button>
         </CardContent>
@@ -1242,7 +1266,13 @@ const EvaluationFormEditablePreview = () => {
 const EvaluationFormDisabledPreview = () => (
   <EvaluationForm
     subforms={EVALUATION_FORM_SUBFORMS}
-    answers={{ 'item:rating': { rawLevel: 'A' }, 'item:multi': { value: ['A', 'B'] } }}
+    answers={{
+      'dimension:self:result': { rawLevel: 'A' },
+      'dimension:self:execution': { rawScoreText: '88.50' },
+      'field:self:summary': { value: '稳定交付核心目标' },
+      'field:self:intention': { value: 'YES' },
+      'field:self:collaboration': { value: ['A', 'B'] }
+    }}
     ratings={EVALUATION_FORM_RATINGS}
     disabled
     onAnswerChange={() => {}}
@@ -1469,7 +1499,7 @@ const EvaluationFormPreview = () => (
       <CardHeader>
         <CardTitle>可编辑态</CardTitle>
         <CardDescription>
-          覆盖 RATING/SCORE/SHORT_TEXT/LONG_TEXT/MARKDOWN/SINGLE_SELECT/MULTI_SELECT/ATTACHMENT/LINK 九种类型
+          覆盖维度级 RATING/SCORE、非计分维度、七类表单字段与条件必填规则
         </CardDescription>
       </CardHeader>
       <CardContent>

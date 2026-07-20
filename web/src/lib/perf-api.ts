@@ -816,7 +816,7 @@ export const returnPerfCycleToDraft = (cycleId: number) =>
 
 // ===== 统一评估提交（Ticket 06，员工自评） =====
 
-/** 表单快照中的单个评估项（GET /evaluations/self 下发内容，key 用于定位作答归属） */
+/** 旧 PEER/MANAGER 链路仍使用的评估项形状；SELF 已切换到维度 + 字段。 */
 export type PerfEvalFormItem = {
   key: string
   type: PerfFormItemType
@@ -828,16 +828,31 @@ export type PerfEvalFormItem = {
   config?: PerfFormItemConfig | null
 }
 
+export type PerfEvalFormField = {
+  key: string
+  type: PerfFormFieldType
+  title: string
+  description?: string | null
+  placeholder?: string | null
+  requiredRule: PerfFormFieldRequiredRule
+  requiredLevels?: PerfPerformanceLevel[]
+  sortOrder: number
+  config?: PerfFormItemConfig | null
+}
+
 export type PerfEvalFormDimension = {
   key: string
+  type?: 'SCORING' | 'NON_SCORING'
   kind?: PerfFormDimensionKind
+  scoringMethod?: 'RATING' | 'SCORE' | null
   audience: PerfFormAudience
   name: string
   description?: string | null
   weight?: string | number | null
   isCore?: boolean
   sortOrder: number
-  items: PerfEvalFormItem[]
+  fields?: PerfEvalFormField[]
+  items?: PerfEvalFormItem[]
 }
 
 export type PerfEvalFormSubform = {
@@ -882,7 +897,36 @@ export type PerfEvaluationSubmissionRecord = {
   status: PerfReviewStatus
   submittedAt?: string | null
   submittedByOpenId?: string | null
-  items: PerfEvaluationItemResult[]
+  items?: PerfEvaluationItemResult[]
+  dimensionAnswers?: PerfEvaluationDimensionAnswer[]
+}
+
+export type PerfEvaluationFieldAnswer = {
+  id: number
+  fieldKey: string
+  fieldType: PerfFormFieldType
+  value: unknown
+}
+
+export type PerfEvaluationDimensionAnswer = {
+  id: number
+  submissionId: number
+  subformKey: string
+  dimensionKey: string
+  scoringMethod?: 'RATING' | 'SCORE' | null
+  rawLevel?: PerfPerformanceLevel | null
+  rawScore?: string | null
+  calculationScore?: string | null
+  derivedLevel?: PerfPerformanceLevel | null
+  fields: PerfEvaluationFieldAnswer[]
+}
+
+export type PerfEvaluationDimensionAnswerInput = {
+  subformKey: string
+  dimensionKey: string
+  rawLevel?: PerfPerformanceLevel
+  rawScore?: number
+  fields: Array<{ fieldKey: string; value: unknown }>
 }
 
 /** 自评任务事实：只取前端网关需要的开放门槛字段，其余原样透传但不声明 */
@@ -923,7 +967,7 @@ export type PerfSelfEvaluationContext = {
 
 export type SaveSelfEvaluationInput = {
   cycleId: number
-  items: PerfEvaluationItemAnswer[]
+  dimensions: PerfEvaluationDimensionAnswerInput[]
 }
 
 export const getSelfEvaluationContext = (cycleId?: number) =>
@@ -933,7 +977,7 @@ export const getSelfEvaluationContext = (cycleId?: number) =>
  * 草稿保存返回的提交行：对应后端 saveSelfDraft 事务内 findFirst/create 的裸 Prisma 行，
  * 不 include 明细，因此不含 items（与 PerfEvaluationSubmissionRecord 的区别）。
  */
-export type PerfEvaluationSubmissionDraftRecord = Omit<PerfEvaluationSubmissionRecord, 'items'>
+export type PerfEvaluationSubmissionDraftRecord = Omit<PerfEvaluationSubmissionRecord, 'items' | 'dimensionAnswers'>
 
 export const saveSelfEvaluationDraft = (input: SaveSelfEvaluationInput) =>
   apiFetch<PerfEvaluationSubmissionDraftRecord>('/evaluations/self/draft', {

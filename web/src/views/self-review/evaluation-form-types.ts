@@ -3,8 +3,13 @@
 // RATING 项只收 rawLevel，SCORE 项只收 rawScore（0-100 整数），其余类型内容进 value。
 
 import type {
+  PerfConfigTemplateRating,
+  PerfEvalFormDimension,
+  PerfEvalFormField,
   PerfEvalFormItem,
   PerfEvalFormSubform,
+  PerfEvaluationDimensionAnswer,
+  PerfEvaluationDimensionAnswerInput,
   PerfEvaluationItemAnswer,
   PerfEvaluationItemResult,
   PerfPerformanceLevel
@@ -166,7 +171,7 @@ export const validateEvaluationForm = (
 
   for (const subform of subforms) {
     for (const dimension of subform.dimensions) {
-      for (const item of dimension.items) {
+      for (const item of dimension.items ?? []) {
         const error = validateEvaluationItem(item, answers[item.key])
 
         if (error) errors[item.key] = error
@@ -226,7 +231,7 @@ export const buildDraftPayloadItems = (
 
   for (const subform of subforms) {
     for (const dimension of subform.dimensions) {
-      for (const item of dimension.items) {
+      for (const item of dimension.items ?? []) {
         const payloadItem = toPayloadItem(subform.key, dimension.key, item, answers[item.key])
 
         if (payloadItem) items.push(payloadItem)
@@ -247,4 +252,149 @@ export const buildSubmitPayload = (
   if (Object.keys(errors).length > 0) return { errors, items: [] }
 
   return { errors, items: buildDraftPayloadItems(subforms, answers) }
+}
+
+const DECIMAL_SCORE_PATTERN = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
+
+/** 新版维度/字段回答回填为统一表单本地状态。 */
+export const toSelfEvaluationAnswers = (dimensions: PerfEvaluationDimensionAnswer[]): EvaluationAnswers => {
+  const answers: EvaluationAnswers = {}
+
+  for (const dimension of dimensions) {
+    answers[dimension.dimensionKey] = {
+      rawLevel: dimension.rawLevel ?? undefined,
+      rawScoreText: dimension.rawScore ?? undefined
+    }
+    for (const field of dimension.fields) answers[field.fieldKey] = { value: field.value }
+  }
+
+  return answers
+}
+
+/** 左闭右开、最高档右闭；分数维度先派生等级再判断条件必填。 */
+export const levelForDimensionAnswer = (
+  dimension: PerfEvalFormDimension,
+  answer: EvaluationItemAnswer | undefined,
+  ratings: PerfConfigTemplateRating[]
+): PerfPerformanceLevel | null => {
+  if (dimension.scoringMethod === 'RATING') return answer?.rawLevel ?? null
+  const text = answer?.rawScoreText?.trim() ?? ''
+
+  if (!DECIMAL_SCORE_PATTERN.test(text)) return null
+  const score = Number(text)
+  const sorted = [...ratings].sort((left, right) => Number(left.minScore) - Number(right.minScore))
+
+  return (
+    sorted.find((rating, index) => {
+      const isHighest = index === sorted.length - 1
+
+      return score >= Number(rating.minScore) && (isHighest ? score <= Number(rating.maxScore) : score < Number(rating.maxScore))
+    })?.symbol ?? null
+  )
+}
+
+const selfFieldRequired = (
+  field: PerfEvalFormField,
+  level: PerfPerformanceLevel | null
+): boolean =>
+  field.requiredRule === 'ALWAYS' ||
+  (field.requiredRule === 'CONDITIONAL' && level != null && (field.requiredLevels ?? []).includes(level))
+
+const validateSelfField = (
+  field: PerfEvalFormField,
+  answer: EvaluationItemAnswer | undefined,
+  required: boolean
+) => validateEvaluationItem({ ...field, required } as PerfEvalFormItem, answer)
+
+/** 新版 SELF 正式提交前校验：计分维度固定必填，字段按自身规则校验。 */
+export const validateSelfEvaluationForm = (
+  subforms: PerfEvalFormSubform[],
+  answers: EvaluationAnswers,
+  ratings: PerfConfigTemplateRating[]
+): Record<string, string> => {
+  const errors: Record<string, string> = {}
+
+  for (const subform of subforms) {
+    for (const dimension of subform.dimensions) {
+      const dimensionAnswer = answers[dimension.key]
+      const level = levelForDimensionAnswer(dimension, dimensionAnswer, ratings)
+
+      if (dimension.type === 'SCORING') {
+        if (dimension.scoringMethod === 'RATING' && !dimensionAnswer?.rawLevel) {
+          errors[dimension.key] = `计分维度「${dimension.name}」请选择评级`
+        } else if (dimension.scoringMethod === 'SCORE') {
+          const text = dimensionAnswer?.rawScoreText?.trim() ?? ''
+
+          if (!text) errors[dimension.key] = `计分维度「${dimension.name}」请输入分数`
+          else if (!DECIMAL_SCORE_PATTERN.test(text)) errors[dimension.key] = `计分维度「${dimension.name}」请输入 0-100、最多两位小数的分数`
+        }
+      }
+
+      for (const field of dimension.fields ?? []) {
+        const error = validateSelfField(field, answers[field.key], selfFieldRequired(field, level))
+
+        if (error) errors[field.key] = error
+      }
+    }
+  }
+
+  return errors
+}
+
+const selfFieldPayload = (field: PerfEvalFormField, answer: EvaluationItemAnswer | undefined) => {
+  if (field.type === 'ATTACHMENT') {
+    const value = nonEmptyAttachmentRows(answer?.value)
+
+    return value.length > 0 ? { fieldKey: field.key, value } : null
+  }
+
+  const value = answer?.value
+
+  if (value === undefined || value === null) return null
+  if (typeof value === 'string' && value.trim() === '') return null
+  if (Array.isArray(value) && value.length === 0) return null
+
+  return { fieldKey: field.key, value }
+}
+
+/** 新版 SELF 草稿载荷：缺计分输入合法；无任何真实输入的说明维度不生成空回答。 */
+export const buildDraftPayloadDimensions = (
+  subforms: PerfEvalFormSubform[],
+  answers: EvaluationAnswers
+): PerfEvaluationDimensionAnswerInput[] => {
+  const dimensions: PerfEvaluationDimensionAnswerInput[] = []
+
+  for (const subform of subforms) {
+    for (const dimension of subform.dimensions) {
+      const answer = answers[dimension.key]
+
+      const fields = (dimension.fields ?? []).flatMap(field => {
+        const payload = selfFieldPayload(field, answers[field.key])
+
+        return payload ? [payload] : []
+      })
+
+      const rawLevel = dimension.scoringMethod === 'RATING' ? answer?.rawLevel : undefined
+      const scoreText = dimension.scoringMethod === 'SCORE' ? answer?.rawScoreText?.trim() : undefined
+      const rawScore = scoreText && DECIMAL_SCORE_PATTERN.test(scoreText) ? Number(scoreText) : undefined
+
+      if (rawLevel === undefined && rawScore === undefined && fields.length === 0) continue
+      dimensions.push({ subformKey: subform.key, dimensionKey: dimension.key, rawLevel, rawScore, fields })
+    }
+  }
+
+  return dimensions
+}
+
+export const buildSelfSubmitPayload = (
+  subforms: PerfEvalFormSubform[],
+  answers: EvaluationAnswers,
+  ratings: PerfConfigTemplateRating[]
+): { errors: Record<string, string>; dimensions: PerfEvaluationDimensionAnswerInput[] } => {
+  const errors = validateSelfEvaluationForm(subforms, answers, ratings)
+
+  return {
+    errors,
+    dimensions: Object.keys(errors).length > 0 ? [] : buildDraftPayloadDimensions(subforms, answers)
+  }
 }

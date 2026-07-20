@@ -13,9 +13,30 @@ export type FormSnapshotItem = {
   config?: unknown;
 };
 
+export type FormSnapshotField = {
+  key: string;
+  type:
+    | 'SHORT_TEXT'
+    | 'LONG_TEXT'
+    | 'MARKDOWN'
+    | 'SINGLE_SELECT'
+    | 'MULTI_SELECT'
+    | 'ATTACHMENT'
+    | 'LINK';
+  title: string;
+  description?: string | null;
+  placeholder?: string | null;
+  requiredRule: 'OPTIONAL' | 'ALWAYS' | 'CONDITIONAL';
+  requiredLevels?: readonly ('S' | 'A' | 'B' | 'C')[];
+  sortOrder?: number;
+  config?: unknown;
+};
+
 export type FormSnapshotDimension = {
   key: string;
+  type?: 'SCORING' | 'NON_SCORING';
   kind?: 'REGULAR' | 'PROMOTION' | 'TEXT' | 'METRIC';
+  scoringMethod?: 'RATING' | 'SCORE' | null;
   audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
   name?: string;
   description?: string | null;
@@ -23,6 +44,7 @@ export type FormSnapshotDimension = {
   isCore?: boolean;
   sortOrder?: number;
   items: readonly FormSnapshotItem[];
+  fields?: readonly FormSnapshotField[];
 };
 
 export type FormSnapshotSubform = {
@@ -35,5 +57,6 @@ export type FormSnapshotSubform = {
 };
 
 export type FormSnapshotContent = {
+  schemaVersion?: number;
   subforms: readonly FormSnapshotSubform[];
 };

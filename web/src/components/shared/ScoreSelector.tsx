@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * SCORE 整数打分：标准 InputGroup（数字 +「分」+ 命中等级徽章）。
+ * SCORE 0～100 分打分：最多两位小数，标准 InputGroup（数字 +「分」+ 命中等级徽章）。
  * hover 徽章展示规则配置中的区间/映射/说明，色阶与 RatingSelector 一致。
  */
 import { Badge } from '@/components/ui/badge'
@@ -76,7 +76,7 @@ function findLevelByScore(score: number, ratings: PerfConfigTemplateRating[]): P
 function clampScore(value: number): number {
   if (!Number.isFinite(value)) return 0
 
-  return Math.min(100, Math.max(0, Math.round(value)))
+  return Math.min(100, Math.max(0, value))
 }
 
 function normalizeScoreInput(raw: string): string {
@@ -91,13 +91,19 @@ function normalizeScoreInput(raw: string): string {
   return String(clampScore(n))
 }
 
-/** 仅保留数字并钳制到 0–100；拒绝小数与其它字符 */
-function sanitizeScoreDigits(raw: string): string {
-  const digits = raw.replace(/[^\d]/g, '')
+/** 仅保留数字与首个小数点，小数最多两位，并即时钳制到 0～100。 */
+function sanitizeScoreInput(raw: string): string {
+  const cleaned = raw.replace(/[^\d.]/g, '')
+  const [integer = '', ...decimalParts] = cleaned.split('.')
+  const hasDot = cleaned.includes('.')
+  const decimal = decimalParts.join('').slice(0, 2)
+  const normalizedInteger = integer === '' && hasDot ? '0' : integer
+  const next = `${normalizedInteger}${hasDot ? `.${decimal}` : ''}`
 
-  if (digits === '') return ''
+  if (next === '') return ''
+  const numeric = Number(next)
 
-  return String(Math.min(100, Number(digits)))
+  return Number.isFinite(numeric) && numeric > 100 ? '100' : next
 }
 
 function ScoreLevelHoverPanel({ rating, color }: { rating: PerfConfigTemplateRating; color: SoftColor }) {
@@ -131,7 +137,7 @@ export type ScoreSelectorProps = {
   className?: string
 }
 
-/** 整数分数输入 + 命中等级徽章（0–100） */
+/** 最多两位小数的分数输入 + 命中等级徽章（0～100） */
 export function ScoreSelector({
   value,
   onChange,
@@ -153,19 +159,19 @@ export function ScoreSelector({
           <InputGroupInput
             aria-label={ariaLabel}
             type='text'
-            inputMode='numeric'
-            pattern='[0-9]*'
+            inputMode='decimal'
+            pattern='(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)'
             autoComplete='off'
             disabled={disabled}
             placeholder='0–100'
             value={value}
             onKeyDown={event => {
-              // 拦截小数点与科学计数等，保证只能输整数
-              if (['.', ',', 'e', 'E', '+', '-', ' '].includes(event.key)) {
+              // 科学计数、正负号和空格不属于受控分数格式；小数点由清洗函数限制为一个。
+              if ([',', 'e', 'E', '+', '-', ' '].includes(event.key)) {
                 event.preventDefault()
               }
             }}
-            onChange={event => onChange(sanitizeScoreDigits(event.target.value))}
+            onChange={event => onChange(sanitizeScoreInput(event.target.value))}
             onBlur={() => {
               if (value.trim() !== '') onChange(normalizeScoreInput(value))
             }}

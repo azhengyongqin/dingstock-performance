@@ -95,7 +95,7 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
  * 清理旧基线数据。已发布的模板版本被数据库 guard 触发器保护（只允许删除 DRAFT），
  * 因此需临时禁用「版本级」用户触发器；子层触发器在级联删除时会自行放行（父记录已不可见），
  * 外键约束（Restrict/Cascade）不受 DISABLE TRIGGER USER 影响，仍然生效。
- * 删除顺序：先删同名周期的通知发送记录、通知事件与可复算阶段结果，再删周期（级联清空配置/表单快照，释放对模板版本的 Restrict 占用），
+ * 删除顺序：先删同名周期的通知发送记录、通知事件、新版字段/维度作答与可复算阶段结果，再删周期（级联清空提交、配置/表单快照，释放对模板版本的 Restrict 占用），
  * 再删配置模板版本+模板，最后删表单模板版本+模板。
  */
 async function cleanupBaseline(prisma: PrismaClient) {
@@ -132,6 +132,17 @@ async function cleanupBaseline(prisma: PrismaClient) {
       });
       await tx.perfNotificationEvent.deleteMany({
         where: { cycleId: { in: baselineCycleIds } },
+      });
+      // 新版回答按字段 → 维度显式清理；随后周期级联删除统一提交，避免快照 Restrict 阻塞基线重建。
+      await tx.perfEvaluationFieldAnswer.deleteMany({
+        where: {
+          dimensionAnswer: {
+            submission: { cycleId: { in: baselineCycleIds } },
+          },
+        },
+      });
+      await tx.perfEvaluationDimensionAnswer.deleteMany({
+        where: { submission: { cycleId: { in: baselineCycleIds } } },
       });
       // 阶段结果是可复算派生数据，但为保护计算证据使用 RESTRICT 外键，基线重建需显式清理。
       await tx.perfStageResult.deleteMany({

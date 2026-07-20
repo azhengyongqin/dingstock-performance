@@ -111,6 +111,19 @@ describe('ResultService 不可变结果版本', () => {
     evaluationSubmissions: [
       {
         stage: 'SELF',
+        dimensionAnswers: [
+          {
+            subformKey: 'subform:SELF',
+            dimensionKey: 'self:summary',
+            fields: [
+              {
+                fieldKey: 'self:summary:text',
+                fieldType: 'MARKDOWN',
+                value: '新版字段：完成重点项目交付',
+              },
+            ],
+          },
+        ],
         items: [
           {
             subformKey: 'subform:SELF',
@@ -167,6 +180,14 @@ describe('ResultService 不可变结果版本', () => {
                 key: 'self:summary',
                 audience: 'EMPLOYEE',
                 name: '工作总结',
+                fields: [
+                  {
+                    key: 'self:summary:text',
+                    title: '本期工作总结',
+                    type: 'MARKDOWN',
+                    requiredRule: 'ALWAYS',
+                  },
+                ],
                 items: [
                   {
                     key: 'self:summary:text',
@@ -250,7 +271,13 @@ describe('ResultService 不可变结果版本', () => {
           }),
           self: expect.objectContaining({
             level: 'A',
-            items: [expect.objectContaining({ value: '完成重点项目交付' })],
+            items: [
+              expect.objectContaining({
+                title: '本期工作总结',
+                type: 'MARKDOWN',
+                value: '新版字段：完成重点项目交付',
+              }),
+            ],
           }),
           promotion: null,
         }),

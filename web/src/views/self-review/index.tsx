@@ -29,9 +29,9 @@ import {
 
 import EvaluationForm from './evaluation-form'
 import {
-  buildDraftPayloadItems,
-  buildSubmitPayload,
-  toEvaluationAnswers,
+  buildDraftPayloadDimensions,
+  buildSelfSubmitPayload,
+  toSelfEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
 } from './evaluation-form-types'
@@ -74,7 +74,7 @@ const SelfReview = () => {
 
       setData(result)
       setState(result.state)
-      setAnswers(toEvaluationAnswers((result.draft ?? result.submitted)?.items ?? []))
+      setAnswers(toSelfEvaluationAnswers((result.draft ?? result.submitted)?.dimensionAnswers ?? []))
       setErrors({})
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : '无法加载自评数据，请确认后端服务已启动。')
@@ -108,9 +108,9 @@ const SelfReview = () => {
     setSaving(true)
 
     try {
-      const items = buildDraftPayloadItems(data.form.subforms, answers)
+      const dimensions = buildDraftPayloadDimensions(data.form.subforms, answers)
 
-      await saveSelfEvaluationDraft({ cycleId: data.participant.cycleId, items })
+      await saveSelfEvaluationDraft({ cycleId: data.participant.cycleId, dimensions })
       toast.success('草稿已保存')
       setState(prev => (prev === 'EFFECTIVE' || prev === 'PENDING_RESUBMIT' ? 'PENDING_RESUBMIT' : 'DRAFT'))
     } catch (err) {
@@ -124,7 +124,11 @@ const SelfReview = () => {
   const handleSubmit = async () => {
     if (!data?.participant || !data.form) return
 
-    const { errors: validationErrors, items } = buildSubmitPayload(data.form.subforms, answers)
+    const { errors: validationErrors, dimensions } = buildSelfSubmitPayload(
+      data.form.subforms,
+      answers,
+      data.participant.cycle.currentConfigVersion?.ratings ?? []
+    )
 
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors)
@@ -137,7 +141,7 @@ const SelfReview = () => {
     setSubmitting(true)
 
     try {
-      await submitSelfEvaluation({ cycleId: data.participant.cycleId, items })
+      await submitSelfEvaluation({ cycleId: data.participant.cycleId, dimensions })
       toast.success('自评已提交')
       await fetchContext()
     } catch (err) {
@@ -250,7 +254,7 @@ const SelfReview = () => {
           <Alert variant='destructive'>
             <AlertCircleIcon />
             <AlertTitle>还有必填项未完成或内容格式有误</AlertTitle>
-            <AlertDescription>请检查下方标红的评估项后再提交</AlertDescription>
+            <AlertDescription>请检查下方标红的评估维度或表单字段后再提交</AlertDescription>
           </Alert>
         )}
       </div>
