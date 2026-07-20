@@ -88,6 +88,106 @@ function isAcceptedAtBothSeams(field: FormSnapshotField, value: unknown) {
 
 describe('实时提交与结构迁移共用字段值规则', () => {
   it.each([
+    [
+      '空白文本',
+      {
+        key: 'field:text',
+        type: 'LONG_TEXT',
+        title: '文本',
+        requiredRule: 'OPTIONAL',
+      },
+      '   ',
+    ],
+    [
+      '空单选',
+      {
+        key: 'field:single',
+        type: 'SINGLE_SELECT',
+        title: '单选',
+        requiredRule: 'OPTIONAL',
+        config: { options: [{ value: 'A', label: 'A' }] },
+      },
+      '',
+    ],
+    [
+      '空多选',
+      {
+        key: 'field:multi',
+        type: 'MULTI_SELECT',
+        title: '多选',
+        requiredRule: 'OPTIONAL',
+        config: { options: [{ value: 'A', label: 'A' }] },
+      },
+      [],
+    ],
+    [
+      '空附件',
+      {
+        key: 'field:file',
+        type: 'ATTACHMENT',
+        title: '附件',
+        requiredRule: 'OPTIONAL',
+      },
+      [],
+    ],
+    [
+      '空链接',
+      {
+        key: 'field:link',
+        type: 'LINK',
+        title: '链接',
+        requiredRule: 'OPTIONAL',
+      },
+      '   ',
+    ],
+    [
+      'null',
+      {
+        key: 'field:null',
+        type: 'SHORT_TEXT',
+        title: '空值',
+        requiredRule: 'OPTIONAL',
+      },
+      null,
+    ],
+    [
+      'undefined',
+      {
+        key: 'field:undefined',
+        type: 'SHORT_TEXT',
+        title: '缺失值',
+        requiredRule: 'OPTIONAL',
+      },
+      undefined,
+    ],
+  ] as const)('%s 在两处都不形成字段答案', (_label, field, value) => {
+    expect(isAcceptedAtBothSeams(field as FormSnapshotField, value)).toEqual({
+      migrationAccepted: false,
+      submissionAccepted: false,
+    });
+  });
+
+  it('OPTIONAL 字段省略时提交成功且不生成字段答案', () => {
+    const field: FormSnapshotField = {
+      key: 'field:optional',
+      type: 'LONG_TEXT',
+      title: '选填说明',
+      requiredRule: 'OPTIONAL',
+    };
+
+    const resolved = service.validatePeerDimensionAnswers(contentWith(field), [
+      {
+        subformKey: 'subform:PEER',
+        dimensionKey: 'dimension:peer',
+        fields: [],
+      },
+    ]);
+
+    expect(resolved[0].fields).toEqual([]);
+    expect(service.toDimensionAnswerRow(resolved[0], 1).fields).toEqual([]);
+  });
+
+  it.each([
     {
       label: '文本长度越界',
       field: {

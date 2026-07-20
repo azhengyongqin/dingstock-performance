@@ -8,6 +8,11 @@ export function isFormFieldValueCompatible(
   field: FormSnapshotField,
   value: unknown,
 ): boolean {
+  // 空值只表示“未作答”，不能形成字段答案，也不能在结构变更后继续预填。
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string' && value.trim().length === 0) return false;
+  if (Array.isArray(value) && value.length === 0) return false;
+
   const config = isRecord(field.config) ? field.config : {};
   if (
     field.type === 'SHORT_TEXT' ||

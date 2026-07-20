@@ -349,6 +349,30 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByRole('heading', { name: '协作沟通' })).toBeInTheDocument()
   })
 
+  it('历史绩效展示后端收敛后的晋升文本摘要', async () => {
+    getManagerEvaluationContext.mockResolvedValue({
+      ...context,
+      history: [
+        {
+          finalLevel: 'A',
+          promotionResult: '晋升陈述：历史可见内容',
+          participant: { cycle: { id: 2, name: '2025 下半年绩效' } }
+        },
+        {
+          finalLevel: 'B',
+          promotionResult: null,
+          participant: { cycle: { id: 3, name: '2025 上半年绩效' } }
+        }
+      ]
+    })
+    render(<ManagerReviewFill participantId={7} />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '更多' }))
+
+    expect(screen.getByText('晋升陈述：历史可见内容')).toBeInTheDocument()
+    expect(screen.getByText('2025 上半年绩效')).toBeInTheDocument()
+  })
+
   it('从团队看板进入时，返回入口和提交成功跳转都回到团队看板', async () => {
     useSearchParams.mockReturnValue(new URLSearchParams('from=team-review'))
     render(<ManagerReviewFill participantId={7} />)

@@ -7,13 +7,13 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@/components/ui/badge'
 
 // Util Imports
-import { formatDate } from '@/lib/perf-api'
+import { formatDate, type PerfHistoricalPromotionResult } from '@/lib/perf-api'
 
 /** 历史绩效行数据 = 后端 GET /profiles/{openId}/performance 的 item */
 export type PerformanceHistoryRow = {
   cycle: { id: number; name: string }
   finalLevel: string
-  promotionResult?: string | null
+  promotionResult: PerfHistoricalPromotionResult
   confirmedByEmployee: boolean
   archivedAt?: string | null
 }

@@ -261,6 +261,51 @@ describe('ManagerEvaluationSubmissionService 新版上级评估公开流程', ()
     );
   });
 
+  it('Leader 历史绩效仅返回旧晋升的安全文本摘要', async () => {
+    prisma.perfResultVersion.findMany.mockResolvedValue([
+      {
+        finalLevel: 'A',
+        resultSnapshot: {
+          promotion: {
+            visible: true,
+            items: [{ title: '晋升陈述', value: '历史员工可见内容' }],
+            leaderPrivateNote: '不得下发',
+          },
+        },
+        participant: {
+          cycle: { id: 2, name: '2025 下半年绩效' },
+        },
+      },
+      {
+        finalLevel: 'B',
+        resultSnapshot: { promotion: null },
+        participant: {
+          cycle: { id: 3, name: '2025 上半年绩效' },
+        },
+      },
+      {
+        finalLevel: 'B',
+        resultSnapshot: { promotion: { unexpected: '内部字段' } },
+        participant: {
+          cycle: { id: 4, name: '2024 下半年绩效' },
+        },
+      },
+    ]);
+
+    const context = await service.getManagerContext('ou_leader', 7);
+
+    expect(context.history).toEqual([
+      expect.objectContaining({
+        promotionResult: '晋升陈述：历史员工可见内容',
+      }),
+      expect.objectContaining({ promotionResult: null }),
+      expect.objectContaining({ promotionResult: null }),
+    ]);
+    expect(JSON.stringify(context.history)).not.toMatch(
+      /leaderPrivateNote|unexpected|不得下发|内部字段/,
+    );
+  });
+
   it('草稿允许缺少计分维度与必填字段，并按维度回答整体替换', async () => {
     await service.saveManagerDraft('ou_leader', {
       participantId: 7,

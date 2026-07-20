@@ -14,6 +14,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import type { SaveManagerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
+import { projectHistoricalPromotion } from '../calibration/result-history-projection';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
@@ -201,8 +202,7 @@ export class ManagerEvaluationSubmissionService {
       managerResult,
       history: history.map((version) => ({
         finalLevel: version.finalLevel,
-        promotionResult:
-          (version.resultSnapshot as Record<string, unknown>).promotion ?? null,
+        promotionResult: projectHistoricalPromotion(version.resultSnapshot),
         participant: version.participant,
       })),
     };

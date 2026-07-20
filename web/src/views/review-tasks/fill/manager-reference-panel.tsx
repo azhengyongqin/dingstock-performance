@@ -14,6 +14,7 @@ import {
   avatarUrlOf,
   type PerfDetailedEmployeeProfile,
   type PerfEvaluationDimensionAnswer,
+  type PerfHistoricalPromotionResult,
   type ParticipantOkrSnapshot,
   type PerfManagerStageResult,
   type PerfPeerStageResult
@@ -31,7 +32,7 @@ export type ManagerReferencePanelProps = {
   managerResult: PerfManagerStageResult | null
   history: Array<{
     finalLevel: string
-    promotionResult?: string | null
+    promotionResult: PerfHistoricalPromotionResult
     participant: { cycle: { id: number; name: string } }
   }>
   collapsed: boolean

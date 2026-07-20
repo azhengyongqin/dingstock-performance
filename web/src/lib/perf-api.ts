@@ -1051,6 +1051,9 @@ export type PerfPeerStageResult = PerfManagerStageResult & {
   analysis: PerfPeerReviewAnalysis
 }
 
+/** 旧晋升历史的安全只读投影；后端不向消费者暴露原始 JSON 结构。 */
+export type PerfHistoricalPromotionResult = string | null
+
 export type PerfManagerEvaluationContext = {
   participant: { id: number; cycleId: number }
   cycle: {
@@ -1070,7 +1073,7 @@ export type PerfManagerEvaluationContext = {
   managerResult: PerfManagerStageResult | null
   history: Array<{
     finalLevel: string
-    promotionResult?: string | null
+    promotionResult: PerfHistoricalPromotionResult
     participant: { cycle: { id: number; name: string } }
   }>
 }

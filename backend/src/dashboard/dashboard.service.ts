@@ -13,6 +13,7 @@ import {
 } from '../generated/prisma/enums';
 import { PrismaService } from '../shared/database/prisma.service';
 import { RbacService } from '../rbac/rbac.service';
+import { projectHistoricalPromotion } from '../calibration/result-history-projection';
 
 /** 看板只聚合统一任务、统一提交、阶段结果和不可变结果版本。 */
 @Injectable()
@@ -262,8 +263,7 @@ export class DashboardService {
       items: versions.map((version) => ({
         cycle: version.participant.cycle,
         finalLevel: version.finalLevel,
-        promotionResult:
-          (version.resultSnapshot as Record<string, unknown>).promotion ?? null,
+        promotionResult: projectHistoricalPromotion(version.resultSnapshot),
         confirmedByEmployee: Boolean(version.confirmedAt),
         archivedAt: version.participant.cycle.plannedStartAt,
       })),

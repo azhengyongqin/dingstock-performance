@@ -596,7 +596,7 @@ export class EvaluationSubmissionService {
         const answered = answer?.fields.some(
           (entry) =>
             entry.field.key === field.key &&
-            this.isFieldValueAnswered(entry.answer.value),
+            isFormFieldValueCompatible(entry.field, entry.answer.value),
         );
         const required =
           field.requiredRule === 'ALWAYS' ||
@@ -697,14 +697,9 @@ export class EvaluationSubmissionService {
           throw new BadRequestException(`表单字段「${field.title}」重复提交`);
         }
         seenFields.add(field.key);
-        if (!this.isFieldValueAnswered(fieldAnswer.value)) {
-          throw new BadRequestException(
-            `表单字段「${field.title}」没有有效内容`,
-          );
-        }
         if (!isFormFieldValueCompatible(field, fieldAnswer.value)) {
           throw new BadRequestException(
-            `表单字段「${field.title}」的内容载荷与字段类型不匹配`,
+            `表单字段「${field.title}」没有有效内容或载荷与字段类型不匹配`,
           );
         }
         return { answer: fieldAnswer, field };
@@ -864,13 +859,6 @@ export class EvaluationSubmissionService {
       where: { stageResultId: stageResult.id },
     });
     return null;
-  }
-
-  private isFieldValueAnswered(value: unknown) {
-    if (value === undefined || value === null) return false;
-    if (typeof value === 'string') return value.trim().length > 0;
-    if (Array.isArray(value)) return value.length > 0;
-    return true;
   }
 
   /** 360°只使用 PEER 子表单的 REVIEWER 区段；晋升子表单无条件排除（ADR-0011）。 */
