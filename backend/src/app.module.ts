@@ -17,6 +17,7 @@ import { CutoverModule } from './cutover/cutover.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { EvaluationModule } from './evaluation/evaluation.module';
 import { FormTemplateModule } from './form-template/form-template.module';
+import { LegacyPromotionArchiveModule } from './legacy-promotion-archive/legacy-promotion-archive.module';
 import { NotificationModule } from './notification/notification.module';
 import { OkrModule } from './okr/okr.module';
 import { ParticipantModule } from './participant/participant.module';
@@ -50,6 +51,7 @@ import { SharedModule } from './shared/shared.module';
     OkrModule,
     DashboardModule,
     FormTemplateModule,
+    LegacyPromotionArchiveModule,
     ConfigTemplateModule,
   ],
   controllers: [AppController],

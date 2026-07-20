@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { CycleFormChangeService } from './cycle-form-change.service';
 
 jest.mock('../generated/prisma/client', () => ({
@@ -127,6 +127,18 @@ const answer = (
 });
 
 function cycleFixture(status = 'DRAFT') {
+  const historicalForm = structuredClone(form);
+  historicalForm.subforms[0].dimensions.push({
+    key: 'dimension:deleted-history',
+    type: 'NON_SCORING',
+    audience: 'EMPLOYEE',
+    name: '已删除历史维度',
+    scoringMethod: null,
+    weight: null,
+    isCore: false,
+    sortOrder: 1,
+    fields: [field('field:deleted-history')],
+  });
   return {
     id: 8,
     name: '2026 年中绩效评定',
@@ -157,6 +169,28 @@ function cycleFixture(status = 'DRAFT') {
         },
       ],
     },
+    configVersions: [
+      {
+        id: 30,
+        formSnapshots: [
+          {
+            id: 40,
+            jobLevelPrefix: 'D',
+            content: historicalForm,
+          },
+        ],
+      },
+      {
+        id: 31,
+        formSnapshots: [
+          {
+            id: 41,
+            jobLevelPrefix: 'D',
+            content: form,
+          },
+        ],
+      },
+    ],
     participants: [
       {
         id: 51,
@@ -360,7 +394,6 @@ describe('CycleFormChangeService 新版维度/字段公开契约', () => {
     expect(tx.perfEvaluationDimensionAnswer.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         submissionId: 65,
-        dimensionKey: 'dimension:summary',
         scoringMethod: null,
         fields: {
           create: [
@@ -411,6 +444,118 @@ describe('CycleFormChangeService 新版维度/字段公开契约', () => {
         expect.objectContaining({
           kind: 'FIELD_TYPE_CHANGED',
           fieldKey: 'field:self-comment',
+        }),
+      ]),
+    );
+  });
+
+  it('固定子表单 key 必须来自当前快照，且禁止伪造 PROMOTION 子表单', async () => {
+    const forged = structuredClone(form);
+    forged.subforms[0].key = 'client-forged-self';
+    await expect(
+      service.preview('ou_admin', 8, {
+        expectedConfigVersionId: 31,
+        formSnapshots: [{ jobLevelPrefix: 'D', content: forged }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    const promotion = structuredClone(form);
+    promotion.subforms.push({
+      key: 'subform:PROMOTION',
+      type: 'PROMOTION',
+      title: '伪造晋升',
+      sortOrder: 3,
+      dimensions: [],
+    });
+    await expect(
+      service.preview('ou_admin', 8, {
+        expectedConfigVersionId: 31,
+        formSnapshots: [{ jobLevelPrefix: 'D', content: promotion }],
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('历史快照是墓碑注册表，已删除 key 不得复用且禁止维度与字段身份串用', async () => {
+    const reused = structuredClone(form);
+    reused.subforms[0].dimensions.push({
+      key: 'dimension:deleted-history',
+      type: 'NON_SCORING',
+      audience: 'EMPLOYEE',
+      name: '冒用已删除维度',
+      scoringMethod: null,
+      weight: null,
+      isCore: false,
+      sortOrder: 1,
+      fields: [],
+    });
+    await expect(
+      service.preview('ou_admin', 8, {
+        expectedConfigVersionId: 31,
+        formSnapshots: [{ jobLevelPrefix: 'D', content: reused }],
+      }),
+    ).rejects.toThrow('已删除');
+
+    const swapped = structuredClone(form);
+    swapped.subforms[0].dimensions[0].key = 'field:self-comment';
+    swapped.subforms[0].dimensions[0].fields = [];
+    await expect(
+      service.preview('ou_admin', 8, {
+        expectedConfigVersionId: 31,
+        formSnapshots: [{ jobLevelPrefix: 'D', content: swapped }],
+      }),
+    ).rejects.toThrow('身份类型');
+  });
+
+  it('预览允许临时 key，应用时由服务端生成全新 key 并保持字段嵌套关系', async () => {
+    const next = structuredClone(form);
+    next.subforms[0].dimensions.push({
+      key: 'client-temp-dimension',
+      type: 'NON_SCORING',
+      audience: 'EMPLOYEE',
+      name: '新增补充维度',
+      scoringMethod: null,
+      weight: null,
+      isCore: false,
+      sortOrder: 1,
+      fields: [field('client-temp-field')],
+    });
+    const input = {
+      expectedConfigVersionId: 31,
+      formSnapshots: [{ jobLevelPrefix: 'D' as const, content: next }],
+    };
+    const preview = await service.preview('ou_admin', 8, input);
+    expect(preview.classifications[0].changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'DIMENSION_ADDED',
+          dimensionKey: 'client-temp-dimension',
+        }),
+      ]),
+    );
+
+    const result = await service.apply('ou_admin', 8, {
+      ...input,
+      reason: '新增补充维度',
+      confirmed: true,
+      impactRevision: preview.impactRevision,
+    });
+    const createInput = tx.perfCycleConfigVersion.create.mock.calls[0][0];
+    const persisted = createInput.data.formSnapshots.create[0].content;
+    const added = persisted.subforms[0].dimensions.at(-1);
+    expect(added.key).not.toBe('client-temp-dimension');
+    expect(added.fields[0].key).not.toBe('client-temp-field');
+    expect(added.fields).toHaveLength(1);
+    expect(result.materializedIdentities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'DIMENSION',
+          clientKey: 'client-temp-dimension',
+          serverKey: added.key,
+        }),
+        expect.objectContaining({
+          kind: 'FIELD',
+          clientKey: 'client-temp-field',
+          serverKey: added.fields[0].key,
         }),
       ]),
     );

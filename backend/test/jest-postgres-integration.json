@@ -10,6 +10,7 @@
     "<rootDir>/test/cycle-archive-postgres.integration-spec.ts",
     "<rootDir>/test/performance-cutover-migration-postgres.integration-spec.ts",
     "<rootDir>/test/performance-cutover-journey-postgres.integration-spec.ts",
+    "<rootDir>/test/performance-baseline-reset-seed-postgres.integration-spec.ts",
     "<rootDir>/test/legacy-promotion-archive-postgres.integration-spec.ts",
     "<rootDir>/test/legacy-promotion-completeness-gate-postgres.integration-spec.ts",
     "<rootDir>/test/active-cycle-config-service.integration-spec.ts"

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { ConfigService } from '@nestjs/config';
 import { Pool } from 'pg';
 import { loadAppConfig } from '../src/config/configuration';
+import { AiReportInputBuilder } from '../src/ai-report/ai-report-input.builder';
 import { ActiveCycleConfigChangeService } from '../src/evaluation/active-cycle-config-change.service';
 import { EvaluationSubmissionService } from '../src/evaluation/evaluation-submission.service';
 import { ManagerStageResultService } from '../src/evaluation/manager-stage-result.service';
@@ -130,6 +131,8 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
   let cycleId: number;
   let participantId: number;
   let dimensionAnswerId: number;
+  let managerScoreAnswerId: number;
+  let invalidatedAnswerId: number;
   let calibrationId: number;
   let resultVersionId: number;
   let configRootId: number;
@@ -264,6 +267,7 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
       data: {
         cycleId,
         employeeOpenId: `ou_employee_${suffix}`,
+        leaderOpenIdSnapshot: operator,
         departmentIdSnapshot: 'od_allowed',
         jobLevelPrefixSnapshot: 'D',
         formSnapshotId: snapshot.id,
@@ -290,10 +294,73 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
         scoringMethod: 'RATING',
         rawLevel: 'A',
         calculationScore: '85',
-        derivedLevel: 'A',
+        // 模拟旧实现只更新映射分后遗留的过期等级，配置切换必须统一修复。
+        derivedLevel: 'B',
       },
     });
     dimensionAnswerId = dimensionAnswer.id;
+    const managerSubmission = await prisma.perfEvaluationSubmission.create({
+      data: {
+        cycleId,
+        participantId,
+        stage: 'MANAGER',
+        reviewerOpenId: operator,
+        formSnapshotId: snapshot.id,
+        status: 'SUBMITTED',
+        submittedAt: new Date(),
+      },
+    });
+    const managerScoreAnswer =
+      await prisma.perfEvaluationDimensionAnswer.create({
+        data: {
+          submissionId: managerSubmission.id,
+          formSnapshotId: snapshot.id,
+          subformKey: 'subform:MANAGER',
+          dimensionKey: 'dimension:manager',
+          scoringMethod: 'SCORE',
+          rawScore: '70',
+          calculationScore: '70',
+          derivedLevel: 'B',
+        },
+      });
+    managerScoreAnswerId = managerScoreAnswer.id;
+    await prisma.perfEvaluationDimensionAnswer.create({
+      data: {
+        submissionId: managerSubmission.id,
+        formSnapshotId: snapshot.id,
+        subformKey: 'subform:MANAGER',
+        dimensionKey: 'dimension:manager-growth',
+        scoringMethod: 'SCORE',
+        rawScore: '70',
+        calculationScore: '70',
+        derivedLevel: 'B',
+      },
+    });
+    const invalidatedSubmission = await prisma.perfEvaluationSubmission.create({
+      data: {
+        cycleId,
+        participantId,
+        stage: 'SELF',
+        reviewerOpenId: participant.employeeOpenId,
+        formSnapshotId: snapshot.id,
+        status: 'INVALIDATED',
+      },
+    });
+    const invalidatedAnswer = await prisma.perfEvaluationDimensionAnswer.create(
+      {
+        data: {
+          submissionId: invalidatedSubmission.id,
+          formSnapshotId: snapshot.id,
+          subformKey: 'subform:SELF',
+          dimensionKey: 'dimension:self',
+          scoringMethod: 'RATING',
+          rawLevel: 'A',
+          calculationScore: '85',
+          derivedLevel: 'B',
+        },
+      },
+    );
+    invalidatedAnswerId = invalidatedAnswer.id;
     const selfResult = await prisma.perfStageResult.create({
       data: {
         cycleId,
@@ -463,7 +530,11 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
         },
       ],
       ratings: ratings.map((rating) =>
-        rating.symbol === 'A' ? { ...rating, mappingScore: '88' } : rating,
+        rating.symbol === 'A'
+          ? { ...rating, minScore: '70', mappingScore: '88' }
+          : rating.symbol === 'B'
+            ? { ...rating, maxScore: '70', mappingScore: '65' }
+            : rating,
       ),
       reviewerRelationWeights: {
         ORG_OWNER: '30',
@@ -533,6 +604,16 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
           where: { id: dimensionAnswerId },
         })
       ).calculationScore?.toString(),
+      selfDerivedLevel: (
+        await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+          where: { id: dimensionAnswerId },
+        })
+      ).derivedLevel,
+      managerDerivedLevel: (
+        await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+          where: { id: managerScoreAnswerId },
+        })
+      ).derivedLevel,
       auditCount: await prisma.auditLog.count({
         where: {
           action: 'cycle.active_config.recalculate',
@@ -588,6 +669,20 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
       ).calculationScore?.toString(),
     ).toBe(beforeFailedApply.calculationScore);
     expect(
+      (
+        await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+          where: { id: dimensionAnswerId },
+        })
+      ).derivedLevel,
+    ).toBe(beforeFailedApply.selfDerivedLevel);
+    expect(
+      (
+        await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+          where: { id: managerScoreAnswerId },
+        })
+      ).derivedLevel,
+    ).toBe(beforeFailedApply.managerDerivedLevel);
+    expect(
       await prisma.auditLog.count({
         where: {
           action: 'cycle.active_config.recalculate',
@@ -620,6 +715,24 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
       ).calculationScore!.toString(),
     ).toBe('88');
     expect(
+      (
+        await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+          where: { id: dimensionAnswerId },
+        })
+      ).derivedLevel,
+    ).toBe('A');
+    const updatedManagerAnswer =
+      await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+        where: { id: managerScoreAnswerId },
+      });
+    expect(updatedManagerAnswer.calculationScore?.toString()).toBe('70');
+    expect(updatedManagerAnswer.derivedLevel).toBe('A');
+    expect(
+      await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+        where: { id: invalidatedAnswerId },
+      }),
+    ).toMatchObject({ derivedLevel: 'B' });
+    expect(
       await prisma.perfStageResult.count({
         where: { participantId, stage: 'MANAGER' },
       }),
@@ -637,6 +750,43 @@ describe('Ticket 16 ActiveCycleConfigChangeService PostgreSQL 集成', () => {
       dimensionKey: 'dimension:self',
       level: 'A',
     });
+    const currentManagerResult = await prisma.perfStageResult.findFirstOrThrow({
+      where: {
+        participantId,
+        stage: 'MANAGER',
+        cycleConfigVersionId: (
+          await prisma.perfCycle.findUniqueOrThrow({ where: { id: cycleId } })
+        ).currentConfigVersionId!,
+      },
+      include: { dimensions: true },
+    });
+    expect(currentManagerResult.dimensions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          dimensionKey: 'dimension:manager',
+          level: 'A',
+        }),
+      ]),
+    );
+    const aiInput = await new AiReportInputBuilder().build(
+      participantId,
+      prisma,
+    );
+    expect(aiInput?.snapshot).toEqual(
+      expect.objectContaining({
+        submissions: expect.arrayContaining([
+          expect.objectContaining({
+            stage: 'MANAGER',
+            dimensionAnswers: expect.arrayContaining([
+              expect.objectContaining({
+                dimensionKey: 'dimension:manager',
+                derivedLevel: 'A',
+              }),
+            ]),
+          }),
+        ]),
+      }),
+    );
     const current = await prisma.perfCycle.findUniqueOrThrow({
       where: { id: cycleId },
       include: { currentConfigVersion: { include: { formSnapshots: true } } },

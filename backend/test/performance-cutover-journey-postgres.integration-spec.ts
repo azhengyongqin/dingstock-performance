@@ -55,17 +55,12 @@ describe('新版评估维度 PostgreSQL + Nest 真实业务旅程', () => {
 
   beforeAll(async () => {
     await adminPool.query(`CREATE DATABASE "${databaseName}"`);
-    // 历史迁移链包含已知的非幂等约束删除；业务旅程只验证当前 schema 与服务协作，
-    // 迁移兼容性由独立的 legacy-promotion-archive PostgreSQL 用例覆盖。
-    execFileSync(
-      'pnpm',
-      ['exec', 'prisma', 'db', 'push', '--accept-data-loss'],
-      {
-        cwd: process.cwd(),
-        env: { ...process.env, DATABASE_URL: tempUrl },
-        stdio: 'pipe',
-      },
-    );
+    // 真实旅程必须从空库部署完整迁移链；db push 会绕过历史顺序问题。
+    execFileSync('pnpm', ['exec', 'prisma', 'migrate', 'deploy'], {
+      cwd: process.cwd(),
+      env: { ...process.env, DATABASE_URL: tempUrl },
+      stdio: 'pipe',
+    });
     prisma = new PrismaService({
       getOrThrow: () => tempUrl,
     } as unknown as ConfigService);

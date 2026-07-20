@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '../generated/prisma/client';
 import {
   PerfAssignmentStatus,
@@ -49,6 +49,13 @@ export type ApplyCycleFormChangeInput = CycleFormSnapshotChangeInput & {
 
 const cycleFormChangeInclude = {
   currentConfigVersion: {
+    include: {
+      formSnapshots: { orderBy: { jobLevelPrefix: 'asc' as const } },
+    },
+  },
+  // 全部历史快照共同构成墓碑注册表，防止删除后的稳定 key 被后来复用。
+  configVersions: {
+    orderBy: { version: 'asc' as const },
     include: {
       formSnapshots: { orderBy: { jobLevelPrefix: 'asc' as const } },
     },
@@ -163,9 +170,14 @@ export class CycleFormChangeService {
             message: impact.blockedReason,
           });
         }
+        // 影响修订基于客户端临时 key 保持稳定；只有确认应用时才物化全新服务端身份。
+        const materialized = this.materializeNewIdentityKeys(
+          cycle,
+          input.formSnapshots,
+        );
 
         if (impact.category === 'COPY_ONLY') {
-          await this.applyCopyOnly(tx, cycle, input.formSnapshots);
+          await this.applyCopyOnly(tx, cycle, materialized.formSnapshots);
           await this.writeAudit(tx, operatorOpenId, cycle, impact, reason);
           return {
             cycleId,
@@ -173,13 +185,14 @@ export class CycleFormChangeService {
             configVersionId: cycle.currentConfigVersionId,
             version: cycle.currentConfigVersion!.version,
             impact: impact.summary,
+            materializedIdentities: materialized.identities,
           };
         }
 
         const next = await this.createStructuralVersion(
           tx,
           cycle,
-          input.formSnapshots,
+          materialized.formSnapshots,
           operatorOpenId,
         );
         await this.migrateSubmissions(
@@ -187,7 +200,7 @@ export class CycleFormChangeService {
           cycle,
           next.formSnapshots,
           impact,
-          input.formSnapshots,
+          materialized.formSnapshots,
         );
         await tx.perfCycle.update({
           where: { id: cycleId },
@@ -201,6 +214,7 @@ export class CycleFormChangeService {
           configVersionId: next.id,
           version: next.version,
           impact: impact.summary,
+          materializedIdentities: materialized.identities,
         };
       },
       { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 120_000 },
@@ -686,7 +700,122 @@ export class CycleFormChangeService {
         });
       }
       assertStableKeysUnique(input.content, input.jobLevelPrefix);
+      this.assertRegisteredIdentities(cycle, input);
     }
+  }
+
+  private assertRegisteredIdentities(
+    cycle: FormChangeCycle,
+    input: SnapshotInput,
+  ) {
+    const currentSnapshot = cycle.currentConfigVersion!.formSnapshots.find(
+      (snapshot) => snapshot.jobLevelPrefix === input.jobLevelPrefix,
+    )!;
+    const current = collectContentIdentities(
+      currentSnapshot.content as unknown as FormSnapshotContent,
+    );
+    const registry = new Map<string, StableIdentityKind>();
+    for (const version of cycle.configVersions) {
+      for (const snapshot of version.formSnapshots) {
+        const identities = collectContentIdentities(
+          snapshot.content as unknown as FormSnapshotContent,
+        );
+        for (const [key, kind] of identities.all) {
+          const previous = registry.get(key);
+          if (previous && previous !== kind) {
+            throw new ConflictException(
+              `历史周期快照中的稳定 key ${key} 已出现身份类型冲突`,
+            );
+          }
+          registry.set(key, kind);
+        }
+      }
+    }
+
+    const currentSubformByType = new Map(
+      (currentSnapshot.content as unknown as FormSnapshotContent).subforms.map(
+        (subform) => [subform.type, subform.key],
+      ),
+    );
+    for (const subform of input.content.subforms) {
+      if (!stageOrder.includes(subform.type)) {
+        throw new BadRequestException(
+          `${input.jobLevelPrefix} 周期表单只允许 SELF、PEER、MANAGER 子表单`,
+        );
+      }
+      if (currentSubformByType.get(subform.type) !== subform.key) {
+        throw new BadRequestException(
+          `${subform.type} 子表单稳定 key 必须来自当前周期快照`,
+        );
+      }
+      for (const dimension of subform.dimensions) {
+        assertIdentityCanBeInherited(
+          dimension.key,
+          'DIMENSION',
+          current,
+          registry,
+        );
+        for (const field of dimension.fields ?? []) {
+          assertIdentityCanBeInherited(field.key, 'FIELD', current, registry);
+        }
+      }
+    }
+  }
+
+  private materializeNewIdentityKeys(
+    cycle: FormChangeCycle,
+    inputs: SnapshotInput[],
+  ): {
+    formSnapshots: SnapshotInput[];
+    identities: Array<{
+      kind: 'DIMENSION' | 'FIELD';
+      clientKey: string;
+      serverKey: string;
+    }>;
+  } {
+    const identities: Array<{
+      kind: 'DIMENSION' | 'FIELD';
+      clientKey: string;
+      serverKey: string;
+    }> = [];
+    const currentByPrefix = new Map(
+      cycle.currentConfigVersion!.formSnapshots.map((snapshot) => [
+        snapshot.jobLevelPrefix,
+        collectContentIdentities(
+          snapshot.content as unknown as FormSnapshotContent,
+        ),
+      ]),
+    );
+    const formSnapshots = inputs.map((input) => {
+      const current = currentByPrefix.get(input.jobLevelPrefix)!;
+      const content = structuredClone(input.content);
+      for (const subform of content.subforms) {
+        for (const dimension of subform.dimensions) {
+          if (!current.dimensions.has(dimension.key)) {
+            const clientKey = dimension.key;
+            dimension.key = randomUUID();
+            identities.push({
+              kind: 'DIMENSION',
+              clientKey,
+              serverKey: dimension.key,
+            });
+          }
+          for (const field of dimension.fields ?? []) {
+            if (!current.fields.has(field.key)) {
+              const clientKey = field.key;
+              field.key = randomUUID();
+              identities.push({
+                kind: 'FIELD',
+                clientKey,
+                serverKey: field.key,
+              });
+            }
+          }
+        }
+      }
+      return { ...input, content };
+    });
+    return { formSnapshots, identities };
   }
 
   private assertExpectedVersion(cycle: FormChangeCycle, expectedId: number) {
@@ -746,6 +875,47 @@ export class CycleFormChangeService {
 }
 
 const stageOrder: HumanEvaluationStage[] = ['SELF', 'PEER', 'MANAGER'];
+
+type StableIdentityKind = 'SUBFORM' | 'DIMENSION' | 'FIELD';
+
+function collectContentIdentities(content: FormSnapshotContent) {
+  const subforms = new Set<string>();
+  const dimensions = new Set<string>();
+  const fields = new Set<string>();
+  const all = new Map<string, StableIdentityKind>();
+  for (const subform of content.subforms) {
+    subforms.add(subform.key);
+    all.set(subform.key, 'SUBFORM');
+    for (const dimension of subform.dimensions) {
+      dimensions.add(dimension.key);
+      all.set(dimension.key, 'DIMENSION');
+      for (const field of dimension.fields ?? []) {
+        fields.add(field.key);
+        all.set(field.key, 'FIELD');
+      }
+    }
+  }
+  return { subforms, dimensions, fields, all };
+}
+
+function assertIdentityCanBeInherited(
+  key: string,
+  expectedKind: 'DIMENSION' | 'FIELD',
+  current: ReturnType<typeof collectContentIdentities>,
+  registry: Map<string, StableIdentityKind>,
+) {
+  const registeredKind = registry.get(key);
+  if (registeredKind && registeredKind !== expectedKind) {
+    throw new BadRequestException(
+      `稳定 key ${key} 已注册为 ${registeredKind}，禁止串用为 ${expectedKind} 身份类型`,
+    );
+  }
+  const currentKeys =
+    expectedKind === 'DIMENSION' ? current.dimensions : current.fields;
+  if (registeredKind === expectedKind && !currentKeys.has(key)) {
+    throw new BadRequestException(`已删除的稳定 key ${key} 不得复用`);
+  }
+}
 
 function strongestCategory(categories: CycleFormChangeCategory[]) {
   const order: CycleFormChangeCategory[] = [

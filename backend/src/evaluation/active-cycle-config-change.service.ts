@@ -9,6 +9,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { PerfCycleStatus, PerfReviewStatus } from '../generated/prisma/enums';
 import type { ConfigTemplateVersionContract } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
+import { mapScoreToPerformanceLevel } from '../calculation/stage-result-calculator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -209,15 +210,50 @@ export class ActiveCycleConfigChangeService {
       });
       participantIds.push(participant.id);
     }
-    // 原始评级不变；映射分属于新配置口径，必须在阶段重算前同步重放。
-    for (const rating of input.ratings) {
-      await tx.perfEvaluationDimensionAnswer.updateMany({
-        where: {
-          submission: { participantId: { in: participantIds } },
-          scoringMethod: 'RATING',
-          rawLevel: rating.symbol,
+    const ratingBySymbol = new Map(
+      input.ratings.map((rating) => [rating.symbol, rating]),
+    );
+    const answers = await tx.perfEvaluationDimensionAnswer.findMany({
+      where: {
+        submission: {
+          participantId: { in: participantIds },
+          // INVALIDATED 是历史事实，配置切换不得回写其数据血缘。
+          status: {
+            in: [PerfReviewStatus.DRAFT, PerfReviewStatus.SUBMITTED],
+          },
         },
-        data: { calculationScore: rating.mappingScore },
+      },
+      select: {
+        id: true,
+        scoringMethod: true,
+        rawLevel: true,
+        rawScore: true,
+      },
+    });
+    for (const answer of answers) {
+      const calculationScore =
+        answer.scoringMethod === 'RATING'
+          ? answer.rawLevel
+            ? String(ratingBySymbol.get(answer.rawLevel)?.mappingScore ?? '')
+            : null
+          : (answer.rawScore?.toString() ?? null);
+      if (
+        answer.scoringMethod === 'RATING' &&
+        answer.rawLevel &&
+        !calculationScore
+      ) {
+        throw new ConflictException(
+          `维度作答 #${answer.id} 的原始评级不在新评级配置中`,
+        );
+      }
+      await tx.perfEvaluationDimensionAnswer.update({
+        where: { id: answer.id },
+        data: {
+          calculationScore,
+          derivedLevel: calculationScore
+            ? mapScoreToPerformanceLevel(calculationScore, [...input.ratings])
+            : null,
+        },
       });
     }
   }

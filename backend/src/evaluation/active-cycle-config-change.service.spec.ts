@@ -271,7 +271,10 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     perfCycleConfigVersion: { create: jest.fn() },
     perfParticipant: { updateMany: jest.fn(), update: jest.fn() },
     perfEvaluationSubmission: { updateMany: jest.fn() },
-    perfEvaluationDimensionAnswer: { updateMany: jest.fn() },
+    perfEvaluationDimensionAnswer: {
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
     perfStageResult: {
       findMany: jest.fn(),
       create: jest.fn(),
@@ -302,6 +305,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       version: 3,
       formSnapshots: [{ id: 42, jobLevelPrefix: 'D' }],
     });
+    tx.perfEvaluationDimensionAnswer.findMany.mockResolvedValue([]);
     rbac.isAdmin.mockResolvedValue(false);
     rbac.getOrgScope.mockResolvedValue(['od_scope']);
     manager.recalculate.mockResolvedValue({ stageLevel: 'B' });
@@ -526,15 +530,19 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     });
     expect(manager.recalculate).toHaveBeenCalledWith(51, tx);
     expect(self.recalculateSelf).toHaveBeenCalledWith(51, tx);
-    expect(tx.perfEvaluationDimensionAnswer.updateMany).toHaveBeenCalledTimes(
-      4,
-    );
-    expect(tx.perfEvaluationDimensionAnswer.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        submission: { participantId: { in: [51] } },
-        scoringMethod: 'RATING',
+    expect(tx.perfEvaluationDimensionAnswer.findMany).toHaveBeenCalledWith({
+      where: {
+        submission: {
+          participantId: { in: [51] },
+          status: { in: ['DRAFT', 'SUBMITTED'] },
+        },
+      },
+      select: expect.objectContaining({
+        id: true,
+        scoringMethod: true,
+        rawLevel: true,
+        rawScore: true,
       }),
-      data: expect.any(Object),
     });
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -545,6 +553,73 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     expect(tx).not.toHaveProperty('perfCalibration');
     expect(tx).not.toHaveProperty('perfResultVersion');
     expect(result).toMatchObject({ configVersionId: 32, version: 3 });
+  });
+
+  it('只按当前评级口径重派生草稿和已提交答案，空原值保持空且历史答案不在查询范围', async () => {
+    tx.perfEvaluationDimensionAnswer.findMany.mockResolvedValue([
+      {
+        id: 101,
+        scoringMethod: 'RATING',
+        rawLevel: 'A',
+        rawScore: null,
+      },
+      {
+        id: 102,
+        scoringMethod: 'SCORE',
+        rawLevel: null,
+        rawScore: { toString: () => '70' },
+      },
+      {
+        id: 103,
+        scoringMethod: 'RATING',
+        rawLevel: null,
+        rawScore: null,
+      },
+      {
+        id: 104,
+        scoringMethod: 'SCORE',
+        rawLevel: null,
+        rawScore: null,
+      },
+    ]);
+    const changedRatings = configInput.ratings.map((rating) =>
+      rating.symbol === 'A'
+        ? { ...rating, minScore: '70' }
+        : rating.symbol === 'B'
+          ? { ...rating, maxScore: '70', mappingScore: '65' }
+          : rating,
+    );
+    const preview = await service.preview('ou_hr', 8, {
+      ...configInput,
+      ratings: changedRatings,
+      expectedConfigVersionId: 31,
+    } as never);
+
+    await service.apply('ou_hr', 8, {
+      ...configInput,
+      ratings: changedRatings,
+      expectedConfigVersionId: 31,
+      impactRevision: preview.impactRevision,
+      reason: '调整评级区间',
+      confirmed: true,
+    } as never);
+
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 101 },
+      data: { calculationScore: '85', derivedLevel: 'A' },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 102 },
+      data: { calculationScore: '70', derivedLevel: 'A' },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 103 },
+      data: { calculationScore: null, derivedLevel: null },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 104 },
+      data: { calculationScore: null, derivedLevel: null },
+    });
   });
 
   it('任一阶段重算失败时向事务抛错且不写审计成功记录', async () => {

@@ -170,6 +170,12 @@ export const navItems: NavItem[] = [
         roles: ['HR', 'ADMIN']
       },
       {
+        icon: 'ArchiveRestore',
+        label: '旧晋升答案归档',
+        href: '/settings/legacy-promotion-archives',
+        roles: ['HR', 'ADMIN']
+      },
+      {
         icon: 'Settings',
         label: '系统配置',
         href: '/settings',

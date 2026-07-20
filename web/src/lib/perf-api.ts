@@ -1054,6 +1054,56 @@ export type PerfPeerStageResult = PerfManagerStageResult & {
 /** 旧晋升历史的安全只读投影；后端不向消费者暴露原始 JSON 结构。 */
 export type PerfHistoricalPromotionResult = string | null
 
+export type PerfLegacyPromotionArchiveEntry =
+  | { kind: 'TEXT'; label: string; content: string }
+  | { kind: 'LINK'; label: string; url: string }
+  | { kind: 'ATTACHMENT'; label: string; name: string; url: string }
+
+export type PerfLegacyPromotionArchivePayload =
+  | {
+      kind: 'EVALUATION_ANSWER'
+      stage: string | null
+      status: string | null
+      submittedAt: string | null
+      dimensionKey: string | null
+      fieldKey: string | null
+      fieldType: string | null
+      rating: PerfPerformanceLevel | null
+      score: number | null
+      calculationScore: number | null
+      entries: PerfLegacyPromotionArchiveEntry[]
+    }
+  | {
+      kind: 'RESULT_SNAPSHOT'
+      version: number | null
+      entries: PerfLegacyPromotionArchiveEntry[]
+    }
+
+/** 旧晋升答案归档只接受后端白名单投影，不包含原始 JSON。 */
+export type PerfLegacyPromotionArchive = {
+  id: number
+  cycle: { id: number; name: string }
+  participant: {
+    id: number
+    employee: { openId: string; name: string | null; avatarUrl: string | null }
+  }
+  source: {
+    type: 'EVALUATION_ITEM_RESULT' | 'RESULT_VERSION_SNAPSHOT'
+    recordId: number
+    createdAt: string | null
+  }
+  payload: PerfLegacyPromotionArchivePayload
+  archivedAt: string
+}
+
+export type PerfLegacyPromotionArchiveList = ListResponse<PerfLegacyPromotionArchive> & {
+  page: number
+  pageSize: number
+}
+
+export const getLegacyPromotionArchives = (page: number, pageSize: number) =>
+  apiFetch<PerfLegacyPromotionArchiveList>(`/legacy-promotion-archives?page=${page}&page_size=${pageSize}`)
+
 export type PerfManagerEvaluationContext = {
   participant: { id: number; cycleId: number }
   cycle: {

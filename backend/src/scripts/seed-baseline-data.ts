@@ -498,6 +498,18 @@ async function seedDraftCycle(
   return cycleId;
 }
 
+/**
+ * 可复用的生产 seed 核心：连接生命周期由调用方管理，便于在隔离 PostgreSQL 中验收。
+ */
+export async function seedBaselineData(prisma: PrismaClient) {
+  await cleanupBaseline(prisma);
+  const formVersionByPrefix = await seedFormTemplates(prisma);
+  const configVersionId = await seedConfigTemplate(prisma, formVersionByPrefix);
+  const cycleId = await seedDraftCycle(prisma, configVersionId);
+  console.log('基线数据初始化完成。');
+  return { formVersionByPrefix, configVersionId, cycleId };
+}
+
 async function main() {
   const config = loadAppConfig();
   const prisma = new PrismaClient({
@@ -505,17 +517,10 @@ async function main() {
   });
 
   try {
-    await cleanupBaseline(prisma);
-    const formVersionByPrefix = await seedFormTemplates(prisma);
-    const configVersionId = await seedConfigTemplate(
-      prisma,
-      formVersionByPrefix,
-    );
-    await seedDraftCycle(prisma, configVersionId);
-    console.log('基线数据初始化完成。');
+    await seedBaselineData(prisma);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-void main();
+if (require.main === module) void main();

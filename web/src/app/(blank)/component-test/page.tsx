@@ -53,6 +53,7 @@ import type {
   PerfCycleSetupParticipant,
   PerfEvalFormSubform,
   PerfFormTemplateVersion,
+  PerfLegacyPromotionArchive,
   PerfManagerEvaluationContext,
   PerfPeerEvaluationContext,
   PerfParticipantPrefixCheck
@@ -76,6 +77,7 @@ import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-te
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
 import PeerReviewFill from '@/views/review-tasks/fill/peer-review-fill'
+import { LegacyPromotionArchiveDetails } from '@/views/settings/legacy-promotion-archives'
 
 type ComponentKey =
   | 'date-time'
@@ -98,6 +100,7 @@ type ComponentKey =
   | 'scrollable-tabs-list'
   | 'peer-review-analysis'
   | 'evaluation-reference-section'
+  | 'legacy-promotion-archive'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -226,6 +229,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '评估参考板块',
     description: '等级行两端对齐 / 浅灰内容底',
     icon: ListChecksIcon
+  },
+  {
+    key: 'legacy-promotion-archive',
+    title: '旧晋升归档详情',
+    description: '安全投影 / 只读文本 / 附件链接',
+    icon: HistoryIcon
   }
 ]
 
@@ -1353,12 +1362,14 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
         scoringMethod: null,
-        fields: [{
-          id: 902,
-          fieldKey: 'field:self-summary',
-          fieldType: 'MARKDOWN',
-          value: '按期完成核心项目，并沉淀了跨团队协作方案。'
-        }]
+        fields: [
+          {
+            id: 902,
+            fieldKey: 'field:self-summary',
+            fieldType: 'MARKDOWN',
+            value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+          }
+        ]
       }
     ]
   }
@@ -1626,6 +1637,46 @@ const ActiveConfigImpactPreview = () => {
   )
 }
 
+const LEGACY_PROMOTION_ARCHIVE_PREVIEW: PerfLegacyPromotionArchive = {
+  id: 9801,
+  cycle: { id: 98, name: '2025 下半年绩效' },
+  participant: {
+    id: 981,
+    employee: { openId: 'ou_archive_preview', name: '归档示例员工', avatarUrl: null }
+  },
+  source: { type: 'EVALUATION_ITEM_RESULT', recordId: 991, createdAt: '2026-01-10T02:00:00.000Z' },
+  payload: {
+    kind: 'EVALUATION_ANSWER',
+    stage: 'SELF',
+    status: 'SUBMITTED',
+    submittedAt: '2026-01-10T02:00:00.000Z',
+    dimensionKey: 'legacy-promotion',
+    fieldKey: 'promotion-statement',
+    fieldType: 'LONG_TEXT',
+    rating: null,
+    score: null,
+    calculationScore: null,
+    entries: [
+      { kind: 'TEXT', label: '晋升陈述', content: '承担核心项目并形成可复用方法论。' },
+      { kind: 'LINK', label: '证明材料', url: 'https://example.com/legacy-evidence' }
+    ]
+  },
+  archivedAt: '2026-07-20T12:00:00.000Z'
+}
+
+/** 只用白名单条目展示历史内容，验证长文本与安全外链的只读状态。 */
+const LegacyPromotionArchivePreview = () => (
+  <Card>
+    <CardHeader>
+      <CardTitle>旧晋升答案安全投影</CardTitle>
+      <CardDescription>组件不接受原始 JSON；Markdown 按纯文本呈现，外链需由用户明确点击。</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <LegacyPromotionArchiveDetails archive={LEGACY_PROMOTION_ARCHIVE_PREVIEW} />
+    </CardContent>
+  </Card>
+)
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -1646,6 +1697,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'scrollable-tabs-list') return <ScrollableTabsListPreview />
   if (activeComponent === 'peer-review-analysis') return <PeerReviewAnalysisPreview />
   if (activeComponent === 'evaluation-reference-section') return <EvaluationReferenceSectionPreview />
+  if (activeComponent === 'legacy-promotion-archive') return <LegacyPromotionArchivePreview />
 
   return <DateTimePreview />
 }
