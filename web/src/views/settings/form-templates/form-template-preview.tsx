@@ -1,10 +1,121 @@
-import type { PerfFormTemplateDimension, PerfFormTemplateVersion } from '@/lib/perf-api'
+import type {
+  PerfFormItemConfig,
+  PerfFormItemType,
+  PerfFormTemplateDimension,
+  PerfFormTemplateVersion,
+  PerfPerformanceLevel
+} from '@/lib/perf-api'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 
 import { FORM_FIELD_TYPE_LABEL, JOB_LEVEL_PREFIX_LABEL } from './form-template-constants'
+
+type PreviewField = {
+  key?: string
+  id?: number
+  type: PerfFormItemType
+  title: string
+  description?: string | null
+  placeholder?: string | null
+  required?: boolean
+  requiredRule?: 'OPTIONAL' | 'ALWAYS' | 'CONDITIONAL'
+  requiredLevels?: PerfPerformanceLevel[]
+  config?: PerfFormItemConfig | null
+}
+
+const FieldControlPreview = ({ field }: { field: PreviewField }) => {
+  const config = field.config ?? {}
+
+  if (field.type === 'SHORT_TEXT' || field.type === 'LINK') {
+    return (
+      <Input
+        disabled
+        type={field.type === 'LINK' ? 'url' : 'text'}
+        value={config.defaultValue ?? ''}
+        placeholder={field.placeholder ?? (field.type === 'LINK' ? 'https://example.com' : '请输入内容')}
+      />
+    )
+  }
+
+  if (field.type === 'LONG_TEXT' || field.type === 'MARKDOWN') {
+    return (
+      <Textarea
+        disabled
+        value={config.defaultValue ?? ''}
+        placeholder={field.placeholder ?? (field.type === 'MARKDOWN' ? '支持 Markdown 格式' : '请输入内容')}
+      />
+    )
+  }
+
+  if (field.type === 'SINGLE_SELECT' || field.type === 'MULTI_SELECT') {
+    return (
+      <div className='flex flex-col gap-2'>
+        {(config.options ?? []).map(option => (
+          <span key={option.value} className='text-muted-foreground flex items-center gap-2 text-sm'>
+            <span
+              className={
+                field.type === 'SINGLE_SELECT'
+                  ? 'inline-block size-4 rounded-full border'
+                  : 'inline-block size-4 rounded border'
+              }
+            />
+            {option.label}
+          </span>
+        ))}
+        {(config.options ?? []).length === 0 && <span className='text-muted-foreground text-sm'>尚未配置选项</span>}
+      </div>
+    )
+  }
+
+  if (field.type === 'ATTACHMENT') {
+    return (
+      <div className='text-muted-foreground rounded-md border border-dashed px-3 py-4 text-center text-sm'>
+        上传附件（预览）
+        <p className='mt-1 text-xs'>
+          {config.maxFiles ? `最多 ${config.maxFiles} 个文件` : '文件数量不限'}
+          {config.maxSizeMb ? ` · 单个不超过 ${config.maxSizeMb} MB` : ''}
+          {config.allowedExtensions?.length ? ` · ${config.allowedExtensions.join('、')}` : ''}
+        </p>
+      </div>
+    )
+  }
+
+  return <p className='text-muted-foreground text-sm'>旧计分控件仅供历史查阅。</p>
+}
+
+/** 受控字段的禁用填写态，供新版预览与旧晋升只读页复用。 */
+export const FormFieldPreview = ({ field }: { field: PreviewField }) => {
+  const requiredRule = field.requiredRule ?? (field.required ? 'ALWAYS' : 'OPTIONAL')
+
+  const typeLabel =
+    field.type === 'RATING' ? '评级' : field.type === 'SCORE' ? '0～100 分' : FORM_FIELD_TYPE_LABEL[field.type]
+
+  return (
+    <div className='bg-muted/40 flex flex-col gap-2 rounded-md px-3 py-3 text-sm'>
+      <div>
+        <span className='font-medium'>{field.title || '未命名表单字段'}</span>
+        <span className='text-muted-foreground ml-2'>
+          {typeLabel}
+          {requiredRule === 'ALWAYS' ? ' · 必填' : ''}
+          {requiredRule === 'CONDITIONAL' ? ` · ${(field.requiredLevels ?? []).join('/')} 时必填` : ''}
+        </span>
+      </div>
+      {field.description && <p className='text-muted-foreground text-xs'>{field.description}</p>}
+      <FieldControlPreview field={field} />
+      {(field.config?.minLength != null || field.config?.maxLength != null) && (
+        <p className='text-muted-foreground text-xs'>
+          长度：{field.config.minLength ?? 0}～{field.config.maxLength ?? '不限'}
+        </p>
+      )}
+      {field.config?.allowedProtocols?.length ? (
+        <p className='text-muted-foreground text-xs'>允许协议：{field.config.allowedProtocols.join('、')}</p>
+      ) : null}
+    </div>
+  )
+}
 
 const DimensionPreview = ({ dimension }: { dimension: PerfFormTemplateDimension }) => (
   <section className='rounded-md border p-3'>
@@ -38,14 +149,7 @@ const DimensionPreview = ({ dimension }: { dimension: PerfFormTemplateDimension 
 
     <div className='mt-3 flex flex-col gap-2'>
       {dimension.fields.map((field, fieldIndex) => (
-        <div key={field.key ?? field.id ?? fieldIndex} className='bg-muted/40 rounded-md px-3 py-2 text-sm'>
-          <span className='font-medium'>{field.title || '未命名表单字段'}</span>
-          <span className='text-muted-foreground ml-2'>
-            {FORM_FIELD_TYPE_LABEL[field.type]}
-            {field.requiredRule === 'ALWAYS' ? ' · 必填' : ''}
-            {field.requiredRule === 'CONDITIONAL' ? ` · ${field.requiredLevels.join('/')} 时必填` : ''}
-          </span>
-        </div>
+        <FormFieldPreview key={field.key ?? field.id ?? fieldIndex} field={field} />
       ))}
       {dimension.fields.length === 0 && dimension.type === 'NON_SCORING' && (
         <p className='text-muted-foreground text-sm'>该维度仅展示说明，无需填写。</p>

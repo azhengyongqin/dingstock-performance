@@ -147,7 +147,6 @@ class FormTemplateFieldDto {
   type!: Exclude<PerfFormItemType, 'RATING' | 'SCORE'>;
 
   @IsString()
-  @MinLength(1)
   @MaxLength(300)
   title!: string;
 
@@ -195,7 +194,6 @@ class FormTemplateDimensionDto {
   audience!: PerfFormAudience;
 
   @IsString()
-  @MinLength(1)
   @MaxLength(300)
   name!: string;
 

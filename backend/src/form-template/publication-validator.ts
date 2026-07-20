@@ -177,6 +177,14 @@ export function validateFormTemplatePublication(
   const issues: FormTemplatePublicationIssue[] = [];
   const counts = new Map<string, number>();
 
+  if (!template.name.trim()) {
+    issues.push({
+      code: 'TEMPLATE_NAME_REQUIRED',
+      path: 'name',
+      message: '表单模板名称不能为空',
+    });
+  }
+
   for (const subform of template.subforms) {
     counts.set(subform.type, (counts.get(subform.type) ?? 0) + 1);
   }
@@ -235,6 +243,13 @@ export function validateFormTemplatePublication(
 
   for (const subform of template.subforms) {
     const label = SUBFORM_LABEL[subform.type];
+    if (!subform.title.trim()) {
+      issues.push({
+        code: 'SUBFORM_TITLE_REQUIRED',
+        path: `subforms.${subform.type}.title`,
+        message: `${label}子表单标题不能为空`,
+      });
+    }
     const scoringDimensions = subform.dimensions.filter(
       (dimension) => dimension.type === 'SCORING',
     );
@@ -298,6 +313,13 @@ export function validateFormTemplatePublication(
           message: '评估维度缺少稳定业务标识',
         });
       }
+      if (!dimension.name.trim()) {
+        issues.push({
+          code: 'DIMENSION_NAME_REQUIRED',
+          path: `${dimensionPath}.name`,
+          message: '评估维度名称不能为空',
+        });
+      }
       if (dimension.audience !== expectedAudience[subform.type]) {
         issues.push({
           code: 'DIMENSION_AUDIENCE_INVALID',
@@ -333,6 +355,13 @@ export function validateFormTemplatePublication(
             code: 'FIELD_KEY_REQUIRED',
             path: `${fieldPath}.key`,
             message: '表单字段缺少稳定业务标识',
+          });
+        }
+        if (!field.title.trim()) {
+          issues.push({
+            code: 'FIELD_TITLE_REQUIRED',
+            path: `${fieldPath}.title`,
+            message: '表单字段标题不能为空',
           });
         }
         if (!FORM_FIELD_TYPES.includes(field.type)) {

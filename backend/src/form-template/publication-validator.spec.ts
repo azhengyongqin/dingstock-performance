@@ -222,4 +222,36 @@ describe('validateFormTemplatePublication', () => {
         .map((issue) => issue.code),
     ).toEqual(['DIMENSION_KEY_DUPLICATE', 'FIELD_KEY_DUPLICATE']);
   });
+
+  it('草稿中的空维度名和字段标题必须在发布前补齐', () => {
+    const template = validTemplate();
+    template.name = '  ';
+    template.subforms[0].title = '';
+    template.subforms[0].dimensions[0].name = '';
+    template.subforms[0].dimensions[0].fields = [
+      {
+        key: 'draft-field',
+        title: '  ',
+        type: 'MARKDOWN',
+        requiredRule: 'OPTIONAL',
+        requiredLevels: [],
+        sortOrder: 0,
+      },
+    ];
+
+    expect(
+      validateFormTemplatePublication(template)
+        .filter(
+          (issue) =>
+            issue.code.endsWith('_NAME_REQUIRED') ||
+            issue.code.endsWith('_TITLE_REQUIRED'),
+        )
+        .map((issue) => issue.code),
+    ).toEqual([
+      'TEMPLATE_NAME_REQUIRED',
+      'SUBFORM_TITLE_REQUIRED',
+      'DIMENSION_NAME_REQUIRED',
+      'FIELD_TITLE_REQUIRED',
+    ]);
+  });
 });

@@ -40,7 +40,12 @@ describe('summarizeReviewerRelationWeights', () => {
     ).toEqual({ total: '100.00', difference: '0.00', valid: true })
 
     expect(
-      summarizeReviewerRelationWeights({ ORG_OWNER: '33.33', PROJECT_OWNER: '33.33', PEER: '16.67', CROSS_DEPT: '16.66' })
+      summarizeReviewerRelationWeights({
+        ORG_OWNER: '33.33',
+        PROJECT_OWNER: '33.33',
+        PEER: '16.67',
+        CROSS_DEPT: '16.66'
+      })
     ).toEqual({ total: '99.99', difference: '0.01', valid: false })
 
     expect(
@@ -93,11 +98,11 @@ describe('replaceFormBindingForPrefix', () => {
 })
 
 describe('resolveBindingSubforms', () => {
-  it('优先使用保留数据库维度 ID 的展开表单版本', () => {
+  it('优先使用同时包含新版结构和数据库维度 ID 的归一化表单', () => {
     const binding = {
-      subforms: [{ type: 'PEER', dimensions: [{ name: '归一化维度', items: [] }] }],
+      subforms: [{ type: 'PEER', dimensions: [{ id: 501, name: '归一化维度', type: 'SCORING' }] }],
       formTemplateVersion: {
-        subforms: [{ type: 'PEER', dimensions: [{ id: 501, name: '数据库维度', items: [] }] }]
+        subforms: [{ type: 'PEER', dimensions: [{ id: 999, name: '数据库维度', items: [] }] }]
       }
     }
 

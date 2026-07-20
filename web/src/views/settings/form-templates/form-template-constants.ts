@@ -54,3 +54,34 @@ export const createDefaultFieldConfig = (type: PerfFormFieldType): PerfFormItemC
 
   return null
 }
+
+const FIELD_CONFIG_KEYS: Record<PerfFormFieldType, Array<keyof PerfFormItemConfig>> = {
+  SHORT_TEXT: ['minLength', 'maxLength', 'defaultValue'],
+  LONG_TEXT: ['minLength', 'maxLength', 'defaultValue'],
+  MARKDOWN: ['minLength', 'maxLength', 'defaultValue'],
+  SINGLE_SELECT: ['options'],
+  MULTI_SELECT: ['options', 'minSelections', 'maxSelections'],
+  ATTACHMENT: ['maxFiles', 'maxSizeMb', 'allowedExtensions'],
+  LINK: ['maxLength', 'allowedProtocols']
+}
+
+/** 字段换型时保留双方兼容配置，并明确告知被清理的不兼容配置。 */
+export const migrateFieldConfig = (
+  type: PerfFormFieldType,
+  config: PerfFormItemConfig | null | undefined
+): { config: PerfFormItemConfig | null; removedIncompatible: boolean } => {
+  const current = config ?? {}
+  const allowed = new Set(FIELD_CONFIG_KEYS[type])
+  const next: PerfFormItemConfig = { ...(createDefaultFieldConfig(type) ?? {}) }
+
+  for (const key of allowed) {
+    const value = current[key]
+
+    if (value !== undefined) Object.assign(next, { [key]: value })
+  }
+
+  return {
+    config: Object.keys(next).length > 0 ? next : {},
+    removedIncompatible: Object.keys(current).some(key => !allowed.has(key as keyof PerfFormItemConfig))
+  }
+}

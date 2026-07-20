@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -82,5 +84,49 @@ describe('FormTemplateEditor', () => {
       })
     )
     expect(screen.queryByText('添加评估项')).not.toBeInTheDocument()
+  })
+
+  it('可在维度上切换为分数计分并更新占比和核心标记', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    const Harness = () => {
+      const [value, setValue] = useState(draftVersion)
+
+      return (
+        <FormTemplateEditor
+          value={value}
+          editable
+          onChange={next => {
+            setValue(next)
+            onChange(next)
+          }}
+        />
+      )
+    }
+
+    render(<Harness />)
+
+    const scoringMethod = screen.getAllByRole('combobox')[1]
+
+    await user.click(scoringMethod)
+    await user.keyboard('{ArrowDown}{Enter}')
+
+    const weight = screen.getByRole('spinbutton', { name: '维度占比' })
+
+    await user.clear(weight)
+    await user.type(weight, '80')
+    await user.click(screen.getByRole('switch'))
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        subforms: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'SELF',
+            dimensions: [expect.objectContaining({ scoringMethod: 'SCORE', weight: '80', isCore: false })]
+          })
+        ])
+      })
+    )
   })
 })

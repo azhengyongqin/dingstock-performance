@@ -499,12 +499,18 @@ export class FormTemplateService {
       dimensions: subform.dimensions.map((dimension) => ({
         key: dimension.businessKey,
         name: dimension.name,
+        description: dimension.description,
         audience: dimension.audience,
+        sortOrder: dimension.sortOrder,
         fields: dimension.items.map((field) => ({
           key: field.businessKey,
           title: field.title,
           type: field.type,
+          description: field.description,
+          placeholder: field.placeholder,
           required: field.required,
+          sortOrder: field.sortOrder,
+          config: field.config,
         })),
       })),
     };

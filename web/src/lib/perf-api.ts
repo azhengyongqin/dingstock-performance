@@ -342,8 +342,19 @@ export type PerfFormTemplateVersion = PerfFormTemplateVersionSummary & {
     dimensions: Array<{
       key: string
       name: string
+      description?: string | null
       audience: 'EMPLOYEE' | 'LEADER'
-      fields: Array<{ key: string; title: string; type: PerfFormItemType; required: boolean }>
+      sortOrder: number
+      fields: Array<{
+        key: string
+        title: string
+        type: PerfFormItemType
+        description?: string | null
+        placeholder?: string | null
+        required: boolean
+        sortOrder: number
+        config?: PerfFormItemConfig | null
+      }>
     }>
   } | null
 }

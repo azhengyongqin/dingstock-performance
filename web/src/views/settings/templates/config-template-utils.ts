@@ -89,14 +89,11 @@ export const replaceFormBindingForPrefix = ({
   return nextId ? [...retained, nextId] : retained
 }
 
-/** 归一化 subforms 用于发布校验展示；计算预览必须优先读取保留数据库 ID 的展开版本。 */
+/** 新版归一化 subforms 同时保留数据库 ID；原始旧表结构仅作兼容兜底。 */
 export const resolveBindingSubforms = (binding?: Pick<PerfConfigFormBinding, 'formTemplateVersion' | 'subforms'>) =>
-  binding?.formTemplateVersion?.subforms ?? binding?.subforms
+  binding?.subforms ?? binding?.formTemplateVersion?.subforms
 
-type ReminderFrequencyType =
-  | 'ONCE_AT_DEADLINE'
-  | 'DAILY_AFTER_DEADLINE'
-  | 'EVERY_N_DAYS_AFTER_DEADLINE'
+type ReminderFrequencyType = 'ONCE_AT_DEADLINE' | 'DAILY_AFTER_DEADLINE' | 'EVERY_N_DAYS_AFTER_DEADLINE'
 
 /** 非每 N 天模式不允许携带 intervalDays，切换时必须重新构造受控联合类型。 */
 export const buildReminderFrequency = (type: ReminderFrequencyType, intervalDays?: number) =>
@@ -106,10 +103,7 @@ export const buildReminderFrequency = (type: ReminderFrequencyType, intervalDays
 
 /** 合并发布与生命周期问题；空发布问题数组不能遮蔽归档等不可用原因。 */
 export const mergeConfigTemplateIssues = (
-  value: Pick<
-    PerfConfigTemplateVersionSummary,
-    'publicationIssues' | 'publishIssues' | 'unavailableReasons'
-  >
+  value: Pick<PerfConfigTemplateVersionSummary, 'publicationIssues' | 'publishIssues' | 'unavailableReasons'>
 ) => {
   const issues = [
     ...(value.publicationIssues ?? []),

@@ -70,7 +70,9 @@ import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
 import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
 import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
-import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
+import FormTemplateEditor, { FormTemplateEditorSection } from '@/views/settings/form-templates/form-template-editor'
+import FormTemplatePreview from '@/views/settings/form-templates/form-template-preview'
+import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-template-utils'
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
 import PeerReviewFill from '@/views/review-tasks/fill/peer-review-fill'
@@ -604,7 +606,46 @@ const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
   sourceVersionId: null,
   updatedAt: '2026-07-14T12:00:00.000Z',
   subforms: [
-    { type: 'SELF', title: '员工自评', sortOrder: 0, dimensions: [] },
+    {
+      type: 'SELF',
+      title: '员工自评',
+      sortOrder: 0,
+      dimensions: [
+        {
+          key: 'component-test:self:result',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'EMPLOYEE',
+          name: '目标达成',
+          description: '在维度上直接输入 0～100 分。',
+          weight: 100,
+          isCore: true,
+          sortOrder: 0,
+          fields: [
+            {
+              key: 'component-test:self:result:comment',
+              type: 'MARKDOWN',
+              title: '关键成果说明',
+              requiredRule: 'CONDITIONAL',
+              requiredLevels: ['S', 'C'],
+              sortOrder: 0
+            }
+          ]
+        },
+        {
+          key: 'component-test:self:guide',
+          type: 'NON_SCORING',
+          scoringMethod: null,
+          audience: 'EMPLOYEE',
+          name: '填写说明',
+          description: '非计分维度不展示评分、占比与核心选项。',
+          weight: null,
+          isCore: false,
+          sortOrder: 1,
+          fields: []
+        }
+      ]
+    },
     {
       type: 'PEER',
       title: '360°评估',
@@ -630,16 +671,57 @@ const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
               sortOrder: 0
             }
           ]
+        },
+        {
+          key: 'component-test:peer:collaboration',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'REVIEWER',
+          name: '协作效率',
+          weight: 65,
+          isCore: false,
+          sortOrder: 1,
+          fields: []
         }
       ]
     },
-    { type: 'MANAGER', title: '上级评估', sortOrder: 2, dimensions: [] }
+    {
+      type: 'MANAGER',
+      title: '上级评估',
+      sortOrder: 2,
+      dimensions: [
+        {
+          key: 'component-test:manager:result',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
+          audience: 'LEADER',
+          name: '综合绩效',
+          weight: 100,
+          isCore: true,
+          sortOrder: 0,
+          fields: []
+        }
+      ]
+    }
   ]
 }
 
 /** 业务级组件示例：可编辑草稿与已发布只读态并排验证。 */
 const FormTemplateEditorPreview = () => {
   const [draft, setDraft] = useState(FORM_TEMPLATE_PREVIEW_VALUE)
+
+  const errorMarkers = collectFormIssueMarkers([
+    {
+      code: 'DIMENSION_WEIGHT_INVALID',
+      path: 'subforms.SELF.dimensions[0].weight',
+      message: '员工自评计分维度占比必须大于 0%'
+    },
+    {
+      code: 'FIELD_CONDITIONAL_RULE_INVALID',
+      path: 'subforms.SELF.dimensions[0].fields[0].requiredLevels',
+      message: '条件必填至少选择一个等级'
+    }
+  ]).get('SELF')
 
   return (
     <div className='flex flex-col gap-4'>
@@ -654,11 +736,35 @@ const FormTemplateEditorPreview = () => {
       </Card>
       <Card>
         <CardHeader>
+          <CardTitle>发布校验错误态</CardTitle>
+          <CardDescription>验证导航到维度属性与字段规则后，错误卡片和具体控件能清晰标红。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplateEditorSection
+            subformType='SELF'
+            value={draft}
+            editable
+            issueMarkers={errorMarkers}
+            onChange={setDraft}
+          />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
           <CardTitle>已发布只读态</CardTitle>
           <CardDescription>发布版本不可原地修改，所有基础控件均为只读。</CardDescription>
         </CardHeader>
         <CardContent>
           <FormTemplateEditor value={{ ...draft, status: 'PUBLISHED' }} editable={false} onChange={() => {}} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>填写结构预览</CardTitle>
+          <CardDescription>同时覆盖分数计分、评级计分、非计分维度与条件必填字段。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplatePreview value={draft} />
         </CardContent>
       </Card>
     </div>

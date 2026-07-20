@@ -19,8 +19,11 @@ import type {
   NotificationRules,
 } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
-import type { LegacyFormItemConfig } from '../form-template/form-template.contract';
-import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import {
+  FORM_SUBFORM_TYPES,
+  type FormTemplateSubformContract,
+  type LegacyFormItemConfig,
+} from '../form-template/form-template.contract';
 import {
   generateCyclePlan,
   validateCyclePlan,
@@ -949,33 +952,35 @@ export class CycleSetupService {
       name: version.name,
       description: version.description,
       jobLevelPrefix: version.jobLevelPrefix,
-      subforms: version.subforms.map((subform) => ({
-        key: `subform:${subform.type}`,
-        type: subform.type,
-        title: subform.title,
-        description: subform.description,
-        sortOrder: subform.sortOrder,
-        dimensions: subform.dimensions.map((dimension) => ({
-          key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
-          kind: dimension.kind,
-          audience: dimension.audience,
-          name: dimension.name,
-          description: dimension.description,
-          weight: dimension.weight?.toString() ?? null,
-          isCore: dimension.isCore,
-          sortOrder: dimension.sortOrder,
-          items: dimension.items.map((item) => ({
-            key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
-            type: item.type,
-            title: item.title,
-            description: item.description,
-            placeholder: item.placeholder,
-            required: item.required,
-            sortOrder: item.sortOrder,
-            config: item.config as LegacyFormItemConfig | null,
+      subforms: version.subforms
+        .filter((subform) => FORM_SUBFORM_TYPES.includes(subform.type as never))
+        .map((subform) => ({
+          key: `subform:${subform.type}`,
+          type: subform.type,
+          title: subform.title,
+          description: subform.description,
+          sortOrder: subform.sortOrder,
+          dimensions: subform.dimensions.map((dimension) => ({
+            key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
+            kind: dimension.kind,
+            audience: dimension.audience,
+            name: dimension.name,
+            description: dimension.description,
+            weight: dimension.weight?.toString() ?? null,
+            isCore: dimension.isCore,
+            sortOrder: dimension.sortOrder,
+            items: dimension.items.map((item) => ({
+              key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
+              type: item.type,
+              title: item.title,
+              description: item.description,
+              placeholder: item.placeholder,
+              required: item.required,
+              sortOrder: item.sortOrder,
+              config: item.config as LegacyFormItemConfig | null,
+            })),
           })),
         })),
-      })),
     };
   }
 

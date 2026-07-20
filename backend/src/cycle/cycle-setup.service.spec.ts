@@ -128,6 +128,13 @@ describe('CycleSetupService', () => {
               },
             ],
           },
+          {
+            type: 'PROMOTION',
+            title: '旧晋升表单',
+            description: '只读历史',
+            sortOrder: 3,
+            dimensions: [],
+          },
         ],
       },
     })),
@@ -255,6 +262,14 @@ describe('CycleSetupService', () => {
         name: 'M 表单',
       }),
     });
+    expect(
+      snapshotData.formSnapshots.create.flatMap(
+        (snapshot: { content: { subforms: Array<{ type: string }> } }) =>
+          snapshot.content.subforms.map(
+            (subform: { type: string }) => subform.type,
+          ),
+      ),
+    ).toEqual(['SELF', 'SELF']);
     expect(tx.perfCycle.update).toHaveBeenCalledWith({
       where: { id: 9 },
       data: { currentConfigVersionId: 19 },

@@ -27,7 +27,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-import { createDefaultFieldConfig, FORM_FIELD_TYPES } from './form-template-constants'
+import { createDefaultFieldConfig, FORM_FIELD_TYPES, migrateFieldConfig } from './form-template-constants'
 import {
   createClientKey,
   formRowKey,
@@ -332,15 +332,17 @@ const DimensionEditor = ({
                           disabled={!editable}
                           onValueChange={value => {
                             const type = value as PerfFormFieldType
+                            const migrated = migrateFieldConfig(type, field.config)
 
                             const keepConditional =
                               dimension.type === 'SCORING' && (type === 'LONG_TEXT' || type === 'MARKDOWN')
 
                             if (!keepConditional && field.requiredRule === 'CONDITIONAL')
                               toast.info('新字段类型不支持按等级必填，已改为选填')
+                            if (migrated.removedIncompatible) toast.info('已保留兼容配置，并清理新字段类型不支持的配置')
                             patchField(index, {
                               type,
-                              config: createDefaultFieldConfig(type),
+                              config: migrated.config,
                               ...(keepConditional ? {} : { requiredRule: 'OPTIONAL', requiredLevels: [] })
                             })
                           }}

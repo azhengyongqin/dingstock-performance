@@ -16,7 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
 import { FORM_DESIGN_SECTIONS, FormTemplateEditorSection } from './form-template-editor'
-import FormTemplatePreview from './form-template-preview'
+import FormTemplatePreview, { FormFieldPreview } from './form-template-preview'
 import { FORM_TEMPLATE_STATUS_LABEL, JOB_LEVEL_PREFIX_LABEL } from './form-template-constants'
 import type { FormSubformIssueMarkers } from './form-template-utils'
 
@@ -232,19 +232,21 @@ const DestinationBody = ({
 
     return (
       <div className='flex flex-col gap-3'>
+        <div>
+          <h3 className='font-medium'>{legacy.title}</h3>
+          {legacy.description && <p className='text-muted-foreground mt-1 text-sm'>{legacy.description}</p>}
+        </div>
         <p className='text-muted-foreground text-sm'>该内容仅用于历史查阅，不参与绩效模板发布、周期快照或评估提交。</p>
         {legacy.dimensions.map(dimension => (
           <div key={dimension.key} className='rounded-md border p-3'>
             <h4 className='font-medium'>{dimension.name}</h4>
+            {dimension.description && <p className='text-muted-foreground mt-1 text-sm'>{dimension.description}</p>}
             <p className='text-muted-foreground mt-1 text-xs'>
               填写对象：{dimension.audience === 'EMPLOYEE' ? '员工' : 'Leader'}
             </p>
             <div className='mt-3 flex flex-col gap-2'>
               {dimension.fields.map(field => (
-                <div key={field.key} className='bg-muted/40 rounded-md px-3 py-2 text-sm'>
-                  {field.title}
-                  {field.required ? ' · 必填' : ''}
-                </div>
+                <FormFieldPreview key={field.key} field={field} />
               ))}
             </div>
           </div>

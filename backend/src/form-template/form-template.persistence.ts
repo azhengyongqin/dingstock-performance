@@ -10,6 +10,7 @@ import type {
 const SCORING_ITEM_TYPES = new Set(['RATING', 'SCORE']);
 
 type PersistedField = {
+  id?: number;
   businessKey: string;
   type: string;
   title: string;
@@ -23,6 +24,7 @@ type PersistedField = {
 };
 
 type PersistedDimension = {
+  id?: number;
   businessKey?: string;
   key?: string;
   kind?: string;
@@ -70,6 +72,7 @@ export function toPerformanceSubformContracts(
       dimensions: subform.dimensions.map((dimension) => {
         if (dimension.type && dimension.fields) {
           return {
+            id: dimension.id,
             key: dimension.key!,
             type: dimension.type,
             scoringMethod: dimension.scoringMethod as 'RATING' | 'SCORE' | null,
@@ -96,6 +99,7 @@ export function toPerformanceSubformContracts(
             ? scoringItem.type
             : null;
         return {
+          id: dimension.id,
           key: dimension.businessKey!,
           type: isScoring ? ('SCORING' as const) : ('NON_SCORING' as const),
           scoringMethod: isScoring
@@ -114,6 +118,7 @@ export function toPerformanceSubformContracts(
           fields: items
             .filter((item) => !SCORING_ITEM_TYPES.has(item.type))
             .map((item) => ({
+              id: item.id,
               key: item.businessKey,
               type: item.type as FormFieldType,
               title: item.title,
@@ -181,7 +186,10 @@ export function toPerformanceSubformCreateData(
               requiredRule: field.requiredRule,
               requiredLevels: [...field.requiredLevels],
               sortOrder:
-                field.sortOrder + (dimension.type === 'SCORING' ? 1 : 0),
+                field.sortOrder +
+                (dimension.type === 'SCORING' && dimension.scoringMethod
+                  ? 1
+                  : 0),
               config: field.config
                 ? (field.config as Prisma.InputJsonValue)
                 : undefined,

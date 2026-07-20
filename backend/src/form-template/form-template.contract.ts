@@ -90,6 +90,8 @@ export const LEGACY_FORM_SUBFORM_TYPES = [
 export type LegacyFormSubformType = (typeof LEGACY_FORM_SUBFORM_TYPES)[number];
 
 export type FormTemplateFieldContract = {
+  /** 数据库展开响应可携带内部 ID；跨版本匹配始终使用 key。 */
+  id?: number;
   /** 同一稳定模板的所有版本沿用此业务标识，名称、类型、排序与所属维度变化均不改 key。 */
   key: string;
   title: string;
@@ -103,6 +105,8 @@ export type FormTemplateFieldContract = {
 };
 
 export type FormTemplateDimensionContract = {
+  /** 数据库展开响应可携带内部 ID；计算兼容接口临时使用。 */
+  id?: number;
   /** 同一稳定模板的所有版本沿用此业务标识。 */
   key: string;
   name: string;

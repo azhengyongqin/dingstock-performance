@@ -403,6 +403,56 @@ describe('FormTemplateService', () => {
     );
   });
 
+  it('旧晋升表单只读响应完整保留说明、占位和字段配置', async () => {
+    const source: any = completeVersion('PUBLISHED');
+    source.subforms.push({
+      type: 'PROMOTION',
+      title: '晋升评估',
+      description: '历史表单',
+      sortOrder: 3,
+      dimensions: [
+        {
+          businessKey: 'legacy-promotion',
+          kind: 'PROMOTION',
+          audience: 'LEADER',
+          name: '晋升结论',
+          description: '仅供历史查阅',
+          weight: null,
+          isCore: false,
+          sortOrder: 0,
+          items: [
+            {
+              businessKey: 'legacy-conclusion',
+              type: 'SINGLE_SELECT',
+              title: '结论',
+              description: '请选择历史结论',
+              placeholder: '请选择',
+              required: true,
+              sortOrder: 0,
+              config: { options: [{ value: 'YES', label: '建议晋升' }] },
+            },
+          ],
+        },
+      ],
+    });
+    prismaMock.perfFormTemplateVersion.findUnique.mockResolvedValueOnce(source);
+
+    const result = await service.getVersion('admin-open-id', 20);
+
+    expect(result.legacyPromotionSubform.dimensions[0]).toEqual(
+      expect.objectContaining({
+        description: '仅供历史查阅',
+        fields: [
+          expect.objectContaining({
+            description: '请选择历史结论',
+            placeholder: '请选择',
+            config: { options: [{ value: 'YES', label: '建议晋升' }] },
+          }),
+        ],
+      }),
+    );
+  });
+
   it('拒绝原地编辑已发布版本', async () => {
     prismaMock.perfFormTemplateVersion.findUnique.mockResolvedValueOnce(
       completeVersion('PUBLISHED'),
