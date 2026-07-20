@@ -119,7 +119,27 @@ describe('绩效数据重置公开脚本接缝', () => {
     expect(dependencies.reset).not.toHaveBeenCalled();
   });
 
-  it('非生产环境提供精确确认值后才连接并调用生产重置核心', async () => {
+  it.each([
+    ['缺失 NODE_ENV', undefined],
+    ['test 环境', 'test'],
+  ])('%s 即使确认值正确也在读取数据库配置前拒绝', async (_label, nodeEnv) => {
+    const { dependencies } = createCommandDependencies();
+
+    await expect(
+      runResetPerformanceDataCommand(
+        {
+          NODE_ENV: nodeEnv,
+          [RESET_PERFORMANCE_CONFIRMATION_ENV]: RESET_PERFORMANCE_CONFIRMATION,
+        },
+        dependencies,
+      ),
+    ).rejects.toThrow('仅允许 development');
+    expect(dependencies.loadDatabaseUrl).not.toHaveBeenCalled();
+    expect(dependencies.createClient).not.toHaveBeenCalled();
+    expect(dependencies.reset).not.toHaveBeenCalled();
+  });
+
+  it('development 环境提供精确确认值后才连接并调用生产重置核心', async () => {
     const { client, dependencies } = createCommandDependencies();
 
     await expect(

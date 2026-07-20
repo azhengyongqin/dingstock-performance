@@ -176,7 +176,8 @@ export async function runResetPerformanceDataCommand(
   env: NodeJS.ProcessEnv = process.env,
   dependencies: ResetPerformanceCommandDependencies = commandDependencies,
 ) {
-  if (env.NODE_ENV?.trim().toLowerCase() === 'production') {
+  const nodeEnv = env.NODE_ENV?.trim().toLowerCase();
+  if (nodeEnv === 'production') {
     throw new Error('生产环境永久禁止执行绩效数据重置');
   }
   if (
@@ -185,6 +186,9 @@ export async function runResetPerformanceDataCommand(
     throw new Error(
       `缺少显式确认：请设置 ${RESET_PERFORMANCE_CONFIRMATION_ENV}=${RESET_PERFORMANCE_CONFIRMATION}`,
     );
+  }
+  if (nodeEnv !== 'development') {
+    throw new Error('绩效数据重置仅允许 development 环境执行');
   }
 
   const client = dependencies.createClient(dependencies.loadDatabaseUrl());
