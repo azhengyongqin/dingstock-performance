@@ -29,7 +29,6 @@ import type {
   FormSnapshotContent,
   FormSnapshotDimension,
 } from './evaluation.service-types';
-import { omitStageResultMode } from './stage-result.public';
 
 type PeerStageResultDb = Pick<
   Prisma.TransactionClient,
@@ -107,8 +106,6 @@ export type PeerStageResultView = {
   participantId: number;
   cycleConfigVersionId: number;
   status: 'READY' | 'NO_DATA';
-  /** 数据库旧列尚待最终清理 Ticket 删除；运行时不再读取配置模式。 */
-  mode: 'WEIGHTED_SCORE';
   reviewerCount: number;
   compositeScore: string | null;
   initialLevel: PerformanceLevel | null;
@@ -175,11 +172,12 @@ export class PeerStageResultService {
     }
     const config = participant.cycle.currentConfigVersion;
     if (!participant.cycle.currentConfigVersionId || !config) {
-      throw new ConflictException('周期缺少当前配置快照，无法计算 360°阶段结果');
+      throw new ConflictException(
+        '周期缺少当前配置快照，无法计算 360°阶段结果',
+      );
     }
     const content = participant.formSnapshot?.content as
-      | FormSnapshotContent
-      | undefined;
+      FormSnapshotContent | undefined;
     if (!content) {
       throw new ConflictException('参与者缺少表单快照，无法计算 360°阶段结果');
     }
@@ -199,7 +197,8 @@ export class PeerStageResultService {
     const validSubmissions = submissions.filter(
       (submission) =>
         submission.status === PerfReviewStatus.SUBMITTED &&
-        submission.reviewerAssignment?.status === PerfAssignmentStatus.SUBMITTED,
+        submission.reviewerAssignment?.status ===
+          PerfAssignmentStatus.SUBMITTED,
     );
     const draftReviewerOpenIds = new Set(
       submissions
@@ -208,7 +207,9 @@ export class PeerStageResultService {
     );
     const effectiveAssignmentIds = new Set(
       validSubmissions.flatMap((submission) =>
-        submission.reviewerAssignmentId ? [submission.reviewerAssignmentId] : [],
+        submission.reviewerAssignmentId
+          ? [submission.reviewerAssignmentId]
+          : [],
       ),
     );
     const excludedAssignments = participant.reviewerAssignments
@@ -240,7 +241,6 @@ export class PeerStageResultService {
         participantId,
         cycleConfigVersionId: config.id,
         status: 'NO_DATA',
-        mode: 'WEIGHTED_SCORE',
         reviewerCount: 0,
         compositeScore: null,
         initialLevel: null,
@@ -274,7 +274,8 @@ export class PeerStageResultService {
         isCore: Boolean(dimension.isCore),
         relations: REVIEWER_RELATIONS.flatMap((relation) => {
           const members = validSubmissions.filter(
-            (submission) => submission.reviewerAssignment?.relation === relation,
+            (submission) =>
+              submission.reviewerAssignment?.relation === relation,
           );
           if (members.length === 0) return [];
           return [
@@ -282,11 +283,16 @@ export class PeerStageResultService {
               type: relation,
               weight: relationWeights[relation],
               items: members.map((submission) => {
-                const answer = this.requireDimensionAnswer(submission, dimension);
+                const answer = this.requireDimensionAnswer(
+                  submission,
+                  dimension,
+                );
                 return {
                   submissionId: String(submission.id),
                   ...(dimension.scoringMethod === 'RATING'
-                    ? { rawLevel: this.requirePerformanceLevel(answer.rawLevel) }
+                    ? {
+                        rawLevel: this.requirePerformanceLevel(answer.rawLevel),
+                      }
                     : { rawScore: this.requireRawScore(answer.rawScore) }),
                 };
               }),
@@ -306,13 +312,14 @@ export class PeerStageResultService {
           baseWeight: first.baseWeight,
           adjustedWeight: first.effectiveWeight,
           reviewerCount: validSubmissions.filter(
-            (submission) => submission.reviewerAssignment?.relation === relation,
+            (submission) =>
+              submission.reviewerAssignment?.relation === relation,
           ).length,
           dimensionScores: result.dimensions.map((dimension) => ({
             dimensionKey: dimension.id,
             score:
-              dimension.relations.find((entry) => entry.type === relation)?.score ??
-              '0',
+              dimension.relations.find((entry) => entry.type === relation)
+                ?.score ?? '0',
           })),
         },
       ];
@@ -321,7 +328,6 @@ export class PeerStageResultService {
       participantId,
       cycleConfigVersionId: config.id,
       status: 'READY',
-      mode: 'WEIGHTED_SCORE',
       reviewerCount: validSubmissions.length,
       compositeScore: result.compositeScore,
       initialLevel: result.initialLevel,
@@ -337,7 +343,12 @@ export class PeerStageResultService {
       ),
       inputSummary,
     };
-    await this.persist(db, participant.cycleId, view, result.unroundedCompositeScore);
+    await this.persist(
+      db,
+      participant.cycleId,
+      view,
+      result.unroundedCompositeScore,
+    );
     return view;
   }
 
@@ -350,7 +361,7 @@ export class PeerStageResultService {
       throw new NotFoundException('参与者不存在');
     }
     await this.assertCanView(operatorOpenId, participant);
-    return omitStageResultMode(await this.recalculate(participantId));
+    return this.recalculate(participantId);
   }
 
   private scoringDimensionsOf(content: FormSnapshotContent) {
@@ -518,7 +529,6 @@ export class PeerStageResultService {
         view.status === 'READY'
           ? PerfStageResultStatus.READY
           : PerfStageResultStatus.NO_DATA,
-      mode: view.mode,
       reviewerCount: view.reviewerCount,
       compositeScore: view.compositeScore,
       initialLevel: view.initialLevel,
@@ -579,7 +589,9 @@ export class PeerStageResultService {
       PerfRole.ADMIN,
     ]);
     if (!isHr) {
-      throw new ForbiddenException('仅考核 Leader 或授权 HR 可查看 360°阶段结果');
+      throw new ForbiddenException(
+        '仅考核 Leader 或授权 HR 可查看 360°阶段结果',
+      );
     }
     const scope = await this.rbacService.getOrgScope(operatorOpenId);
     if (

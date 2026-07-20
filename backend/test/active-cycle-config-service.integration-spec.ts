@@ -11,7 +11,6 @@ const ratings = [
     minScore: '90',
     maxScore: '100',
     mappingScore: '95',
-    commentRequired: true,
   },
   {
     symbol: 'A',
@@ -19,7 +18,6 @@ const ratings = [
     minScore: '80',
     maxScore: '90',
     mappingScore: '85',
-    commentRequired: false,
   },
   {
     symbol: 'B',
@@ -27,7 +25,6 @@ const ratings = [
     minScore: '60',
     maxScore: '80',
     mappingScore: '70',
-    commentRequired: false,
   },
   {
     symbol: 'C',
@@ -35,31 +32,10 @@ const ratings = [
     minScore: '0',
     maxScore: '60',
     mappingScore: '50',
-    commentRequired: true,
   },
 ] as const;
-const constraints = {
-  WEIGHTED_RATING: [
-    {
-      id: 'core-c',
-      type: 'CORE_RATING_FORCE',
-      enabled: true,
-      triggerRating: 'C',
-      targetLevel: 'C',
-    },
-  ],
-  WEIGHTED_SCORE: [
-    {
-      id: 'core-low',
-      type: 'CORE_SCORE_FORCE',
-      enabled: true,
-      threshold: '60',
-      targetLevel: 'C',
-    },
-  ],
-};
 const formContent = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   name: 'Ticket 16 D form',
   subforms: [
     {
@@ -69,19 +45,13 @@ const formContent = {
       dimensions: [
         {
           key: 'dimension:self',
-          kind: 'REGULAR',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
           audience: 'EMPLOYEE',
           name: '自评',
           weight: '100',
           isCore: true,
-          items: [
-            {
-              key: 'item:self-rating',
-              type: 'RATING',
-              title: '评级',
-              required: true,
-            },
-          ],
+          fields: [],
         },
       ],
     },
@@ -92,19 +62,13 @@ const formContent = {
       dimensions: [
         {
           key: 'dimension:peer',
-          kind: 'REGULAR',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
           audience: 'REVIEWER',
           name: '协作',
           weight: '100',
           isCore: true,
-          items: [
-            {
-              key: 'item:peer-rating',
-              type: 'RATING',
-              title: '评级',
-              required: true,
-            },
-          ],
+          fields: [],
         },
       ],
     },
@@ -115,43 +79,25 @@ const formContent = {
       dimensions: [
         {
           key: 'dimension:manager',
-          kind: 'REGULAR',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
           audience: 'LEADER',
           name: '业绩',
           weight: '50',
           isCore: true,
-          items: [
-            {
-              key: 'item:manager-score',
-              type: 'SCORE',
-              title: '评分',
-              required: true,
-            },
-          ],
+          fields: [],
         },
         {
           key: 'dimension:manager-growth',
-          kind: 'REGULAR',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
           audience: 'LEADER',
           name: '成长',
           weight: '50',
           isCore: false,
-          items: [
-            {
-              key: 'item:manager-growth-score',
-              type: 'SCORE',
-              title: '成长评分',
-              required: true,
-            },
-          ],
+          fields: [],
         },
       ],
-    },
-    {
-      key: 'subform:PROMOTION',
-      type: 'PROMOTION',
-      title: '晋升',
-      dimensions: [],
     },
   ],
 };
@@ -174,7 +120,7 @@ describeWithDedicatedDatabase(
     let prisma: PrismaService;
     let cycleId: number;
     let participantId: number;
-    let itemId: number;
+    let dimensionAnswerId: number;
     let calibrationId: number;
     let resultVersionId: number;
     let configRootId: number;
@@ -231,7 +177,6 @@ describeWithDedicatedDatabase(
           status: 'DRAFT',
           name: `Ticket16 config ${suffix}`,
           ratings,
-          constraintProfiles: constraints,
           schedulePreset: { allowStageOverlap: true, stages: [] },
           notificationRules: { stages: [] },
           createdByOpenId: operator,
@@ -276,12 +221,7 @@ describeWithDedicatedDatabase(
           cycleId,
           version: 1,
           sourceConfigTemplateVersionId: source.id,
-          selfStageMode: 'DIRECT_RATING',
-          peerStageMode: 'WEIGHTED_RATING',
-          managerStageMode: 'WEIGHTED_SCORE',
-          aiStageMode: 'DIRECT_RATING',
           ratings,
-          constraintProfiles: constraints,
           orgOwnerWeight: '30',
           projectOwnerWeight: '30',
           peerWeight: '25',
@@ -324,19 +264,21 @@ describeWithDedicatedDatabase(
           status: 'DRAFT',
         },
       });
-      const item = await prisma.perfEvaluationItemResult.create({
-        data: {
-          submissionId: submission.id,
-          formSnapshotId: snapshot.id,
-          subformKey: 'subform:SELF',
-          dimensionKey: 'dimension:self',
-          itemKey: 'item:self-rating',
-          itemType: 'RATING',
-          rawLevel: 'A',
-          calculationScore: '85',
+      const dimensionAnswer = await prisma.perfEvaluationDimensionAnswer.create(
+        {
+          data: {
+            submissionId: submission.id,
+            formSnapshotId: snapshot.id,
+            subformKey: 'subform:SELF',
+            dimensionKey: 'dimension:self',
+            scoringMethod: 'RATING',
+            rawLevel: 'A',
+            calculationScore: '85',
+            derivedLevel: 'A',
+          },
         },
-      });
-      itemId = item.id;
+      );
+      dimensionAnswerId = dimensionAnswer.id;
       await prisma.perfStageResult.create({
         data: {
           cycleId,
@@ -344,7 +286,6 @@ describeWithDedicatedDatabase(
           cycleConfigVersionId: config.id,
           stage: 'MANAGER',
           status: 'NO_DATA',
-          mode: 'WEIGHTED_SCORE',
           reviewerCount: 0,
           constraintReasons: [],
           calculationDetail: {},
@@ -461,16 +402,9 @@ describeWithDedicatedDatabase(
             isCore: true,
           },
         ],
-        stageModes: {
-          SELF: 'DIRECT_RATING' as const,
-          PEER: 'WEIGHTED_RATING' as const,
-          MANAGER: 'WEIGHTED_SCORE' as const,
-          AI: 'DIRECT_RATING' as const,
-        },
         ratings: ratings.map((rating) =>
           rating.symbol === 'A' ? { ...rating, mappingScore: '88' } : rating,
         ),
-        constraintProfiles: constraints as never,
         reviewerRelationWeights: {
           ORG_OWNER: '30',
           PROJECT_OWNER: '30',
@@ -486,8 +420,8 @@ describeWithDedicatedDatabase(
       );
       rbac.isAdmin.mockResolvedValue(true);
       const stalePreview = await service.preview(operator, cycleId, input);
-      await prisma.perfEvaluationItemResult.update({
-        where: { id: itemId },
+      await prisma.perfEvaluationDimensionAnswer.update({
+        where: { id: dimensionAnswerId },
         data: { calculationScore: '84' },
       });
       const versionCountBefore = await prisma.perfCycleConfigVersion.count({
@@ -529,8 +463,8 @@ describeWithDedicatedDatabase(
       ).toBe(2);
       expect(
         (
-          await prisma.perfEvaluationItemResult.findUniqueOrThrow({
-            where: { id: itemId },
+          await prisma.perfEvaluationDimensionAnswer.findUniqueOrThrow({
+            where: { id: dimensionAnswerId },
           })
         ).calculationScore!.toString(),
       ).toBe('88');

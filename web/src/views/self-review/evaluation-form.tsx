@@ -16,14 +16,6 @@ import {
   type EvaluationItemAnswer
 } from './evaluation-form-types'
 
-/** PROMOTION 标题按实际下发的受众标注，明确员工材料与 Leader 结论的填写边界。 */
-const subformTitle = (subform: PerfEvalFormSubform) => {
-  if (subform.type !== 'PROMOTION') return subform.title
-  const isLeaderSection = subform.dimensions.length > 0 && subform.dimensions.every(item => item.audience === 'LEADER')
-
-  return isLeaderSection ? '晋升评估（Leader 填写）' : '晋升评估（员工填写）'
-}
-
 export type EvaluationFormProps = {
   subforms: PerfEvalFormSubform[]
   answers: EvaluationAnswers
@@ -81,7 +73,6 @@ const DimensionBlock = ({
               value={dimensionAnswer?.rawLevel ?? null}
               onChange={rawLevel => onAnswerChange(dimension.key, { rawLevel })}
               disabled={disabled}
-              ratings={ratings}
             />
           ) : (
             <ScoreSelector
@@ -89,7 +80,6 @@ const DimensionBlock = ({
               value={dimensionAnswer?.rawScoreText ?? ''}
               onChange={rawScoreText => onAnswerChange(dimension.key, { rawScoreText })}
               disabled={disabled}
-              ratings={ratings}
             />
           )}
           {errors?.[dimension.key] && <FieldError>{errors[dimension.key]}</FieldError>}
@@ -110,24 +100,10 @@ const DimensionBlock = ({
               onChange={answer => onAnswerChange(field.key, answer)}
               disabled={disabled}
               error={errors?.[field.key]}
-              ratings={ratings}
             />
           </div>
         )
       })}
-      {/* PEER/MANAGER 尚未切票前继续渲染旧快照，SELF v2 不会进入此分支。 */}
-      {fields.length === 0 &&
-        (dimension.items ?? []).map(item => (
-          <EvaluationItemField
-            key={item.key}
-            item={item}
-            answer={answers[item.key]}
-            onChange={answer => onAnswerChange(item.key, answer)}
-            disabled={disabled}
-            error={errors?.[item.key]}
-            ratings={ratings}
-          />
-        ))}
     </div>
   </section>
   )
@@ -149,7 +125,7 @@ const EvaluationForm = ({
     return (
       <div className={cn('flex h-full min-h-0 flex-col', className)}>
         <div className='shrink-0 px-5 pt-5 sm:px-6 sm:pt-6'>
-          <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
+          <h2 className='text-base font-semibold'>{subform.title}</h2>
           {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
         </div>
         {/* 顶 padding 放进吸顶条，避免 sticky top-0 上方留出透底空隙 */}
@@ -176,7 +152,7 @@ const EvaluationForm = ({
       {subforms.map(subform => (
         <div key={subform.key} className='flex flex-col'>
           <div className='bg-card sticky top-0 z-20 -mx-5 border-b px-5 pt-5 pb-3 sm:-mx-6 sm:px-6'>
-            <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
+            <h2 className='text-base font-semibold'>{subform.title}</h2>
             {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
           </div>
           {subform.dimensions.map(dimension => (

@@ -25,11 +25,13 @@ export const ConfigRuleSectionChrome = ({
 
 const HEADER_ROW =
   'text-muted-foreground bg-muted/40 grid items-center gap-3 border-b px-3 py-2 text-left text-xs font-normal'
+
 const BODY_ROW = 'grid items-center gap-3 px-3 py-2.5 text-left'
 
 export const configRuleRowClassName = (gridClassName: string) => cn(BODY_ROW, gridClassName)
 
 type ConfigRuleTableProps = {
+
   /** 与每一行完全相同的 grid-cols-*，保证表头与内容列对齐 */
   gridClassName: string
   headers: ReactNode[]

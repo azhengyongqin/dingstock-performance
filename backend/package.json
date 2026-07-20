@@ -19,12 +19,13 @@
     "lark:play": "ts-node --transpile-only --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\",\"resolvePackageJsonExports\":false}' src/scripts/lark-playground.ts",
     "seed:form-templates": "pnpm build && node dist/src/scripts/seed-default-form-templates.js",
     "seed:baseline": "pnpm build && node dist/src/scripts/seed-baseline-data.js",
+    "reset:performance-data": "pnpm build && node dist/src/scripts/reset-performance-data.js",
     "test": "pnpm prisma:generate && jest",
     "test:postgres": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config test/jest-postgres-integration.json --runInBand",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./test/jest-e2e.json"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.71.1",

@@ -66,29 +66,6 @@ export type FormFieldConfig = {
   allowedProtocols?: readonly string[];
 };
 
-/** Expand 期间仅供尚未迁移的周期快照 DTO 使用，禁止在新版模板 API 中暴露。 */
-export const LEGACY_FORM_DIMENSION_TYPES = [
-  'REGULAR',
-  'PROMOTION',
-  'TEXT',
-] as const;
-export type LegacyFormDimensionType =
-  (typeof LEGACY_FORM_DIMENSION_TYPES)[number];
-export const LEGACY_FORM_ITEM_TYPES = [
-  'RATING',
-  'SCORE',
-  ...FORM_FIELD_TYPES,
-] as const;
-export type LegacyFormItemType = (typeof LEGACY_FORM_ITEM_TYPES)[number];
-export type LegacyFormItemConfig = FormFieldConfig & {
-  employeeVisible?: boolean;
-};
-export const LEGACY_FORM_SUBFORM_TYPES = [
-  ...FORM_SUBFORM_TYPES,
-  'PROMOTION',
-] as const;
-export type LegacyFormSubformType = (typeof LEGACY_FORM_SUBFORM_TYPES)[number];
-
 export type FormTemplateFieldContract = {
   /** 数据库展开响应可携带内部 ID；跨版本匹配始终使用 key。 */
   id?: number;

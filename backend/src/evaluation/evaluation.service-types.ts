@@ -2,17 +2,6 @@
  * 表单快照 content 的只读形状（cycle-setup.service.ts toFormSnapshotContent 的产物）。
  * 本模块只读取快照，不生成快照，故只声明消费侧需要的字段，不追求与写入侧完全对称。
  */
-export type FormSnapshotItem = {
-  key: string;
-  type: string;
-  title: string;
-  description?: string | null;
-  placeholder?: string | null;
-  required: boolean;
-  sortOrder?: number;
-  config?: unknown;
-};
-
 export type FormSnapshotField = {
   key: string;
   type:
@@ -35,7 +24,6 @@ export type FormSnapshotField = {
 export type FormSnapshotDimension = {
   key: string;
   type?: 'SCORING' | 'NON_SCORING';
-  kind?: 'REGULAR' | 'PROMOTION' | 'TEXT' | 'METRIC';
   scoringMethod?: 'RATING' | 'SCORE' | null;
   audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
   name?: string;
@@ -43,14 +31,12 @@ export type FormSnapshotDimension = {
   weight?: string | null;
   isCore?: boolean;
   sortOrder?: number;
-  /** 旧 v1 快照兼容形状；v2 快照只使用 fields。 */
-  items?: readonly FormSnapshotItem[];
-  fields?: readonly FormSnapshotField[];
+  fields: readonly FormSnapshotField[];
 };
 
 export type FormSnapshotSubform = {
   key: string;
-  type: 'SELF' | 'PEER' | 'MANAGER' | 'PROMOTION';
+  type: 'SELF' | 'PEER' | 'MANAGER';
   title?: string;
   description?: string | null;
   sortOrder?: number;

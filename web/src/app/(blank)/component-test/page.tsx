@@ -194,7 +194,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'evaluation-form',
     title: '动态评估表单',
-    description: '9 种评估项类型 / 必填校验 / 禁用态',
+    description: '7 种表单字段类型 / 必填校验 / 禁用态',
     icon: ListChecksIcon
   },
   {
@@ -819,7 +819,7 @@ const ConfigTemplateEditorPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>配置模板草稿态</CardTitle>
-          <CardDescription>验证固定 S/A/B/C、阶段模式、约束、关系权重、表单绑定与日程通知。</CardDescription>
+          <CardDescription>验证固定 S/A/B/C、统一约束、关系权重、表单绑定与日程通知。</CardDescription>
         </CardHeader>
         <CardContent>
           <ConfigTemplateEditor value={draft} candidates={[FORM_TEMPLATE_PREVIEW_VALUE]} editable onChange={setDraft} />
@@ -852,7 +852,6 @@ const CYCLE_SETUP_PARTICIPANTS: PerfCycleSetupParticipant[] = [
     departmentIdSnapshot: null,
     jobLevelCodeSnapshot: 'D5',
     jobLevelPrefixSnapshot: 'D',
-    isPromotionEnabled: false,
     status: 'ACTIVE',
     employee: { open_id: 'ou_cycle_preview', name: '周期示例员工' },
     leader: null,
@@ -940,7 +939,6 @@ const CycleSetupPreview = () => {
         onAddMember={() => {}}
         onAddDepartment={() => {}}
         onRemoveMember={() => {}}
-        onTogglePromotion={() => {}}
         onPlanChange={setPlan}
         onSavePlan={async () => true}
         onRunChecks={() => {}}
@@ -1277,7 +1275,7 @@ const EvaluationFormDisabledPreview = () => (
   />
 )
 
-/** Ticket 07 业务组件示例：PEER 仅展示 REVIEWER 可观察行为维度，不包含 SELF/PROMOTION 内容。 */
+/** 360° 示例只展示 REVIEWER 可观察行为维度，不混入其他阶段内容。 */
 const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
   {
     key: 'subform:PEER',
@@ -1287,14 +1285,15 @@ const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
     dimensions: [
       {
         key: 'dimension:PEER:REVIEWER:0',
+        type: 'SCORING',
+        scoringMethod: 'RATING',
         audience: 'REVIEWER',
         name: '协作与责任担当',
         description: '只评价在协作中能够直接观察到的行为。',
         isCore: true,
         sortOrder: 0,
-        items: [
-          { key: 'item:peer-rating', type: 'RATING', title: '协作表现评级', required: true, sortOrder: 0 },
-          { key: 'item:peer-comment', type: 'LONG_TEXT', title: '具体行为事例', required: true, sortOrder: 1 }
+        fields: [
+          { key: 'field:peer-comment', type: 'LONG_TEXT', title: '具体行为事例', requiredRule: 'ALWAYS', sortOrder: 0 }
         ]
       }
     ]
@@ -1326,15 +1325,15 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     reviewerOpenId: 'ou_preview_reviewer',
     status: 'SUBMITTED',
     submittedAt: '2026-07-15T09:00:00.000Z',
-    items: [
+    dimensionAnswers: [
       {
         id: 1,
         submissionId: 100,
         subformKey: 'subform:PEER',
         dimensionKey: 'dimension:PEER:REVIEWER:0',
-        itemKey: 'item:peer-rating',
-        itemType: 'RATING',
-        rawLevel: 'A'
+        scoringMethod: 'RATING',
+        rawLevel: 'A',
+        fields: []
       }
     ]
   },
@@ -1347,15 +1346,19 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     stage: 'SELF',
     reviewerOpenId: 'ou_preview_employee',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 901,
         submissionId: 90,
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-        itemKey: 'item:self-summary',
-        itemType: 'MARKDOWN',
-        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+        scoringMethod: null,
+        fields: [{
+          id: 902,
+          fieldKey: 'field:self-summary',
+          fieldType: 'MARKDOWN',
+          value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+        }]
       }
     ]
   }
@@ -1367,7 +1370,7 @@ const PeerEvaluationFormPreview = () => (
 
 /** 上级评估业务组件示例：混合计分维度、条件必填字段与系统权威等级预览。 */
 const MANAGER_REVIEW_PREVIEW_CONTEXT = {
-  participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
+  participant: { id: 7, cycleId: 1 },
   cycle: {
     id: 1,
     name: '2026 上半年绩效',

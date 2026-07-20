@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import {
   PerfEvaluationTaskType,
-  PerfFormItemType,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
@@ -18,14 +17,12 @@ import { ParticipantEvaluationLockService } from '../participant/participant-eva
 import type {
   EvaluationDimensionAnswerDto,
   EvaluationFieldAnswerDto,
-  EvaluationItemAnswerDto,
   SaveSelfEvaluationDto,
 } from './evaluation.dto';
 import type {
   FormSnapshotContent,
   FormSnapshotDimension,
   FormSnapshotField,
-  FormSnapshotItem,
   FormSnapshotSubform,
 } from './evaluation.service-types';
 import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
@@ -36,12 +33,6 @@ import {
 
 /** 自评提交状态标记：无 SUBMITTED=草稿；有 SUBMITTED 无 DRAFT=已生效；两者都有=待重新提交 */
 export type SelfEvaluationState = 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT';
-
-/** 校验后的明细行：已定位快照评估项并完成类型匹配 */
-export type ResolvedAnswer = {
-  answer: EvaluationItemAnswerDto;
-  item: FormSnapshotItem;
-};
 
 export type ResolvedFieldAnswer = {
   answer: EvaluationFieldAnswerDto;
@@ -770,7 +761,6 @@ export class EvaluationSubmissionService {
       result.matchedConstraints as unknown as Prisma.InputJsonArray;
     const values = {
       status: 'READY' as const,
-      mode: 'DIRECT_RATING' as const,
       reviewerCount: 1,
       compositeScore: result.compositeScore,
       initialLevel: result.initialLevel,
@@ -841,205 +831,5 @@ export class EvaluationSubmissionService {
           (dimension) => dimension.audience === 'LEADER',
         ),
       }));
-  }
-
-  validatePeerAnswers(
-    content: FormSnapshotContent,
-    answers: EvaluationItemAnswerDto[],
-  ) {
-    return this.validateAnswersInSubforms(
-      content,
-      this.selectPeerSubforms(content),
-      answers,
-      '360°评审员可填范围',
-    );
-  }
-
-  /**
-   * 防伪造校验：每条作答的 (subformKey, dimensionKey, itemKey) 必须真实存在于
-   * 员工可填的表单快照内容中，且载荷组件与评估项类型匹配。
-   */
-  private validateAnswers(
-    content: FormSnapshotContent,
-    isPromotionEnabled: boolean,
-    answers: EvaluationItemAnswerDto[],
-  ): ResolvedAnswer[] {
-    const allowed = this.selectEmployeeSubforms(content);
-    return this.validateAnswersInSubforms(
-      content,
-      allowed,
-      answers,
-      '员工可填范围',
-      isPromotionEnabled,
-    );
-  }
-
-  private validateAnswersInSubforms(
-    content: FormSnapshotContent,
-    allowed: readonly FormSnapshotSubform[],
-    answers: EvaluationItemAnswerDto[],
-    scopeLabel: string,
-    isPromotionEnabled = false,
-  ): ResolvedAnswer[] {
-    const seenKeys = new Set<string>();
-    return answers.map((answer) => {
-      const subform = content.subforms.find(
-        (candidate) => candidate.key === answer.subformKey,
-      );
-      if (subform?.type === 'PROMOTION' && !isPromotionEnabled) {
-        throw new BadRequestException('未启用晋升评估，不能填写晋升评估内容');
-      }
-      const allowedSubform = allowed.find(
-        (candidate) => candidate.key === answer.subformKey,
-      );
-      const dimension = allowedSubform?.dimensions.find(
-        (candidate: FormSnapshotDimension) =>
-          candidate.key === answer.dimensionKey,
-      );
-      const item = dimension?.items?.find(
-        (candidate) => candidate.key === answer.itemKey,
-      );
-      if (!allowedSubform || !dimension || !item) {
-        throw new BadRequestException(
-          `评估项 ${answer.itemKey} 不存在于当前表单快照的${scopeLabel}`,
-        );
-      }
-      if (seenKeys.has(answer.itemKey)) {
-        throw new BadRequestException(`评估项 ${item.title} 重复提交`);
-      }
-      seenKeys.add(answer.itemKey);
-      this.assertPayloadMatchesType(item, answer);
-      return { answer, item };
-    });
-  }
-
-  /** 类型匹配：RATING 项只收 rawLevel，SCORE 项只收 rawScore，非计分项只收 value */
-  private assertPayloadMatchesType(
-    item: FormSnapshotItem,
-    answer: EvaluationItemAnswerDto,
-  ) {
-    const has = {
-      rawLevel: answer.rawLevel !== undefined,
-      rawScore: answer.rawScore !== undefined,
-      value: answer.value !== undefined,
-    };
-    const reject = () => {
-      throw new BadRequestException(
-        `评估项「${item.title}」为 ${item.type} 类型，提交的内容载荷与类型不匹配`,
-      );
-    };
-    if (item.type === PerfFormItemType.RATING) {
-      if (has.rawScore || has.value) reject();
-    } else if (item.type === PerfFormItemType.SCORE) {
-      if (has.rawLevel || has.value) reject();
-    } else if (has.rawLevel || has.rawScore) {
-      reject();
-    }
-  }
-
-  /** 首次提交完整性：员工可填范围内全部 required 项必须给出有效作答 */
-  private assertComplete(
-    content: FormSnapshotContent,
-    isPromotionEnabled: boolean,
-    resolved: ResolvedAnswer[],
-  ) {
-    this.assertSubformsComplete(this.selectEmployeeSubforms(content), resolved);
-  }
-
-  assertSubformsComplete(
-    subforms: readonly FormSnapshotSubform[],
-    resolved: ResolvedAnswer[],
-  ) {
-    const answeredKeys = new Set(
-      resolved
-        .filter((entry) => this.isAnswered(entry))
-        .map((entry) => entry.item.key),
-    );
-    for (const subform of subforms) {
-      for (const dimension of subform.dimensions) {
-        for (const item of dimension.items ?? []) {
-          if (item.required && !answeredKeys.has(item.key)) {
-            throw new BadRequestException(
-              `必填评估项「${item.title}」尚未填写，无法提交`,
-            );
-          }
-        }
-      }
-    }
-  }
-
-  /** 是否给出有效作答：空字符串/空数组视为未作答 */
-  private isAnswered({ answer, item }: ResolvedAnswer) {
-    if (item.type === PerfFormItemType.RATING) {
-      return answer.rawLevel !== undefined;
-    }
-    if (item.type === PerfFormItemType.SCORE) {
-      return answer.rawScore !== undefined;
-    }
-    const value = answer.value;
-    if (value === undefined || value === null) return false;
-    if (typeof value === 'string') return value.trim().length > 0;
-    if (Array.isArray(value)) return value.length > 0;
-    return true;
-  }
-
-  /**
-   * 计算分（ADR-0008/0018）：RATING = 周期配置快照中该评级的映射分；
-   * SCORE = 原始分数；非计分项无计算分。
-   */
-  calculationScoreOf(
-    { answer, item }: ResolvedAnswer,
-    ratings: Array<{ symbol: string; mappingScore: string }>,
-  ): string | number | null {
-    if (item.type === PerfFormItemType.RATING) {
-      const rating = ratings.find(
-        (candidate) => candidate.symbol === answer.rawLevel,
-      );
-      if (!rating?.mappingScore) {
-        throw new ConflictException(
-          `周期评级配置缺少评级 ${answer.rawLevel} 的映射分，无法提交`,
-        );
-      }
-      return rating.mappingScore;
-    }
-    if (item.type === PerfFormItemType.SCORE) {
-      return answer.rawScore!;
-    }
-    return null;
-  }
-
-  toItemRow(
-    { answer, item }: ResolvedAnswer,
-    formSnapshotId: number,
-    calculationScore: string | number | null,
-  ) {
-    return {
-      formSnapshotId,
-      subformKey: answer.subformKey,
-      dimensionKey: answer.dimensionKey,
-      itemKey: answer.itemKey,
-      itemType: item.type as PerfFormItemType,
-      rawLevel: answer.rawLevel ?? null,
-      rawScore: answer.rawScore ?? null,
-      calculationScore,
-      value:
-        answer.value === undefined
-          ? undefined
-          : (answer.value as Prisma.InputJsonValue),
-    };
-  }
-
-  /** 明细整体替换：先清空该提交的全部明细再批量写入（同一事务内调用） */
-  async replaceItems(
-    tx: Prisma.TransactionClient,
-    submissionId: number,
-    rows: Array<ReturnType<EvaluationSubmissionService['toItemRow']>>,
-  ) {
-    await tx.perfEvaluationItemResult.deleteMany({ where: { submissionId } });
-    if (rows.length > 0) {
-      await tx.perfEvaluationItemResult.createMany({
-        data: rows.map((row) => ({ ...row, submissionId })),
-      });
-    }
   }
 }

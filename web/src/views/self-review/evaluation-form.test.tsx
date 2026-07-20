@@ -16,29 +16,29 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
   sortOrder: 0,
   dimensions: [
     {
-      key: 'dimension:SELF:EMPLOYEE:0',
+      key: 'dimension:rating',
+      type: 'SCORING',
+      scoringMethod: 'RATING',
       audience: 'EMPLOYEE',
       name: '综合评估',
       isCore: true,
       sortOrder: 0,
-      items: [
-        { key: 'item:rating', type: 'RATING', title: '自评等级', required: true, sortOrder: 0 },
-        { key: 'item:score', type: 'SCORE', title: '目标完成度', required: false, sortOrder: 1 },
+      fields: [
         {
           key: 'item:short',
           type: 'SHORT_TEXT',
           title: '一句话总结',
-          required: true,
+          requiredRule: 'ALWAYS',
           sortOrder: 2,
           config: { maxLength: 20 }
         },
-        { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
-        { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: false, sortOrder: 4 },
+        { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', requiredRule: 'OPTIONAL', sortOrder: 3 },
+        { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', requiredRule: 'OPTIONAL', sortOrder: 4 },
         {
           key: 'item:single',
           type: 'SINGLE_SELECT',
           title: '晋升意愿',
-          required: true,
+          requiredRule: 'ALWAYS',
           sortOrder: 5,
           config: {
             options: [
@@ -51,7 +51,7 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
           key: 'item:multi',
           type: 'MULTI_SELECT',
           title: '协作方式',
-          required: true,
+          requiredRule: 'ALWAYS',
           sortOrder: 6,
           config: {
             options: [
@@ -67,12 +67,21 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
           key: 'item:attachment',
           type: 'ATTACHMENT',
           title: '证明材料',
-          required: true,
+          requiredRule: 'ALWAYS',
           sortOrder: 7,
           config: { maxFiles: 2 }
         },
-        { key: 'item:link', type: 'LINK', title: '参考链接', required: false, sortOrder: 8 }
+        { key: 'item:link', type: 'LINK', title: '参考链接', requiredRule: 'OPTIONAL', sortOrder: 8 }
       ]
+    },
+    {
+      key: 'dimension:score',
+      type: 'SCORING',
+      scoringMethod: 'SCORE',
+      audience: 'EMPLOYEE',
+      name: '目标完成度',
+      sortOrder: 1,
+      fields: []
     }
   ]
 }
@@ -83,22 +92,6 @@ const RATINGS: PerfConfigTemplateRating[] = [
   { symbol: 'B', name: '良好', description: '基本达成目标', minScore: '60', maxScore: '80', mappingScore: '70' },
   { symbol: 'C', name: '待改进', description: '未达成目标', minScore: '0', maxScore: '60', mappingScore: '50' }
 ]
-
-const PROMOTION_SUBFORM: PerfEvalFormSubform = {
-  key: 'subform:PROMOTION',
-  type: 'PROMOTION',
-  title: '晋升评估',
-  sortOrder: 1,
-  dimensions: [
-    {
-      key: 'dimension:PROMOTION:EMPLOYEE:0',
-      audience: 'EMPLOYEE',
-      name: '突出贡献',
-      sortOrder: 0,
-      items: [{ key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }]
-    }
-  ]
-}
 
 /** 受控测试壳：真实页面同样以 answers/onAnswerChange 驱动，用本地 state 还原完整交互链路 */
 const Harness = ({
@@ -157,7 +150,7 @@ describe('EvaluationForm 各评估项类型渲染正确组件', () => {
   it('必填项标题带 * 标记', () => {
     render(<Harness subforms={[ALL_TYPES_SUBFORM]} />)
 
-    const title = screen.getByText('自评等级').closest('div')
+    const title = screen.getByText('一句话总结').closest('div')
 
     expect(within(title!).getByText('*')).toBeInTheDocument()
   })
@@ -228,11 +221,11 @@ describe('EvaluationForm 校验错误内联展示', () => {
     render(
       <Harness
         subforms={[ALL_TYPES_SUBFORM]}
-        errors={{ 'item:rating': '「自评等级」为必填项，请选择评级', 'item:multi': '「协作方式」至少选择 1 项' }}
+        errors={{ 'dimension:rating': '计分维度「综合评估」请选择评级', 'item:multi': '「协作方式」至少选择 1 项' }}
       />
     )
 
-    expect(screen.getByText('「自评等级」为必填项，请选择评级')).toBeInTheDocument()
+    expect(screen.getByText('计分维度「综合评估」请选择评级')).toBeInTheDocument()
     expect(screen.getByText('「协作方式」至少选择 1 项')).toBeInTheDocument()
   })
 })
@@ -249,13 +242,5 @@ describe('EvaluationForm 禁用态', () => {
     expect(screen.getByRole('combobox', { name: '晋升意愿' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '添加附件' })).toBeDisabled()
     expect(screen.getByRole('textbox', { name: '参考链接' })).toBeDisabled()
-  })
-})
-
-describe('EvaluationForm 晋升评估分区标题', () => {
-  it('PROMOTION 子表单标题固定展示「晋升评估（员工填写）」', () => {
-    render(<Harness subforms={[PROMOTION_SUBFORM]} />)
-
-    expect(screen.getByText('晋升评估（员工填写）')).toBeInTheDocument()
   })
 })

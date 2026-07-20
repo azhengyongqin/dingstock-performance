@@ -24,12 +24,9 @@ export type PerfReviewStatus = 'DRAFT' | 'SUBMITTED'
 export type PerfAppealStatus = 'PENDING' | 'IN_INTERVIEW' | 'RESOLVED'
 export type PerfFormTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type PerfJobLevelPrefix = 'D' | 'M'
-export type PerfFormSubformType = 'SELF' | 'PEER' | 'MANAGER' | 'PROMOTION'
-export type PerfFormDimensionKind = 'REGULAR' | 'TEXT' | 'PROMOTION'
+export type PerfFormSubformType = 'SELF' | 'PEER' | 'MANAGER'
 export type PerfFormAudience = 'EMPLOYEE' | 'REVIEWER' | 'LEADER'
-export type PerfFormItemType =
-  | 'RATING'
-  | 'SCORE'
+export type PerfFormFieldType =
   | 'SHORT_TEXT'
   | 'LONG_TEXT'
   | 'MARKDOWN'
@@ -38,19 +35,18 @@ export type PerfFormItemType =
   | 'ATTACHMENT'
   | 'LINK'
 
-export type PerfFormItemOption = { value: string; label: string }
+export type PerfFormFieldOption = { value: string; label: string }
 
-export type PerfFormTemplateSubformType = Exclude<PerfFormSubformType, 'PROMOTION'>
+export type PerfFormTemplateSubformType = PerfFormSubformType
 export type PerfFormDimensionType = 'SCORING' | 'NON_SCORING'
 export type PerfFormScoringMethod = 'RATING' | 'SCORE'
-export type PerfFormFieldType = Exclude<PerfFormItemType, 'RATING' | 'SCORE'>
 export type PerfFormFieldRequiredRule = 'OPTIONAL' | 'ALWAYS' | 'CONDITIONAL'
 
-export type PerfFormItemConfig = {
+export type PerfFormFieldConfig = {
   minLength?: number
   maxLength?: number
   defaultValue?: string
-  options?: PerfFormItemOption[]
+  options?: PerfFormFieldOption[]
   minSelections?: number
   maxSelections?: number
   maxFiles?: number
@@ -138,8 +134,6 @@ export type EvaluationRating = {
   remark?: string
 }
 
-export type CommentRequiredRules = { requiredRatingSymbols?: string[] }
-
 export type PerfCycle = {
   id: number
   name: string
@@ -224,7 +218,6 @@ export type PerfParticipantItem = {
   employeeOpenId: string
   leaderOpenIdSnapshot: string | null
   departmentIdSnapshot: string | null
-  isPromotionEnabled: boolean
   status: PerfParticipantStatus
   employee: LarkUserBrief | null
   leader: LarkUserBrief | null
@@ -283,7 +276,7 @@ export type PerfFormTemplateField = {
   requiredRule: PerfFormFieldRequiredRule
   requiredLevels: PerfPerformanceLevel[]
   sortOrder: number
-  config?: PerfFormItemConfig | null
+  config?: PerfFormFieldConfig | null
   clientKey?: string
 }
 
@@ -348,12 +341,13 @@ export type PerfFormTemplateVersion = PerfFormTemplateVersionSummary & {
       fields: Array<{
         key: string
         title: string
-        type: PerfFormItemType
+        type: PerfFormFieldType
         description?: string | null
         placeholder?: string | null
-        required: boolean
+        requiredRule: PerfFormFieldRequiredRule
+        requiredLevels?: PerfPerformanceLevel[]
         sortOrder: number
-        config?: PerfFormItemConfig | null
+        config?: PerfFormFieldConfig | null
       }>
     }>
   } | null
@@ -815,18 +809,6 @@ export const returnPerfCycleToDraft = (cycleId: number) =>
 
 // ===== 统一评估提交（Ticket 06，员工自评） =====
 
-/** 旧评估项形状仅供尚未迁移的结果消费者读取；三类填写链路均使用维度 + 字段。 */
-export type PerfEvalFormItem = {
-  key: string
-  type: PerfFormItemType
-  title: string
-  description?: string | null
-  placeholder?: string | null
-  required: boolean
-  sortOrder: number
-  config?: PerfFormItemConfig | null
-}
-
 export type PerfEvalFormField = {
   key: string
   type: PerfFormFieldType
@@ -836,13 +818,12 @@ export type PerfEvalFormField = {
   requiredRule: PerfFormFieldRequiredRule
   requiredLevels?: PerfPerformanceLevel[]
   sortOrder: number
-  config?: PerfFormItemConfig | null
+  config?: PerfFormFieldConfig | null
 }
 
 export type PerfEvalFormDimension = {
   key: string
-  type?: 'SCORING' | 'NON_SCORING'
-  kind?: PerfFormDimensionKind
+  type: PerfFormDimensionType
   scoringMethod?: 'RATING' | 'SCORE' | null
   audience: PerfFormAudience
   name: string
@@ -850,8 +831,7 @@ export type PerfEvalFormDimension = {
   weight?: string | number | null
   isCore?: boolean
   sortOrder: number
-  fields?: PerfEvalFormField[]
-  items?: PerfEvalFormItem[]
+  fields: PerfEvalFormField[]
 }
 
 export type PerfEvalFormSubform = {
@@ -863,30 +843,6 @@ export type PerfEvalFormSubform = {
   dimensions: PerfEvalFormDimension[]
 }
 
-/** PUT /evaluations/self/draft、POST /evaluations/self/submit 共用的单项作答载荷 */
-export type PerfEvaluationItemAnswer = {
-  subformKey: string
-  dimensionKey: string
-  itemKey: string
-  rawLevel?: PerfPerformanceLevel
-  rawScore?: number
-  value?: unknown
-}
-
-/** 已保存明细行（PerfEvaluationItemResult 投影）：Decimal 字段以字符串下发 */
-export type PerfEvaluationItemResult = {
-  id: number
-  submissionId: number
-  subformKey: string
-  dimensionKey: string
-  itemKey: string
-  itemType: PerfFormItemType
-  rawLevel?: PerfPerformanceLevel | null
-  rawScore?: string | null
-  calculationScore?: string | null
-  value?: unknown
-}
-
 export type PerfEvaluationSubmissionRecord = {
   id: number
   cycleId: number
@@ -896,8 +852,7 @@ export type PerfEvaluationSubmissionRecord = {
   status: PerfReviewStatus
   submittedAt?: string | null
   submittedByOpenId?: string | null
-  items?: PerfEvaluationItemResult[]
-  dimensionAnswers?: PerfEvaluationDimensionAnswer[]
+  dimensionAnswers: PerfEvaluationDimensionAnswer[]
 }
 
 export type PerfEvaluationFieldAnswer = {
@@ -944,7 +899,6 @@ export type PerfSelfEvaluationParticipant = {
   cycleId: number
   employeeOpenId: string
   status: PerfParticipantStatus
-  isPromotionEnabled: boolean
   formSnapshotId: number | null
   cycle: {
     id: number
@@ -976,7 +930,7 @@ export const getSelfEvaluationContext = (cycleId?: number) =>
  * 草稿保存返回的提交行：对应后端 saveSelfDraft 事务内 findFirst/create 的裸 Prisma 行，
  * 不 include 明细，因此不含 items（与 PerfEvaluationSubmissionRecord 的区别）。
  */
-export type PerfEvaluationSubmissionDraftRecord = Omit<PerfEvaluationSubmissionRecord, 'items' | 'dimensionAnswers'>
+export type PerfEvaluationSubmissionDraftRecord = Omit<PerfEvaluationSubmissionRecord, 'dimensionAnswers'>
 
 export const saveSelfEvaluationDraft = (input: SaveSelfEvaluationInput) =>
   apiFetch<PerfEvaluationSubmissionDraftRecord>('/evaluations/self/draft', {
@@ -1098,7 +1052,7 @@ export type PerfPeerStageResult = PerfManagerStageResult & {
 }
 
 export type PerfManagerEvaluationContext = {
-  participant: { id: number; cycleId: number; isPromotionEnabled: boolean }
+  participant: { id: number; cycleId: number }
   cycle: {
     id: number
     name: string

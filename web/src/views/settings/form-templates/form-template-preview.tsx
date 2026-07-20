@@ -1,6 +1,6 @@
 import type {
-  PerfFormItemConfig,
-  PerfFormItemType,
+  PerfFormFieldConfig,
+  PerfFormFieldType,
   PerfFormTemplateDimension,
   PerfFormTemplateVersion,
   PerfPerformanceLevel
@@ -16,14 +16,13 @@ import { FORM_FIELD_TYPE_LABEL, JOB_LEVEL_PREFIX_LABEL } from './form-template-c
 type PreviewField = {
   key?: string
   id?: number
-  type: PerfFormItemType
+  type: PerfFormFieldType
   title: string
   description?: string | null
   placeholder?: string | null
-  required?: boolean
   requiredRule?: 'OPTIONAL' | 'ALWAYS' | 'CONDITIONAL'
   requiredLevels?: PerfPerformanceLevel[]
-  config?: PerfFormItemConfig | null
+  config?: PerfFormFieldConfig | null
 }
 
 const FieldControlPreview = ({ field }: { field: PreviewField }) => {
@@ -83,15 +82,13 @@ const FieldControlPreview = ({ field }: { field: PreviewField }) => {
     )
   }
 
-  return <p className='text-muted-foreground text-sm'>旧计分控件仅供历史查阅。</p>
+  return null
 }
 
 /** 受控字段的禁用填写态，供新版预览与旧晋升只读页复用。 */
 export const FormFieldPreview = ({ field }: { field: PreviewField }) => {
-  const requiredRule = field.requiredRule ?? (field.required ? 'ALWAYS' : 'OPTIONAL')
-
-  const typeLabel =
-    field.type === 'RATING' ? '评级' : field.type === 'SCORE' ? '0～100 分' : FORM_FIELD_TYPE_LABEL[field.type]
+  const requiredRule = field.requiredRule ?? 'OPTIONAL'
+  const typeLabel = FORM_FIELD_TYPE_LABEL[field.type]
 
   return (
     <div className='bg-muted/40 flex flex-col gap-2 rounded-md px-3 py-3 text-sm'>

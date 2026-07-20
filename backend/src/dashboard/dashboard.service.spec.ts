@@ -36,7 +36,6 @@ const member = (id: number, evaluationSubmissions: Submission[]) => ({
   id,
   employeeOpenId: `ou_employee_${id}`,
   status: 'ACTIVE',
-  isPromotionEnabled: false,
   evaluationSubmissions,
   stageResults: [],
   reviewerAssignments: [],

@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+
 import { PanelLeftIcon, PanelTopIcon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
@@ -9,6 +10,7 @@ import { cn } from '@/lib/utils'
 
 /** 对齐侧栏；宽高双向插值（避免 scale+overflow 导致小→大被裁切） */
 const SIZE_MOTION = 'duration-200 ease-linear'
+
 /** 与 ui/avatar：lg=size-10(40) / sm=size-6(24) 一致 */
 const AVATAR_LG_PX = 40
 const AVATAR_SM_PX = 24
@@ -49,6 +51,7 @@ export const ReferencePanelIdentity = ({
         className={cn(
           'relative mx-auto shrink-0 transition-[width,height]',
           SIZE_MOTION,
+
           // 让内部 Trigger / Avatar 始终铺满过渡中的外框
           '**:data-[slot=avatar]:size-full! [&_button]:size-full'
         )}
@@ -145,6 +148,7 @@ export const ReferencePanelMotionRoot = ({
         name={name}
         avatarUrl={avatarUrl}
         className={cn(
+
           // 侧轨收起：居中，视觉顺序在按钮下方（DOM 仍为第一子节点）
           collapsed && sideBySide && 'order-2 self-center',
           !(collapsed && sideBySide) && 'min-w-0 flex-1'

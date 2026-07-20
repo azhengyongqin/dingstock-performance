@@ -25,6 +25,7 @@ import EvaluationForm from '@/views/self-review/evaluation-form'
 import {
   buildDraftPayloadDimensions,
   buildDimensionSubmitPayload,
+  subformsForStage,
   toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
@@ -125,7 +126,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
       if (!previewContext) {
         await saveManagerEvaluationDraft({
           participantId,
-          dimensions: buildDraftPayloadDimensions(context.form.subforms, answers)
+          dimensions: buildDraftPayloadDimensions(subformsForStage(context.form.subforms, 'MANAGER'), answers)
         })
       }
 
@@ -142,7 +143,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
 
   const submit = async () => {
     if (!context?.form) return
-    const payload = buildDimensionSubmitPayload(context.form.subforms, answers, ratings)
+    const payload = buildDimensionSubmitPayload(subformsForStage(context.form.subforms, 'MANAGER'), answers, ratings)
 
     setErrors(payload.errors)
 
@@ -243,7 +244,6 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
                     : undefined
                 }
                 employee={context.employee}
-                selfItems={context.selfEvaluation?.items ?? []}
                 selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
                 peerResult={context.peerResult}
                 managerResult={calculatedResult}
@@ -254,7 +254,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
             }
             right={
               <EvaluationForm
-                subforms={context.form.subforms}
+                subforms={subformsForStage(context.form.subforms, 'MANAGER')}
                 answers={answers}
                 onAnswerChange={updateAnswer}
                 errors={errors}

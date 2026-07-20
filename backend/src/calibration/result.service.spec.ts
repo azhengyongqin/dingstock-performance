@@ -60,7 +60,6 @@ describe('ResultService 不可变结果版本', () => {
     id: 7,
     cycleId: 1,
     employeeOpenId: 'ou_employee',
-    isPromotionEnabled: true,
     status: 'CALIBRATED',
     cycle: {
       id: 1,

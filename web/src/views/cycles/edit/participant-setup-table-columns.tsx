@@ -6,7 +6,6 @@ import { Trash2Icon } from 'lucide-react'
 import { UserAvatar } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import type { PerfCycleSetupParticipant, PerfParticipantPrefixCheck } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
 
@@ -21,12 +20,10 @@ const MATCH_STATUS_LABEL: Record<PerfParticipantPrefixCheck['status'], string> =
 export const getParticipantSetupColumns = ({
   prefixChecks,
   editable,
-  onTogglePromotion,
   onRemove
 }: {
   prefixChecks: PerfParticipantPrefixCheck[]
   editable: boolean
-  onTogglePromotion: (participant: PerfCycleSetupParticipant) => void
   onRemove: (participantId: number) => void
 }): ColumnDef<PerfCycleSetupParticipant>[] => [
   {
@@ -82,20 +79,6 @@ export const getParticipantSetupColumns = ({
         </div>
       )
     }
-  },
-  {
-    id: 'promotion',
-    header: '晋升评估',
-    cell: ({ row }) => (
-      <label className='flex items-center gap-2 text-sm'>
-        <Checkbox
-          checked={row.original.isPromotionEnabled}
-          disabled={!editable}
-          onCheckedChange={() => onTogglePromotion(row.original)}
-        />
-        启用
-      </label>
-    )
   },
   {
     id: 'actions',

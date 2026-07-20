@@ -35,8 +35,6 @@ export type ManagerStageResultView = {
   participantId: number;
   cycleConfigVersionId: number;
   status: 'READY' | 'NO_DATA';
-  /** 数据库旧列尚待最终清理 Ticket 删除；运行时不再读取配置模式。 */
-  mode: 'WEIGHTED_SCORE';
   reviewerCount: number;
   compositeScore: string | null;
   initialLevel: PerformanceLevel | null;
@@ -93,7 +91,6 @@ export class ManagerStageResultService {
       participantId,
       cycleConfigVersionId,
       status: result.status,
-      mode: result.mode,
       reviewerCount: result.reviewerCount,
       compositeScore: result.compositeScore?.toFixed(2) ?? null,
       initialLevel: result.initialLevel,
@@ -105,7 +102,7 @@ export class ManagerStageResultService {
         effectiveSubmissionId: null,
         reviewerOpenId: null,
       },
-    } as ManagerStageResultView;
+    };
   }
 
   /** 可传事务 client，使正式提交、任务完成与权威阶段结果原子生效。 */
@@ -157,7 +154,6 @@ export class ManagerStageResultService {
         participantId,
         cycleConfigVersionId: config.id,
         status: 'NO_DATA',
-        mode: 'WEIGHTED_SCORE',
         reviewerCount: 0,
         compositeScore: null,
         initialLevel: null,
@@ -194,7 +190,6 @@ export class ManagerStageResultService {
       participantId,
       cycleConfigVersionId: config.id,
       status: 'READY',
-      mode: 'WEIGHTED_SCORE',
       reviewerCount: 1,
       compositeScore: result.compositeScore,
       initialLevel: result.initialLevel,
@@ -306,7 +301,6 @@ export class ManagerStageResultService {
         view.status === 'READY'
           ? PerfStageResultStatus.READY
           : PerfStageResultStatus.NO_DATA,
-      mode: view.mode,
       reviewerCount: view.reviewerCount,
       compositeScore: view.compositeScore,
       initialLevel: view.initialLevel,

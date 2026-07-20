@@ -21,7 +21,7 @@ import {
 import {
   PerfFormAudience,
   PerfFormFieldRequiredRule,
-  PerfFormItemType,
+  PerfFormFieldType,
   PerfFormScoringMethod,
   PerfRatingSymbol,
   PerfJobLevelPrefix,
@@ -144,7 +144,7 @@ class FormTemplateFieldDto {
   key?: string;
 
   @IsIn(FIELD_TYPES)
-  type!: Exclude<PerfFormItemType, 'RATING' | 'SCORE'>;
+  type!: PerfFormFieldType;
 
   @IsString()
   @MaxLength(300)

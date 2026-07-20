@@ -1,10 +1,8 @@
 'use client'
 
-// 单个评估项渲染分发：按 PerfFormItemType 映射到唯一一种 shadcn ui 基础组件，禁手写原生控件。
+// 单个非计分字段渲染分发：按 PerfFormFieldType 映射到唯一一种 shadcn ui 基础组件。
 import { PlusIcon, Trash2Icon } from 'lucide-react'
 
-import { RatingSelector } from '@/components/shared/RatingSelector'
-import { ScoreSelector } from '@/components/shared/ScoreSelector'
 import { MarkdownEditor } from '@/components/shared/markdown'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -13,50 +11,16 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import type { PerfConfigTemplateRating, PerfEvalFormItem } from '@/lib/perf-api'
+import type { PerfEvalFormField } from '@/lib/perf-api'
 
 import { asAttachmentRows, asStringArray, type AttachmentRow, type EvaluationItemAnswer } from './evaluation-form-types'
 
 type FieldProps = {
-  item: PerfEvalFormItem
+  item: PerfEvalFormField & { required: boolean }
   answer?: EvaluationItemAnswer
   onChange: (answer: EvaluationItemAnswer) => void
   disabled?: boolean
 }
-
-/** RATING：时间轴胶囊选择器；标题/必填由外层 EvaluationItemField 统一渲染 */
-const RatingItemField = ({
-  item,
-  answer,
-  onChange,
-  disabled,
-  ratings
-}: FieldProps & { ratings?: PerfConfigTemplateRating[] }) => (
-  <RatingSelector
-    aria-label={item.title}
-    value={answer?.rawLevel ?? null}
-    onChange={rawLevel => onChange({ rawLevel })}
-    disabled={disabled}
-    ratings={ratings}
-  />
-)
-
-/** SCORE：整数打分 + 命中等级；标题由外层横排 Label 渲染 */
-const ScoreField = ({
-  item,
-  answer,
-  onChange,
-  disabled,
-  ratings
-}: FieldProps & { ratings?: PerfConfigTemplateRating[] }) => (
-  <ScoreSelector
-    aria-label={item.title}
-    value={answer?.rawScoreText ?? ''}
-    onChange={rawScoreText => onChange({ rawScoreText })}
-    disabled={disabled}
-    ratings={ratings}
-  />
-)
 
 const ShortTextField = ({ item, answer, onChange, disabled }: FieldProps) => (
   <Input
@@ -221,10 +185,9 @@ const LinkField = ({ item, answer, onChange, disabled }: FieldProps) => (
 
 export type EvaluationItemFieldProps = FieldProps & {
   error?: string
-  ratings?: PerfConfigTemplateRating[]
 }
 
-const ItemLabel = ({ item }: { item: PerfEvalFormItem }) => (
+const ItemLabel = ({ item }: { item: PerfEvalFormField & { required: boolean } }) => (
   <FieldTitle className='shrink-0'>
     {item.title}
     {item.required && (
@@ -235,26 +198,8 @@ const ItemLabel = ({ item }: { item: PerfEvalFormItem }) => (
   </FieldTitle>
 )
 
-/** 单个评估项：标题/必填标记/说明 + 对应控件 + 就地校验错误 */
-const EvaluationItemField = ({ item, answer, onChange, disabled, error, ratings }: EvaluationItemFieldProps) => {
-  // RATING / SCORE：Label 与控件同一行、两端对齐
-  if (item.type === 'RATING' || item.type === 'SCORE') {
-    return (
-      <Field data-invalid={!!error} className='gap-2'>
-        <div className='flex w-full items-center justify-between gap-x-3'>
-          <ItemLabel item={item} />
-          {item.type === 'RATING' ? (
-            <RatingItemField item={item} answer={answer} onChange={onChange} disabled={disabled} ratings={ratings} />
-          ) : (
-            <ScoreField item={item} answer={answer} onChange={onChange} disabled={disabled} ratings={ratings} />
-          )}
-        </div>
-        {item.description && <FieldDescription>{item.description}</FieldDescription>}
-        {error && <FieldError>{error}</FieldError>}
-      </Field>
-    )
-  }
-
+/** 单个表单字段：标题/必填标记/说明 + 对应控件 + 就地校验错误 */
+const EvaluationItemField = ({ item, answer, onChange, disabled, error }: EvaluationItemFieldProps) => {
   return (
     <Field data-invalid={!!error} className='gap-2'>
       <div className='flex flex-col gap-1'>

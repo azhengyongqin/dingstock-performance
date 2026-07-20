@@ -33,15 +33,6 @@ jest.mock(
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
     PerfRole: { EMPLOYEE: 'EMPLOYEE', HR: 'HR', ADMIN: 'ADMIN' },
-    PerfFormItemType: {
-      SHORT_TEXT: 'SHORT_TEXT',
-      LONG_TEXT: 'LONG_TEXT',
-      MARKDOWN: 'MARKDOWN',
-      SINGLE_SELECT: 'SINGLE_SELECT',
-      MULTI_SELECT: 'MULTI_SELECT',
-      ATTACHMENT: 'ATTACHMENT',
-      LINK: 'LINK',
-    },
   }),
   { virtual: true },
 );
@@ -246,7 +237,6 @@ describe('员工自评维度回答链路', () => {
           id: 7,
           cycleId: 1,
           employeeOpenId: 'ou_employee',
-          isPromotionEnabled: false,
           formSnapshotId: 88,
           formSnapshot: { id: 88, content: snapshotContent },
           cycle: {
@@ -376,7 +366,6 @@ describe('员工自评维度回答链路', () => {
           id: 7,
           cycleId: 1,
           employeeOpenId: 'ou_employee',
-          isPromotionEnabled: false,
           formSnapshotId: 88,
           formSnapshot: { id: 88, content: snapshotContent },
           cycle: {
@@ -468,7 +457,6 @@ describe('员工自评维度回答链路', () => {
           id: 7,
           cycleId: 1,
           employeeOpenId: 'ou_employee',
-          isPromotionEnabled: false,
           formSnapshotId: 88,
           formSnapshot: { id: 88, content: snapshotContent },
           cycle: {
@@ -564,7 +552,6 @@ describe('员工自评维度回答链路', () => {
       id: 7,
       cycleId: 1,
       employeeOpenId: 'ou_employee',
-      isPromotionEnabled: false,
       formSnapshotId: 88,
       formSnapshot: { id: 88, content: snapshotContent },
       cycle: {

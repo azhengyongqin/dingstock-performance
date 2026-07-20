@@ -178,7 +178,6 @@ export class DashboardService {
           participantId: member.id,
           employee: userMap.get(member.employeeOpenId) ?? null,
           status: member.status,
-          isPromotionEnabled: member.isPromotionEnabled,
           selfSubmissionStatus: member.evaluationSubmissions.some(
             (row) =>
               row.stage === PerfEvaluationTaskType.SELF &&

@@ -44,12 +44,7 @@ describe('ConfigTemplateService', () => {
     name: validContract.name,
     description: validContract.description,
     sourceVersionId: null,
-    selfStageMode: 'DIRECT_RATING',
-    peerStageMode: 'WEIGHTED_RATING',
-    managerStageMode: 'WEIGHTED_SCORE',
-    aiStageMode: 'DIRECT_RATING',
     ratings: validContract.ratings,
-    constraintProfiles: {},
     orgOwnerWeight: validContract.reviewerRelationWeights.ORG_OWNER,
     projectOwnerWeight: validContract.reviewerRelationWeights.PROJECT_OWNER,
     peerWeight: validContract.reviewerRelationWeights.PEER,
@@ -156,7 +151,6 @@ describe('ConfigTemplateService', () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     const result = await service.getVersion('admin-open-id', 20);
     expect(result).not.toHaveProperty('stageModes');
-    expect(result).not.toHaveProperty('constraintProfiles');
     result.ratings.forEach((rating) => {
       expect(rating).not.toHaveProperty('commentRequired');
     });
@@ -167,8 +161,6 @@ describe('ConfigTemplateService', () => {
         version: 1,
         status: 'DRAFT',
         name: '研发绩效配置',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
         orgOwnerWeight: '30',
         createdByOpenId: 'admin-open-id',
       }),
@@ -190,8 +182,7 @@ describe('ConfigTemplateService', () => {
     expect(txMock.perfConfigTemplateVersion.update).toHaveBeenCalledWith({
       where: { id: 20 },
       data: expect.objectContaining({
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
+        ratings: validContract.ratings,
         updatedByOpenId: 'admin-open-id',
       }),
     });

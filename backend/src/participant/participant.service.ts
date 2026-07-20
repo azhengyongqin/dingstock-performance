@@ -609,41 +609,6 @@ export class ParticipantService {
     return { ok: true };
   }
 
-  /** 标记是否参与晋升评估维度 */
-  async update(
-    operatorOpenId: string,
-    cycleId: number,
-    participantId: number,
-    isPromotionEnabled: boolean,
-  ) {
-    const { participant, updated } = await this.prisma.$transaction(
-      async (tx) => {
-        const locked = await this.lockParticipantCycle(tx, participantId);
-        if (locked.cycle_id !== cycleId) {
-          throw new NotFoundException('参与者不存在');
-        }
-        const participant = await tx.perfParticipant.findUnique({
-          where: { id: participantId },
-        });
-        if (!participant) throw new NotFoundException('参与者不存在');
-        const updated = await tx.perfParticipant.update({
-          where: { id: participantId },
-          data: { isPromotionEnabled },
-        });
-        return { participant, updated };
-      },
-    );
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'participant.update',
-      targetType: 'perf_participant',
-      targetId: String(participantId),
-      before: { isPromotionEnabled: participant.isPromotionEnabled },
-      after: { isPromotionEnabled },
-    });
-    return updated;
-  }
-
   /** 参与者状态流转（各业务模块统一入口，保证经过状态机 + 审计） */
   async transition(
     operatorOpenId: string,

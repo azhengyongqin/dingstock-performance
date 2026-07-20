@@ -19,7 +19,6 @@ jest.mock('../generated/prisma/enums', () => ({
   },
   PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
   PerfAssignmentStatus: { SUBMITTED: 'SUBMITTED' },
-  PerfFormItemType: { RATING: 'RATING', SCORE: 'SCORE' },
   PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
 }));
 jest.mock('../shared/database/prisma.service', () => ({
@@ -40,7 +39,6 @@ const ratings = [
     minScore: '90',
     maxScore: '100',
     mappingScore: '95',
-    commentRequired: true,
   },
   {
     symbol: 'A',
@@ -48,7 +46,6 @@ const ratings = [
     minScore: '80',
     maxScore: '90',
     mappingScore: '85',
-    commentRequired: false,
   },
   {
     symbol: 'B',
@@ -56,7 +53,6 @@ const ratings = [
     minScore: '60',
     maxScore: '80',
     mappingScore: '70',
-    commentRequired: false,
   },
   {
     symbol: 'C',
@@ -64,41 +60,12 @@ const ratings = [
     minScore: '0',
     maxScore: '60',
     mappingScore: '50',
-    commentRequired: true,
   },
 ];
 
-const constraintProfiles = {
-  WEIGHTED_RATING: [
-    {
-      id: 'core-c',
-      type: 'CORE_RATING_FORCE',
-      enabled: true,
-      triggerRating: 'C',
-      targetLevel: 'C',
-    },
-  ],
-  WEIGHTED_SCORE: [
-    {
-      id: 'core-low',
-      type: 'CORE_SCORE_FORCE',
-      enabled: true,
-      threshold: '60',
-      targetLevel: 'C',
-    },
-  ],
-};
-
 const configInput = {
   dimensionOverrides: [],
-  stageModes: {
-    SELF: 'DIRECT_RATING',
-    PEER: 'WEIGHTED_RATING',
-    MANAGER: 'WEIGHTED_SCORE',
-    AI: 'DIRECT_RATING',
-  },
   ratings,
-  constraintProfiles,
   reviewerRelationWeights: {
     ORG_OWNER: '30',
     PROJECT_OWNER: '30',
@@ -144,12 +111,7 @@ function cycleFixture() {
       cycleId: 8,
       version: 2,
       sourceConfigTemplateVersionId: 11,
-      selfStageMode: 'DIRECT_RATING',
-      peerStageMode: 'WEIGHTED_RATING',
-      managerStageMode: 'WEIGHTED_SCORE',
-      aiStageMode: 'DIRECT_RATING',
       ratings,
-      constraintProfiles,
       orgOwnerWeight: { toString: () => '30' },
       projectOwnerWeight: { toString: () => '30' },
       peerWeight: { toString: () => '25' },

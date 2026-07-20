@@ -23,10 +23,7 @@ import type {
 import { buildDefaultConfigTemplate } from '../config-template/default-config-template';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
-import {
-  DEFAULT_FORM_TEMPLATES,
-  toDefaultLegacyPromotionCreateData,
-} from '../form-template/default-form-templates';
+import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
 import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
 import { FORM_SUBFORM_TYPES } from '../form-template/form-template.contract';
 import {
@@ -181,7 +178,7 @@ async function cleanupBaseline(prisma: PrismaClient) {
       });
       const formTemplateIds = formTemplates.map((template) => template.id);
       if (formTemplateIds.length > 0) {
-        // 删除版本会级联删除子表单/维度/评估项（onDelete: Cascade）。
+        // 删除版本会级联删除子表单、维度与字段（onDelete: Cascade）。
         await tx.perfFormTemplateVersion.deleteMany({
           where: { templateId: { in: formTemplateIds } },
         });
@@ -239,10 +236,7 @@ async function seedFormTemplates(
           createdByOpenId: SYSTEM_OPERATOR,
           updatedByOpenId: SYSTEM_OPERATOR,
           subforms: {
-            create: [
-              ...toPerformanceSubformCreateData(template.subforms),
-              toDefaultLegacyPromotionCreateData(),
-            ],
+            create: [...toPerformanceSubformCreateData(template.subforms)],
           },
         },
       });
@@ -272,7 +266,7 @@ async function seedFormTemplates(
 
 type FormVersionWithContent = Prisma.PerfFormTemplateVersionGetPayload<{
   include: {
-    subforms: { include: { dimensions: { include: { items: true } } } };
+    subforms: { include: { dimensions: { include: { fields: true } } } };
   };
 }>;
 
@@ -299,7 +293,7 @@ async function seedConfigTemplate(
         include: {
           dimensions: {
             orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-            include: { items: { orderBy: { sortOrder: 'asc' } } },
+            include: { fields: { orderBy: { sortOrder: 'asc' } } },
           },
         },
       },
@@ -346,13 +340,7 @@ async function seedConfigTemplate(
         status: 'DRAFT',
         name: CONFIG_TEMPLATE_NAME,
         description: defaults.description,
-        // expand 期旧列使用固定兼容值，不再构成可配置业务规则。
-        selfStageMode: 'DIRECT_RATING',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
-        aiStageMode: 'DIRECT_RATING',
         ratings: inputJson(defaults.ratings),
-        constraintProfiles: inputJson({}),
         orgOwnerWeight: defaults.reviewerRelationWeights.ORG_OWNER,
         projectOwnerWeight: defaults.reviewerRelationWeights.PROJECT_OWNER,
         peerWeight: defaults.reviewerRelationWeights.PEER,
@@ -389,7 +377,7 @@ async function seedConfigTemplate(
 
 /**
  * 把已发布表单版本转换为周期表单快照 content（复刻 CycleSetupService.toFormSnapshotContent），
- * 保持稳定 key 生成规则一致，评估项结果据 key 定位。
+ * 保持稳定 key 生成规则一致，维度/字段作答据 key 定位。
  */
 function toFormSnapshotContent(version: FormVersionWithContent) {
   const subforms = toPerformanceSubformContracts(version.subforms);
@@ -458,7 +446,7 @@ async function seedDraftCycle(
                 include: {
                   dimensions: {
                     orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-                    include: { items: { orderBy: { sortOrder: 'asc' } } },
+                    include: { fields: { orderBy: { sortOrder: 'asc' } } },
                   },
                 },
               },

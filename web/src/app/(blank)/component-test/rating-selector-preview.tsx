@@ -67,7 +67,7 @@ export default function RatingSelectorPreview() {
         <CardHeader>
           <CardTitle>RatingSelector</CardTitle>
           <CardDescription>
-            员工自评与 360° 环评的 RATING 评估项共用此组件；选中浅色，hover 白底介绍面板。
+            员工自评与 360° 环评的评级维度共用此组件；选中浅色，hover 白底介绍面板。
           </CardDescription>
         </CardHeader>
         <CardContent className='flex flex-col gap-3'>

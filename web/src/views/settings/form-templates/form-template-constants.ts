@@ -1,6 +1,6 @@
 import type {
   PerfFormFieldType,
-  PerfFormItemConfig,
+  PerfFormFieldConfig,
   PerfFormTemplateSubformType,
   PerfFormTemplateVersionStatus,
   PerfJobLevelPrefix
@@ -42,7 +42,7 @@ export const FORM_FIELD_TYPE_LABEL = Object.fromEntries(
 ) as Record<PerfFormFieldType, string>
 
 /** 切换表单字段类型时清理旧配置，并提供满足受控 Schema 的最小初始值。 */
-export const createDefaultFieldConfig = (type: PerfFormFieldType): PerfFormItemConfig | null => {
+export const createDefaultFieldConfig = (type: PerfFormFieldType): PerfFormFieldConfig | null => {
   if (type === 'SINGLE_SELECT') return { options: [{ value: 'OPTION_1', label: '选项 1' }] }
 
   if (type === 'MULTI_SELECT') {
@@ -55,7 +55,7 @@ export const createDefaultFieldConfig = (type: PerfFormFieldType): PerfFormItemC
   return null
 }
 
-const FIELD_CONFIG_KEYS: Record<PerfFormFieldType, Array<keyof PerfFormItemConfig>> = {
+const FIELD_CONFIG_KEYS: Record<PerfFormFieldType, Array<keyof PerfFormFieldConfig>> = {
   SHORT_TEXT: ['minLength', 'maxLength', 'defaultValue'],
   LONG_TEXT: ['minLength', 'maxLength', 'defaultValue'],
   MARKDOWN: ['minLength', 'maxLength', 'defaultValue'],
@@ -68,11 +68,11 @@ const FIELD_CONFIG_KEYS: Record<PerfFormFieldType, Array<keyof PerfFormItemConfi
 /** 字段换型时保留双方兼容配置，并明确告知被清理的不兼容配置。 */
 export const migrateFieldConfig = (
   type: PerfFormFieldType,
-  config: PerfFormItemConfig | null | undefined
-): { config: PerfFormItemConfig | null; removedIncompatible: boolean } => {
+  config: PerfFormFieldConfig | null | undefined
+): { config: PerfFormFieldConfig | null; removedIncompatible: boolean } => {
   const current = config ?? {}
   const allowed = new Set(FIELD_CONFIG_KEYS[type])
-  const next: PerfFormItemConfig = { ...(createDefaultFieldConfig(type) ?? {}) }
+  const next: PerfFormFieldConfig = { ...(createDefaultFieldConfig(type) ?? {}) }
 
   for (const key of allowed) {
     const value = current[key]
@@ -82,6 +82,6 @@ export const migrateFieldConfig = (
 
   return {
     config: Object.keys(next).length > 0 ? next : {},
-    removedIncompatible: Object.keys(current).some(key => !allowed.has(key as keyof PerfFormItemConfig))
+    removedIncompatible: Object.keys(current).some(key => !allowed.has(key as keyof PerfFormFieldConfig))
   }
 }

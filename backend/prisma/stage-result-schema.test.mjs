@@ -10,6 +10,13 @@ const migration = readFileSync(
   ),
   'utf8',
 );
+const contractMigration = readFileSync(
+  new URL(
+    './migrations/20260720193000_contract_evaluation_dimension_model/migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 
 test('阶段结果按参与者、阶段和配置版本唯一保存', () => {
   assert.match(schema, /enum PerfStageResultStatus\s*{[\s\S]*READY[\s\S]*NO_DATA/);
@@ -50,19 +57,14 @@ test('阶段结果锁定参与者、配置版本和周期的复合归属', () =>
   );
 });
 
-test('数据库约束阶段模式、分数范围和可解释 JSON 形状', () => {
+test('数据库约束分数范围和可解释 JSON 形状，并删除旧阶段模式', () => {
   assert.match(
     migration,
     /"composite_score" IS NULL OR "composite_score" BETWEEN 0 AND 100/,
   );
-  assert.match(
-    migration,
-    /"stage" IN \('SELF', 'AI'\) AND "mode" = 'DIRECT_RATING'/,
-  );
-  assert.match(
-    migration,
-    /"stage" IN \('PEER', 'MANAGER'\) AND "mode" IN \('WEIGHTED_RATING', 'WEIGHTED_SCORE'\)/,
-  );
+  assert.doesNotMatch(schema, /PerfStageResultMode/);
+  assert.doesNotMatch(schema, /model PerfStageResult\s*{[\s\S]*\n\s+mode\s/);
+  assert.match(contractMigration, /DROP COLUMN IF EXISTS "mode"/);
   assert.match(migration, /jsonb_typeof\("constraint_reasons"\) = 'array'/);
   assert.match(migration, /jsonb_typeof\("calculation_detail"\) = 'object'/);
 });

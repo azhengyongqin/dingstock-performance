@@ -9,7 +9,7 @@ import type {
   PerfFormDimensionType,
   PerfFormFieldRequiredRule,
   PerfFormFieldType,
-  PerfFormItemConfig,
+  PerfFormFieldConfig,
   PerfFormScoringMethod,
   PerfFormTemplateDimension,
   PerfFormTemplateField,
@@ -112,7 +112,7 @@ const DimensionEditor = ({
       fields: dimension.fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field))
     })
 
-  const patchFieldConfig = (index: number, patch: PerfFormItemConfig) =>
+  const patchFieldConfig = (index: number, patch: PerfFormFieldConfig) =>
     patchField(index, { config: { ...(dimension.fields[index]?.config ?? {}), ...patch } })
 
   const moveField = (index: number, offset: -1 | 1) => {
@@ -456,7 +456,7 @@ const FieldAdvancedFields = ({
   supportsConditional: boolean
   editable: boolean
   onChange: (patch: Partial<PerfFormTemplateField>) => void
-  onConfigChange: (patch: PerfFormItemConfig) => void
+  onConfigChange: (patch: PerfFormFieldConfig) => void
 }) => (
   <div className='grid gap-3 md:grid-cols-2'>
     <Field className='gap-1.5 md:col-span-2'>

@@ -101,12 +101,7 @@ export class ActiveCycleConfigChangeService {
             sourceConfigTemplateVersionId:
               current.sourceConfigTemplateVersionId,
             ...toCycleConfigSnapshotData({
-              selfStageMode: current.selfStageMode,
-              peerStageMode: current.peerStageMode,
-              managerStageMode: current.managerStageMode,
-              aiStageMode: current.aiStageMode,
               ratings: input.ratings,
-              constraintProfiles: current.constraintProfiles,
               orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
               projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
               peerWeight: input.reviewerRelationWeights.PEER,

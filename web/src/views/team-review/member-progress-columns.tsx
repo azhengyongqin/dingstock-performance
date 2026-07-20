@@ -23,7 +23,6 @@ export type MemberProgressRow = {
   participantId: number
   employee: LarkUserBrief | null
   status: PerfParticipantStatus
-  isPromotionEnabled: boolean
   selfSubmissionStatus: PerfReviewStatus | null
   reviewProgress: { submitted: number; total: number }
   managerEvaluationState: 'NOT_STARTED' | 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT'

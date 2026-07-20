@@ -102,12 +102,8 @@ export function calculateUnifiedStageResult(
   validateDimensionWeights(input.dimensions);
 
   const dimensions = input.dimensions.map((dimension) => {
-    const mode =
-      dimension.scoringMethod === 'RATING'
-        ? ('WEIGHTED_RATING' as const)
-        : ('WEIGHTED_SCORE' as const);
     const result = calculateStageResult({
-      mode,
+      scoringMethod: dimension.scoringMethod,
       ratings: input.ratings,
       dimensions: [
         {
@@ -126,7 +122,6 @@ export function calculateUnifiedStageResult(
           })),
         },
       ],
-      constraints: [],
       confirmedRedLine: null,
     });
     const calculated = result.dimensions[0];

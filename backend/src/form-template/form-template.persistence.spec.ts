@@ -41,7 +41,7 @@ describe('form-template persistence adapter', () => {
       ...subform,
       dimensions: subform.dimensions.create.map((dimension) => ({
         ...dimension,
-        items: dimension.items.create,
+        fields: dimension.fields.create,
       })),
     }));
 
@@ -61,20 +61,21 @@ describe('form-template persistence adapter', () => {
           {
             id: 501,
             businessKey: 'peer-result',
-            kind: 'REGULAR',
+            type: 'SCORING',
             scoringMethod: 'RATING',
             audience: 'REVIEWER',
             name: '协作表现',
             weight: 100,
             isCore: true,
             sortOrder: 0,
-            items: [
+            fields: [
               {
                 id: 601,
-                businessKey: 'compat-scoring:peer-result',
-                type: 'RATING',
-                title: '协作表现评级',
-                required: true,
+                businessKey: 'peer-comment',
+                type: 'LONG_TEXT',
+                title: '评价说明',
+                requiredRule: 'OPTIONAL',
+                requiredLevels: [],
                 sortOrder: 0,
               },
             ],

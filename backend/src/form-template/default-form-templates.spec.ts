@@ -1,7 +1,4 @@
-import {
-  DEFAULT_FORM_TEMPLATES,
-  DEFAULT_LEGACY_PROMOTION_SUBFORM,
-} from './default-form-templates';
+import { DEFAULT_FORM_TEMPLATES } from './default-form-templates';
 import { validateFormTemplatePublication } from './publication-validator';
 
 const summarizeDimensions = (
@@ -108,22 +105,11 @@ describe('DEFAULT_FORM_TEMPLATES', () => {
     ]);
   });
 
-  it('旧晋升表单独立只读保留且不进入绩效发布契约', () => {
-    expect(DEFAULT_LEGACY_PROMOTION_SUBFORM.type).toBe('PROMOTION');
+  it('新版基线不创建晋升子表单', () => {
     expect(
-      DEFAULT_LEGACY_PROMOTION_SUBFORM.dimensions.map((dimension) => ({
-        audience: dimension.audience,
-        fieldTypes: dimension.fields.map((field) => String(field.type)),
-      })),
-    ).toEqual([
-      {
-        audience: 'EMPLOYEE',
-        fieldTypes: ['MARKDOWN', 'MARKDOWN', 'ATTACHMENT', 'LINK'],
-      },
-      {
-        audience: 'LEADER',
-        fieldTypes: ['SINGLE_SELECT', 'LONG_TEXT'],
-      },
-    ]);
+      DEFAULT_FORM_TEMPLATES.flatMap((template) => template.subforms).some(
+        (subform) => String(subform.type) === 'PROMOTION',
+      ),
+    ).toBe(false);
   });
 });

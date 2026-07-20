@@ -66,13 +66,13 @@ describe('EvaluationController 薄壳转调', () => {
   });
 
   it('草稿保存转调 saveSelfDraft', async () => {
-    const dto = { cycleId: 1, items: [] };
+    const dto = { cycleId: 1, dimensions: [] };
     await controller.saveSelfDraft(request, dto);
     expect(service.saveSelfDraft).toHaveBeenCalledWith('ou_me', dto);
   });
 
   it('提交转调 submitSelf', async () => {
-    const dto = { cycleId: 1, items: [] };
+    const dto = { cycleId: 1, dimensions: [] };
     await controller.submitSelf(request, dto);
     expect(service.submitSelf).toHaveBeenCalledWith('ou_me', dto);
   });
@@ -101,7 +101,7 @@ describe('EvaluationController 薄壳转调', () => {
   });
 
   it('上级评估上下文、草稿、提交与权威结果均只使用 JWT Leader 身份', async () => {
-    const dto = { participantId: 7, items: [] };
+    const dto = { participantId: 7, dimensions: [] };
 
     await controller.getManagerContext(request, 7);
     await controller.saveManagerDraft(request, dto);

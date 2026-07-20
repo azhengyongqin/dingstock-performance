@@ -253,20 +253,6 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  const togglePromotion = async (participant: PerfCycleSetupParticipant) => {
-    if (!realCycleId) return
-
-    try {
-      await apiFetch(`/cycles/${realCycleId}/participants/${participant.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ isPromotionEnabled: !participant.isPromotionEnabled })
-      })
-      await refreshParticipants()
-    } catch (error) {
-      toast.error(errorMessage(error, '更新晋升评估标记失败'))
-    }
-  }
-
   const savePlan = async (): Promise<boolean> => {
     if (!realCycleId) return false
     setSaving(true)
@@ -455,7 +441,6 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         onAddMember={openId => void addMember(openId)}
         onAddDepartment={departmentId => void addDepartment(departmentId)}
         onRemoveMember={participantId => void removeMember(participantId)}
-        onTogglePromotion={participant => void togglePromotion(participant)}
         onPlanChange={setPlan}
         onSavePlan={savePlan}
         onRunChecks={() => void runChecks()}

@@ -21,7 +21,6 @@ jest.mock(
       SUBMITTED: 'SUBMITTED',
       REPLACED: 'REPLACED',
     },
-    PerfFormItemType: {},
   }),
   { virtual: true },
 );

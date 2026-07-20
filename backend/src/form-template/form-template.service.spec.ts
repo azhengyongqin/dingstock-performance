@@ -45,7 +45,7 @@ const rawScoringDimension = (
 ) => ({
   id: 100,
   businessKey,
-  kind: 'REGULAR',
+  type: 'SCORING',
   scoringMethod,
   audience,
   name,
@@ -53,21 +53,7 @@ const rawScoringDimension = (
   weight: 100,
   isCore: true,
   sortOrder: 0,
-  items: [
-    {
-      id: 200,
-      businessKey: `compat-scoring:${businessKey}`,
-      type: scoringMethod,
-      title: `${name}评分`,
-      description: null,
-      placeholder: null,
-      required: true,
-      requiredRule: 'ALWAYS',
-      requiredLevels: [],
-      sortOrder: 0,
-      config: null,
-    },
-  ],
+  fields: [],
 });
 
 const completeVersion = (status: 'DRAFT' | 'PUBLISHED' = 'DRAFT') => ({
@@ -256,7 +242,7 @@ describe('FormTemplateService', () => {
     });
   });
 
-  it('保存新版草稿时生成稳定 key，并只在持久化兼容层创建隐藏计分项', async () => {
+  it('保存新版草稿时生成稳定 key，并直接持久化字段', async () => {
     await service.replaceDraftContent('admin-open-id', 20, completeInput());
 
     expect(txMock.perfFormSubform.deleteMany).toHaveBeenCalledWith({
@@ -270,41 +256,35 @@ describe('FormTemplateService', () => {
     expect(dimension).toEqual(
       expect.objectContaining({
         businessKey: expect.any(String),
-        kind: 'REGULAR',
+        type: 'SCORING',
         scoringMethod: 'RATING',
         weight: 100,
         isCore: true,
       }),
     );
-    expect(dimension.items.create).toEqual([
-      expect.objectContaining({
-        businessKey: expect.stringMatching(/^compat-scoring:/),
-        type: 'RATING',
-        sortOrder: 0,
-      }),
+    expect(dimension.fields.create).toEqual([
       expect.objectContaining({
         businessKey: expect.any(String),
         type: 'LONG_TEXT',
         requiredRule: 'CONDITIONAL',
         requiredLevels: ['S', 'C'],
-        sortOrder: 1,
+        sortOrder: 0,
       }),
     ]);
   });
 
   it('编辑、改类型或移动时只允许沿用当前版本已有业务 key', async () => {
     const before: any = completeVersion();
-    before.subforms[0].dimensions[0].items.push({
+    before.subforms[0].dimensions[0].fields.push({
       id: 201,
       businessKey: 'self-comment',
       type: 'LONG_TEXT',
       title: '说明',
       description: null,
       placeholder: null,
-      required: false,
       requiredRule: 'OPTIONAL',
       requiredLevels: [],
-      sortOrder: 1,
+      sortOrder: 0,
       config: null,
     });
     prismaMock.perfFormTemplateVersion.findUnique.mockResolvedValueOnce(before);
@@ -318,7 +298,7 @@ describe('FormTemplateService', () => {
     const dimension =
       txMock.perfFormSubform.create.mock.calls[0][0].data.dimensions.create[0];
     expect(dimension.businessKey).toBe('self-performance');
-    expect(dimension.items.create[1]).toEqual(
+    expect(dimension.fields.create[0]).toEqual(
       expect.objectContaining({
         businessKey: 'self-comment',
         type: 'MARKDOWN',
@@ -359,7 +339,7 @@ describe('FormTemplateService', () => {
     });
   });
 
-  it('从已发布版本复制草稿时继承维度 key，并原样保留旧晋升表单', async () => {
+  it('从已发布版本复制草稿时继承维度 key，但不复制旧晋升表单', async () => {
     const source: any = completeVersion('PUBLISHED');
     source.subforms.push({
       type: 'PROMOTION',
@@ -369,7 +349,7 @@ describe('FormTemplateService', () => {
         {
           id: 300,
           businessKey: 'legacy-promotion',
-          kind: 'PROMOTION',
+          type: 'LEGACY_PROMOTION',
           scoringMethod: null,
           audience: 'EMPLOYEE',
           name: '晋升材料',
@@ -377,7 +357,7 @@ describe('FormTemplateService', () => {
           weight: null,
           isCore: false,
           sortOrder: 0,
-          items: [],
+          fields: [],
         },
       ],
     });
@@ -391,16 +371,9 @@ describe('FormTemplateService', () => {
     expect(create.subforms.create[0].dimensions.create[0].businessKey).toBe(
       'self-performance',
     );
-    expect(create.subforms.create.at(-1)).toEqual(
-      expect.objectContaining({
-        type: 'PROMOTION',
-        dimensions: {
-          create: [
-            expect.objectContaining({ businessKey: 'legacy-promotion' }),
-          ],
-        },
-      }),
-    );
+    expect(
+      create.subforms.create.map((subform: { type: string }) => subform.type),
+    ).toEqual(['SELF', 'PEER', 'MANAGER']);
   });
 
   it('旧晋升表单只读响应完整保留说明、占位和字段配置', async () => {
@@ -413,21 +386,22 @@ describe('FormTemplateService', () => {
       dimensions: [
         {
           businessKey: 'legacy-promotion',
-          kind: 'PROMOTION',
+          type: 'LEGACY_PROMOTION',
           audience: 'LEADER',
           name: '晋升结论',
           description: '仅供历史查阅',
           weight: null,
           isCore: false,
           sortOrder: 0,
-          items: [
+          fields: [
             {
               businessKey: 'legacy-conclusion',
               type: 'SINGLE_SELECT',
               title: '结论',
               description: '请选择历史结论',
               placeholder: '请选择',
-              required: true,
+              requiredRule: 'ALWAYS',
+              requiredLevels: [],
               sortOrder: 0,
               config: { options: [{ value: 'YES', label: '建议晋升' }] },
             },
@@ -439,7 +413,7 @@ describe('FormTemplateService', () => {
 
     const result = await service.getVersion('admin-open-id', 20);
 
-    expect(result.legacyPromotionSubform.dimensions[0]).toEqual(
+    expect(result.legacyPromotionSubform?.dimensions[0]).toEqual(
       expect.objectContaining({
         description: '仅供历史查阅',
         fields: [

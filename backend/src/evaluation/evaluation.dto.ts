@@ -5,7 +5,6 @@ import {
   IsInt,
   IsNumber,
   IsNotEmpty,
-  IsOptional,
   IsString,
   Max,
   MaxLength,
@@ -14,41 +13,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PerfRatingSymbol } from '../generated/prisma/enums';
-
-/**
- * 单个评估项作答：subformKey/dimensionKey/itemKey 定位表单快照中的评估项，
- * 三类载荷（rawLevel/rawScore/value）互斥，由 service 层按快照中的评估项类型校验。
- */
-export class EvaluationItemAnswerDto {
-  @IsString()
-  @MaxLength(200)
-  subformKey!: string;
-
-  @IsString()
-  @MaxLength(200)
-  dimensionKey!: string;
-
-  @IsString()
-  @MaxLength(200)
-  itemKey!: string;
-
-  /** RATING 项原始评级 */
-  @IsOptional()
-  @IsEnum(PerfRatingSymbol)
-  rawLevel?: PerfRatingSymbol;
-
-  /** SCORE 项原始分数：0-100 整数 */
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100)
-  rawScore?: number;
-
-  /** 非计分项内容：文本/Markdown/单多选/附件/链接等结构化载荷，语义由 service 按评估项类型校验 */
-  @IsOptional()
-  value?: unknown;
-}
 
 /** 新版非计分字段作答；字段类型由周期快照决定，客户端只提交稳定 key 与值。 */
 export class EvaluationFieldAnswerDto {

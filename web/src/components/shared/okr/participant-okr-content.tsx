@@ -215,10 +215,12 @@ const OkrObjectiveCard = ({ objective, index }: { objective: OkrObjectiveView; i
         <ul className='divide-border divide-y pl-1'>
           {objective.keyResults.map((keyResult, keyResultIndex) => {
             const text = okrRichTextToPlainText(keyResult.content) || '未填写关键结果内容'
+
             const krProgress =
               keyResult.weight == null
                 ? progressPercent(keyResult.latestProgress, keyResult.indicator, keyResult.score)
                 : null
+
             const rightLabel =
               keyResult.weight != null
                 ? formatWeightPercent(keyResult.weight)

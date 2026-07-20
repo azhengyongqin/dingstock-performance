@@ -3,11 +3,7 @@ import type {
   FormTemplateJobLevelPrefix,
   FormTemplateVersionStatus,
 } from '../form-template/form-template.contract';
-import type {
-  PerformanceLevel,
-  RatingConstraintRule,
-  ScoreConstraintRule,
-} from '../calculation/stage-result-calculator';
+import type { PerformanceLevel } from '../calculation/stage-result-calculator';
 
 export const CONFIG_STAGES = ['SELF', 'PEER', 'MANAGER', 'AI'] as const;
 export type ConfigStage = (typeof CONFIG_STAGES)[number];
@@ -39,19 +35,6 @@ export type ConfigRatingDefinition = {
   minScore: string;
   maxScore: string;
   mappingScore: string;
-};
-
-export type ConfigRatingConstraintRule = RatingConstraintRule & {
-  enabled: boolean;
-};
-
-export type ConfigScoreConstraintRule = ScoreConstraintRule & {
-  enabled: boolean;
-};
-
-export type ConfigConstraintProfiles = {
-  WEIGHTED_RATING: readonly ConfigRatingConstraintRule[];
-  WEIGHTED_SCORE: readonly ConfigScoreConstraintRule[];
 };
 
 export type ReviewerRelationWeight = {

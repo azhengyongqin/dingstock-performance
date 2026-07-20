@@ -5,7 +5,6 @@ import {
   Get,
   Param,
   ParseIntPipe,
-  Patch,
   Post,
   Query,
   Req,
@@ -20,7 +19,6 @@ import {
 import {
   ArrayNotEmpty,
   IsArray,
-  IsBoolean,
   IsNotEmpty,
   IsString,
   MaxLength,
@@ -45,11 +43,6 @@ class AddByDepartmentsDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   departmentIds!: string[];
-}
-
-class UpdateParticipantDto {
-  @IsBoolean()
-  isPromotionEnabled!: boolean;
 }
 
 class ParticipantReasonDto {
@@ -103,22 +96,6 @@ export class ParticipantController {
       req.user.open_id,
       cycleId,
       dto.departmentIds,
-    );
-  }
-
-  @Patch(':participantId')
-  @ApiOperation({ summary: '更新参与者（是否参与晋升评估）' })
-  update(
-    @Req() req: AuthenticatedRequest,
-    @Param('cycleId', ParseIntPipe) cycleId: number,
-    @Param('participantId', ParseIntPipe) participantId: number,
-    @Body() dto: UpdateParticipantDto,
-  ) {
-    return this.participantService.update(
-      req.user.open_id,
-      cycleId,
-      participantId,
-      dto.isPromotionEnabled,
     );
   }
 

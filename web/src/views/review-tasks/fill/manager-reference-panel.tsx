@@ -15,7 +15,6 @@ import {
   type PerfDetailedEmployeeProfile,
   type PerfEvaluationDimensionAnswer,
   type ParticipantOkrSnapshot,
-  type PerfEvaluationItemResult,
   type PerfManagerStageResult,
   type PerfPeerStageResult
 } from '@/lib/perf-api'
@@ -27,8 +26,7 @@ export type ManagerReferencePanelProps = {
   participantId: number
   okrPreviewData?: ParticipantOkrSnapshot
   employee: PerfDetailedEmployeeProfile | null
-  selfItems: PerfEvaluationItemResult[]
-  selfDimensionAnswers?: PerfEvaluationDimensionAnswer[]
+  selfDimensionAnswers: PerfEvaluationDimensionAnswer[]
   peerResult: PerfPeerStageResult | null
   managerResult: PerfManagerStageResult | null
   history: Array<{
@@ -44,7 +42,6 @@ const ManagerReferencePanel = ({
   employee,
   participantId,
   okrPreviewData,
-  selfItems,
   selfDimensionAnswers,
   peerResult,
   managerResult,
@@ -101,7 +98,6 @@ const ManagerReferencePanel = ({
 
           <TabsContent value='self' className='px-4 py-4'>
             <SelfReviewReferenceContent
-              selfItems={selfItems}
               selfDimensionAnswers={selfDimensionAnswers}
               notice='员工材料仅供参考，不参与上级阶段二次加权。'
             />

@@ -21,17 +21,6 @@ jest.mock(
     PerfParticipantStatus: { ACTIVE: 'ACTIVE' },
     PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
     PerfRatingSymbol: { S: 'S', A: 'A', B: 'B', C: 'C' },
-    PerfFormItemType: {
-      RATING: 'RATING',
-      SCORE: 'SCORE',
-      SHORT_TEXT: 'SHORT_TEXT',
-      LONG_TEXT: 'LONG_TEXT',
-      MARKDOWN: 'MARKDOWN',
-      SINGLE_SELECT: 'SINGLE_SELECT',
-      MULTI_SELECT: 'MULTI_SELECT',
-      ATTACHMENT: 'ATTACHMENT',
-      LINK: 'LINK',
-    },
   }),
   { virtual: true },
 );
@@ -96,12 +85,6 @@ const snapshotContent = {
         },
       ],
     },
-    {
-      key: 'subform:PROMOTION',
-      type: 'PROMOTION',
-      title: '旧晋升评估',
-      dimensions: [],
-    },
   ],
 };
 
@@ -110,7 +93,6 @@ const participant = {
   cycleId: 1,
   employeeOpenId: 'ou_employee',
   leaderOpenIdSnapshot: 'ou_leader',
-  isPromotionEnabled: true,
   formSnapshotId: 88,
   formSnapshot: { id: 88, content: snapshotContent },
   cycle: {
@@ -226,7 +208,6 @@ describe('ManagerEvaluationSubmissionService 新版上级评估公开流程', ()
     employeeProfile.getPeerSafeMany.mockResolvedValue([]);
     managerStageResult.recalculate.mockResolvedValue({
       status: 'READY',
-      mode: 'WEIGHTED_SCORE',
       compositeScore: '85.90',
       initialLevel: 'A',
       stageLevel: 'A',

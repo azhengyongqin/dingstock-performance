@@ -25,6 +25,7 @@ function scrollActiveTabIntoView(scroller: HTMLElement, behavior: ScrollBehavior
   const scrollerRect = scroller.getBoundingClientRect()
   const tabRect = active.getBoundingClientRect()
   const edgePad = 8
+
   const fullyVisible =
     tabRect.left >= scrollerRect.left + edgePad && tabRect.right <= scrollerRect.right - edgePad
 
@@ -33,6 +34,7 @@ function scrollActiveTabIntoView(scroller: HTMLElement, behavior: ScrollBehavior
   // 尽量让选中项居中，避免只露出一半
   const nextLeft =
     scroller.scrollLeft + (tabRect.left - scrollerRect.left) - (scroller.clientWidth - tabRect.width) / 2
+
   const maxLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth)
 
   scroller.scrollTo({
@@ -50,6 +52,7 @@ const ScrollableTabsList = ({ children, className, listClassName }: ScrollableTa
 
   useEffect(() => {
     const scroller = scrollerRef.current
+
     if (!scroller) return
 
     scrollActiveTabIntoView(scroller, 'auto')
@@ -57,6 +60,7 @@ const ScrollableTabsList = ({ children, className, listClassName }: ScrollableTa
     const mutationObserver = new MutationObserver(() => {
       scrollActiveTabIntoView(scroller, 'smooth')
     })
+
     mutationObserver.observe(scroller, {
       attributes: true,
       attributeFilter: ['data-active', 'aria-selected'],
@@ -67,6 +71,7 @@ const ScrollableTabsList = ({ children, className, listClassName }: ScrollableTa
     const resizeObserver = new ResizeObserver(() => {
       scrollActiveTabIntoView(scroller, 'auto')
     })
+
     resizeObserver.observe(scroller)
 
     return () => {

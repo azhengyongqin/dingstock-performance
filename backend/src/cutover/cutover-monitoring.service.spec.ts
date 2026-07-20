@@ -9,8 +9,6 @@ jest.mock('../shared/database/prisma.service', () => ({
 describe('CutoverMonitoringService', () => {
   const prisma = {
     systemConfig: { findUnique: jest.fn() },
-    perfLegacyMigrationRun: { findFirst: jest.fn() },
-    perfLegacyMigrationItem: { count: jest.fn() },
     perfEvaluationTask: { count: jest.fn() },
     perfNotificationEvent: { count: jest.fn() },
     perfNotification: { count: jest.fn() },
@@ -30,15 +28,6 @@ describe('CutoverMonitoringService', () => {
       },
       updatedAt: new Date('2026-07-16T10:00:00.000Z'),
     });
-    prisma.perfLegacyMigrationRun.findFirst.mockResolvedValue({
-      id: 8,
-      runKey: 'cutover-final',
-      status: 'COMPLETED',
-      readinessReport: { ready: true, blockers: [] },
-      shadowReport: { differences: 0 },
-      completedAt: new Date('2026-07-16T09:00:00.000Z'),
-    });
-    prisma.perfLegacyMigrationItem.count.mockResolvedValue(0);
     prisma.perfEvaluationTask.count.mockResolvedValue(2);
     prisma.perfNotificationEvent.count
       .mockResolvedValueOnce(4)
@@ -50,20 +39,9 @@ describe('CutoverMonitoringService', () => {
         ready: true,
         gate: expect.objectContaining({ phase: 'CONTRACTED' }),
         monitors: {
-          migration: expect.objectContaining({ failedItems: 0 }),
-          calculation: expect.objectContaining({ differenceCount: 0 }),
           task: { staleOpenTasks: 2, activationFailures: 4 },
           notification: { failedEvents: 1, failedDeliveries: 3 },
         },
-      }),
-    );
-    expect(prisma.perfLegacyMigrationItem.count).toHaveBeenCalledWith({
-      where: { runId: 8, status: 'FAILED' },
-    });
-    expect(prisma.perfLegacyMigrationRun.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { cycleId: null, dryRun: false },
-        orderBy: { id: 'desc' },
       }),
     );
   });

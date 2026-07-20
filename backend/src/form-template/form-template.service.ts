@@ -77,8 +77,6 @@ const INITIAL_SUBFORMS = [
   { type: 'PEER', title: '360°评估', sortOrder: 1 },
   { type: 'MANAGER', title: '上级评估', sortOrder: 2 },
 ] as const;
-const SCORING_ITEM_TYPES = new Set(['RATING', 'SCORE']);
-
 type BusinessKeySet = {
   dimensions: Set<string>;
   fields: Set<string>;
@@ -87,8 +85,7 @@ type BusinessKeySet = {
 /**
  * 版本化绩效表单模板应用服务。
  *
- * 当前处于 expand 阶段：对外只暴露“维度 + 表单字段”，对内暂时写入隐藏计分项，
- * 让尚未迁移的周期快照与填写链路继续运行；最终 contract 票会删除该兼容写入。
+ * 对外与持久化层统一使用“维度 + 表单字段”；旧晋升内容仅从历史版本只读返回。
  */
 @Injectable()
 export class FormTemplateService {
@@ -312,9 +309,6 @@ export class FormTemplateService {
         _max: { version: true },
       });
       const performanceSubforms = this.toPublicationContract(source).subforms;
-      const legacyPromotion = source.subforms.find(
-        (subform) => subform.type === 'PROMOTION',
-      );
       const version = await tx.perfFormTemplateVersion.create({
         data: {
           templateId: source.templateId,
@@ -327,12 +321,7 @@ export class FormTemplateService {
           createdByOpenId: operatorOpenId,
           updatedByOpenId: operatorOpenId,
           subforms: {
-            create: [
-              ...this.toSubformCreateData(performanceSubforms),
-              ...(legacyPromotion
-                ? [this.toLegacyPromotionCreateData(legacyPromotion)]
-                : []),
-            ],
+            create: this.toSubformCreateData(performanceSubforms),
           },
         },
       });
@@ -444,16 +433,15 @@ export class FormTemplateService {
       if (!PERFORMANCE_SUBFORM_TYPES.includes(subform.type as never)) continue;
       for (const dimension of subform.dimensions) {
         dimensions.add(dimension.businessKey);
-        for (const field of dimension.items) {
-          if (!SCORING_ITEM_TYPES.has(field.type))
-            fields.add(field.businessKey);
+        for (const field of dimension.fields) {
+          fields.add(field.businessKey);
         }
       }
     }
     return { dimensions, fields };
   }
 
-  /** Prisma nested-create 的唯一映射入口；隐藏计分项只在这里生成。 */
+  /** Prisma nested-create 的唯一映射入口。 */
   private toSubformCreateData(
     subforms: readonly FormTemplateSubformContract[],
   ) {
@@ -502,59 +490,18 @@ export class FormTemplateService {
         description: dimension.description,
         audience: dimension.audience,
         sortOrder: dimension.sortOrder,
-        fields: dimension.items.map((field) => ({
+        fields: dimension.fields.map((field) => ({
           key: field.businessKey,
           title: field.title,
           type: field.type,
           description: field.description,
           placeholder: field.placeholder,
-          required: field.required,
+          requiredRule: field.requiredRule,
+          requiredLevels: field.requiredLevels,
           sortOrder: field.sortOrder,
           config: field.config,
         })),
       })),
-    };
-  }
-
-  private toLegacyPromotionCreateData(
-    subform: Awaited<
-      ReturnType<FormTemplateService['findVersionOrThrow']>
-    >['subforms'][number],
-  ) {
-    return {
-      type: 'PROMOTION' as const,
-      title: subform.title,
-      description: subform.description,
-      sortOrder: subform.sortOrder,
-      dimensions: {
-        create: subform.dimensions.map((dimension) => ({
-          businessKey: dimension.businessKey,
-          kind: 'PROMOTION' as const,
-          scoringMethod: null,
-          audience: dimension.audience,
-          name: dimension.name,
-          description: dimension.description,
-          weight: null,
-          isCore: false,
-          sortOrder: dimension.sortOrder,
-          items: {
-            create: dimension.items.map((field) => ({
-              businessKey: field.businessKey,
-              type: field.type,
-              title: field.title,
-              description: field.description,
-              placeholder: field.placeholder,
-              required: field.required,
-              requiredRule: field.requiredRule,
-              requiredLevels: field.requiredLevels,
-              sortOrder: field.sortOrder,
-              config: field.config
-                ? (field.config as Prisma.InputJsonValue)
-                : undefined,
-            })),
-          },
-        })),
-      },
     };
   }
 
@@ -570,7 +517,7 @@ export class FormTemplateService {
           include: {
             dimensions: {
               orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-              include: { items: { orderBy: { sortOrder: 'asc' } } },
+              include: { fields: { orderBy: { sortOrder: 'asc' } } },
             },
           },
         },

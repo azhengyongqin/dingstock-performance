@@ -91,8 +91,18 @@ const participant = {
     },
   },
   reviewerAssignments: [
-    { id: 11, reviewerOpenId: 'ou_peer_1', relation: 'PEER', status: 'SUBMITTED' },
-    { id: 12, reviewerOpenId: 'ou_peer_2', relation: 'PEER', status: 'SUBMITTED' },
+    {
+      id: 11,
+      reviewerOpenId: 'ou_peer_1',
+      relation: 'PEER',
+      status: 'SUBMITTED',
+    },
+    {
+      id: 12,
+      reviewerOpenId: 'ou_peer_2',
+      relation: 'PEER',
+      status: 'SUBMITTED',
+    },
     {
       id: 13,
       reviewerOpenId: 'ou_project_owner',
@@ -122,10 +132,20 @@ const submission = (
       rawLevel,
       rawScore: null,
       calculationScore:
-        rawLevel === 'S' ? '95' : rawLevel === 'A' ? '85' : rawLevel === 'B' ? '70' : '50',
+        rawLevel === 'S'
+          ? '95'
+          : rawLevel === 'A'
+            ? '85'
+            : rawLevel === 'B'
+              ? '70'
+              : '50',
       derivedLevel: rawLevel,
       fields: [
-        { fieldKey: 'field:comment', fieldType: 'LONG_TEXT', value: `协作反馈 ${id}` },
+        {
+          fieldKey: 'field:comment',
+          fieldType: 'LONG_TEXT',
+          value: `协作反馈 ${id}`,
+        },
       ],
     },
     {
@@ -134,7 +154,8 @@ const submission = (
       rawLevel: null,
       rawScore,
       calculationScore: rawScore,
-      derivedLevel: Number(rawScore) >= 90 ? 'S' : Number(rawScore) >= 80 ? 'A' : 'B',
+      derivedLevel:
+        Number(rawScore) >= 90 ? 'S' : Number(rawScore) >= 80 ? 'A' : 'B',
       fields: [],
     },
   ],
@@ -202,7 +223,9 @@ describe('PeerStageResultService 新版 360°公开计算契约', () => {
     expect(prisma.perfEvaluationSubmission.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
-          dimensionAnswers: expect.objectContaining({ include: { fields: true } }),
+          dimensionAnswers: expect.objectContaining({
+            include: { fields: true },
+          }),
         }),
       }),
     );
@@ -218,7 +241,10 @@ describe('PeerStageResultService 新版 360°公开计算契约', () => {
       submission(101, 'ou_peer_1', 11, 'PEER', 'A', '90'),
       submission(102, 'ou_peer_2', 12, 'PEER', 'C', '70'),
       submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S', '100'),
-      { ...submission(104, 'ou_peer_1', 11, 'PEER', 'B', '60'), status: 'DRAFT' },
+      {
+        ...submission(104, 'ou_peer_1', 11, 'PEER', 'B', '60'),
+        status: 'DRAFT',
+      },
     ]);
 
     const result = await service.recalculate(7);
@@ -265,7 +291,12 @@ describe('PeerStageResultService 新版 360°公开计算契约', () => {
     prisma.perfParticipant.findUnique.mockResolvedValueOnce({
       ...participant,
       reviewerAssignments: [
-        { id: 11, reviewerOpenId: 'ou_peer_1', relation: 'PEER', status: 'PENDING' },
+        {
+          id: 11,
+          reviewerOpenId: 'ou_peer_1',
+          relation: 'PEER',
+          status: 'PENDING',
+        },
       ],
     });
     prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([

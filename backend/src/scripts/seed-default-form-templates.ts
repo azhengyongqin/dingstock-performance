@@ -4,10 +4,7 @@
  */
 import { PrismaPg } from '@prisma/adapter-pg';
 import { loadAppConfig } from '../config/configuration';
-import {
-  DEFAULT_FORM_TEMPLATES,
-  toDefaultLegacyPromotionCreateData,
-} from '../form-template/default-form-templates';
+import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
 import { toPerformanceSubformCreateData } from '../form-template/form-template.persistence';
 import { validateFormTemplatePublication } from '../form-template/publication-validator';
 import { PrismaClient } from '../generated/prisma/client';
@@ -59,10 +56,7 @@ async function main() {
             createdByOpenId: SYSTEM_OPERATOR,
             updatedByOpenId: SYSTEM_OPERATOR,
             subforms: {
-              create: [
-                ...toPerformanceSubformCreateData(template.subforms),
-                toDefaultLegacyPromotionCreateData(),
-              ],
+              create: [...toPerformanceSubformCreateData(template.subforms)],
             },
           },
         });

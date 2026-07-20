@@ -113,7 +113,15 @@ describe('OkrSyncService', () => {
     redisMock.get.mockResolvedValue(null);
     redisMock.del.mockResolvedValue(1);
     prismaMock.larkUser.findMany.mockResolvedValue([{ open_id: 'ou-1' }]);
-    for (const delegate of Object.values(prismaMock).slice(1, -1)) {
+    for (const delegate of [
+      prismaMock.larkOkrCategory,
+      prismaMock.larkOkrCycle,
+      prismaMock.larkOkrObjective,
+      prismaMock.larkOkrKeyResult,
+      prismaMock.larkOkrIndicator,
+      prismaMock.larkOkrProgress,
+      prismaMock.larkOkrAlignment,
+    ]) {
       delegate.upsert.mockResolvedValue({});
       delegate.deleteMany.mockResolvedValue({ count: 0 });
     }

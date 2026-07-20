@@ -11,7 +11,7 @@ import {
   PerfAssignmentStatus,
   PerfCycleStatus,
   PerfEvaluationTaskType,
-  PerfFormItemType,
+  PerfFormFieldType,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
 import type { FormTemplateVersionContract } from '../form-template/form-template.contract';
@@ -383,12 +383,7 @@ export class CycleFormChangeService {
         cycleId: cycle.id,
         version: current.version + 1,
         sourceConfigTemplateVersionId: current.sourceConfigTemplateVersionId,
-        selfStageMode: current.selfStageMode,
-        peerStageMode: current.peerStageMode,
-        managerStageMode: current.managerStageMode,
-        aiStageMode: current.aiStageMode,
         ratings: this.inputJson(current.ratings),
-        constraintProfiles: this.inputJson(current.constraintProfiles),
         orgOwnerWeight: current.orgOwnerWeight,
         projectOwnerWeight: current.projectOwnerWeight,
         peerWeight: current.peerWeight,
@@ -822,7 +817,7 @@ function buildPrefilledDimensionRows(
       derivedLevel: null;
       fields: Array<{
         fieldKey: string;
-        fieldType: PerfFormItemType;
+        fieldType: PerfFormFieldType;
         value: Prisma.InputJsonValue;
       }>;
     }

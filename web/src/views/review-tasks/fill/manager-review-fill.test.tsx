@@ -44,7 +44,7 @@ vi.mock('@/lib/perf-api', async importOriginal => {
 })
 
 const context = {
-  participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
+  participant: { id: 7, cycleId: 1 },
   cycle: {
     id: 1,
     name: '2026 上半年绩效',

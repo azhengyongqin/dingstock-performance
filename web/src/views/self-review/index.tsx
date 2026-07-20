@@ -31,6 +31,7 @@ import EvaluationForm from './evaluation-form'
 import {
   buildDraftPayloadDimensions,
   buildDimensionSubmitPayload,
+  subformsForStage,
   toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
@@ -108,7 +109,7 @@ const SelfReview = () => {
     setSaving(true)
 
     try {
-      const dimensions = buildDraftPayloadDimensions(data.form.subforms, answers)
+      const dimensions = buildDraftPayloadDimensions(subformsForStage(data.form.subforms, 'SELF'), answers)
 
       await saveSelfEvaluationDraft({ cycleId: data.participant.cycleId, dimensions })
       toast.success('草稿已保存')
@@ -125,7 +126,7 @@ const SelfReview = () => {
     if (!data?.participant || !data.form) return
 
     const { errors: validationErrors, dimensions } = buildDimensionSubmitPayload(
-      data.form.subforms,
+      subformsForStage(data.form.subforms, 'SELF'),
       answers,
       data.participant.cycle.currentConfigVersion?.ratings ?? []
     )
@@ -272,7 +273,7 @@ const SelfReview = () => {
         }
         right={
           <EvaluationForm
-            subforms={data.form.subforms}
+            subforms={subformsForStage(data.form.subforms, 'SELF')}
             answers={answers}
             onAnswerChange={handleAnswerChange}
             errors={errors}

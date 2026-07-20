@@ -26,7 +26,6 @@ export class AiReportInputBuilder {
         id: true,
         cycleId: true,
         employeeOpenId: true,
-        isPromotionEnabled: true,
         cycle: {
           select: { deletedAt: true, currentConfigVersionId: true },
         },
@@ -72,7 +71,6 @@ export class AiReportInputBuilder {
         id: participant.id,
         cycleId: participant.cycleId,
         employeeOpenId: participant.employeeOpenId,
-        isPromotionEnabled: participant.isPromotionEnabled,
       },
       submissions: submissions.map((submission) => ({
         id: submission.id,

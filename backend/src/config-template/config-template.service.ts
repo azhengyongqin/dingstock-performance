@@ -343,13 +343,7 @@ export class ConfigTemplateService {
             name: copySource.name,
             description: copySource.description,
             sourceVersionId: copySource.id,
-            // 新草稿只继承仍公开的评级定义；旧模式列固定填充，旧约束档案不再传播。
-            selfStageMode: 'DIRECT_RATING',
-            peerStageMode: 'WEIGHTED_RATING',
-            managerStageMode: 'WEIGHTED_SCORE',
-            aiStageMode: 'DIRECT_RATING',
             ratings: this.inputJson(toPublicRatings(copySource.ratings)),
-            constraintProfiles: this.inputJson({}),
             orgOwnerWeight: copySource.orgOwnerWeight,
             projectOwnerWeight: copySource.projectOwnerWeight,
             peerWeight: copySource.peerWeight,
@@ -439,10 +433,8 @@ export class ConfigTemplateService {
       const subform = binding.formTemplateVersion.subforms.find(
         (candidate) => candidate.type === input.stage,
       );
-      const isScoringDimension = (dimension: {
-        kind?: string;
-        type?: string;
-      }) => dimension.kind === 'REGULAR' || dimension.type === 'SCORING';
+      const isScoringDimension = (dimension: { type?: string }) =>
+        dimension.type === 'SCORING';
       const regularDimensions = (subform?.dimensions ?? []).filter(
         isScoringDimension,
       );
@@ -554,7 +546,7 @@ export class ConfigTemplateService {
               },
             ]
           : [];
-    // expand 期数据库仍保留旧列，但任何接口响应都不能再暴露阶段模式、双约束档位或全局评语必填。
+    // 对外只投影最终配置契约，避免 Prisma 关系和内部审计字段泄漏到管理端。
     const publicVersion = omitPersistedConfigInternals(version);
     return {
       ...publicVersion,
@@ -628,13 +620,7 @@ export class ConfigTemplateService {
       NotificationRules | ReplaceConfigTemplateDraftInput['notificationRules'];
   }) {
     return {
-      // 旧列只为 expand 期数据库兼容保留，运行时不可配置且不进入 API 契约。
-      selfStageMode: 'DIRECT_RATING' as const,
-      peerStageMode: 'WEIGHTED_RATING' as const,
-      managerStageMode: 'WEIGHTED_SCORE' as const,
-      aiStageMode: 'DIRECT_RATING' as const,
       ratings: this.inputJson(toPublicRatings(input.ratings)),
-      constraintProfiles: this.inputJson({}),
       orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
       projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
       peerWeight: input.reviewerRelationWeights.PEER,
@@ -669,7 +655,7 @@ export class ConfigTemplateService {
                       { sortOrder: 'asc' as const },
                     ],
                     include: {
-                      items: { orderBy: { sortOrder: 'asc' as const } },
+                      fields: { orderBy: { sortOrder: 'asc' as const } },
                     },
                   },
                 },

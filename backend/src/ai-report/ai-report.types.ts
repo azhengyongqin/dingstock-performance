@@ -21,7 +21,6 @@ export type AiReportOutput = {
   summary: string;
   highlights?: Prisma.InputJsonValue | null;
   improvements?: Prisma.InputJsonValue | null;
-  promotionSummary?: string | null;
   riskFlags?: Prisma.InputJsonValue | null;
 };
 

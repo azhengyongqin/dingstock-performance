@@ -19,7 +19,6 @@ const row = (
   participantId,
   employee: { open_id: `ou_${participantId}`, name, avatar: null, job_title: '工程师' },
   status: 'ACTIVE',
-  isPromotionEnabled: false,
   selfSubmissionStatus: null,
   reviewProgress: { submitted: 0, total: 0 },
   managerEvaluationState,

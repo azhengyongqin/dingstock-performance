@@ -24,6 +24,7 @@ import EvaluationForm from '@/views/self-review/evaluation-form'
 import {
   buildDraftPayloadDimensions,
   buildDimensionSubmitPayload,
+  subformsForStage,
   toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
@@ -121,7 +122,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
 
       await savePeerEvaluationDraft({
         assignmentId,
-        dimensions: buildDraftPayloadDimensions(context.form.subforms, answers)
+        dimensions: buildDraftPayloadDimensions(subformsForStage(context.form.subforms, 'PEER'), answers)
       })
       setContext(previous => (previous?.submitted ? { ...previous, state: 'PENDING_RESUBMIT' } : previous))
       if (!silent) toast.success('360°评估草稿已保存')
@@ -138,7 +139,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
 
   const submit = async () => {
     if (!context?.form) return
-    const result = buildDimensionSubmitPayload(context.form.subforms, answers, ratings)
+    const result = buildDimensionSubmitPayload(subformsForStage(context.form.subforms, 'PEER'), answers, ratings)
 
     setErrors(result.errors)
 
@@ -244,7 +245,6 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
                 }
                 employee={context.employee}
                 relation={context.assignment?.relation}
-                selfItems={[]}
                 selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
                 collapsed={referenceCollapsed}
                 onCollapsedChange={setReferenceCollapsed}
@@ -252,7 +252,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
             }
             right={
               <EvaluationForm
-                subforms={context.form.subforms}
+                subforms={subformsForStage(context.form.subforms, 'PEER')}
                 answers={answers}
                 onAnswerChange={updateAnswer}
                 errors={errors}
