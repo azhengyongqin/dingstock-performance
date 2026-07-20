@@ -152,7 +152,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'org-member-multi-select',
     title: '组织人员多选',
-    description: 'LarkOrgMemberMultiSelectDialog · 原型三变体',
+    description: 'LarkOrgMemberMultiSelectDialog',
     icon: UsersIcon
   },
   {
@@ -921,8 +921,7 @@ const CycleSetupPreview = () => {
         saving={false}
         onDraftChange={setDraft}
         onSaveBasic={async () => true}
-        onAddMember={() => {}}
-        onAddDepartment={() => {}}
+        onAddParticipants={() => {}}
         onRemoveMember={() => {}}
         onPlanChange={setPlan}
         onSavePlan={async () => true}

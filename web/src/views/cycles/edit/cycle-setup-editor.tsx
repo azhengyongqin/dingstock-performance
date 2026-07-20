@@ -9,14 +9,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   Loader2Icon,
-  PlusIcon,
   Settings2Icon,
+  UsersIcon,
   XCircleIcon
 } from 'lucide-react'
 
 import { DataTable } from '@/components/datatable'
 import { DateTimePicker } from '@/components/shared/DatePicker'
-import { LarkMemberSelector } from '@/components/shared/lark'
+import { LarkOrgMemberMultiSelectDialog } from '@/components/shared/lark'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -60,8 +60,6 @@ export type CycleSetupDraft = {
   plannedStartAt: string
 }
 
-type DepartmentOption = { open_department_id: string; name: string }
-
 type Props = {
   status: PerfCycleStatus
   draft: CycleSetupDraft
@@ -76,11 +74,10 @@ type Props = {
   editable: boolean
   saving: boolean
   setupReady?: boolean
-  departments?: DepartmentOption[]
   onDraftChange: (draft: CycleSetupDraft) => void
   onSaveBasic: () => Promise<boolean>
-  onAddMember: (openId: string) => void
-  onAddDepartment: (departmentId: string) => void
+  /** 组织多选确认后：直接勾选的人 + 勾选的部门（部门由后端含子树展开） */
+  onAddParticipants: (payload: { openIds: string[]; departmentIds: string[] }) => void
   onRemoveMember: (participantId: number) => void
   onPlanChange: (plan: PerfCyclePlan) => void
   onSavePlan: () => Promise<boolean>
@@ -159,11 +156,9 @@ const CycleSetupEditor = ({
   editable,
   saving,
   setupReady = true,
-  departments = [],
   onDraftChange,
   onSaveBasic,
-  onAddMember,
-  onAddDepartment,
+  onAddParticipants,
   onRemoveMember,
   onPlanChange,
   onSavePlan,
@@ -175,7 +170,7 @@ const CycleSetupEditor = ({
   onReapplyTemplate
 }: Props) => {
   const [currentStep, setCurrentStep] = useState<CycleSetupStepKey>('basic')
-  const [selectedDepartment, setSelectedDepartment] = useState('')
+  const [participantPickerOpen, setParticipantPickerOpen] = useState(false)
   const [notificationStage, setNotificationStage] = useState<PerfConfigScheduleStage | null>(null)
   const [reapplyOpen, setReapplyOpen] = useState(false)
   const [reapplyStep, setReapplyStep] = useState<'pick' | 'confirm'>('pick')
@@ -402,42 +397,25 @@ const CycleSetupEditor = ({
                 </div>
 
                 {editable && (
-                  <div className='flex flex-wrap items-end gap-3'>
-                    <Field className='gap-2'>
-                      <FieldLabel>按员工添加</FieldLabel>
-                      <LarkMemberSelector onSelect={option => option.id && onAddMember(String(option.id))} />
-                    </Field>
-                    {departments.length > 0 && (
-                      <Field className='gap-2'>
-                        <FieldLabel htmlFor='cycle-department'>按部门圈人</FieldLabel>
-                        <div className='flex gap-2'>
-                          <Select
-                            value={selectedDepartment || null}
-                            items={departments.map(item => ({ value: item.open_department_id, label: item.name }))}
-                            onValueChange={value => setSelectedDepartment((value as string | null) ?? '')}
-                          >
-                            <SelectTrigger id='cycle-department' className='min-w-52'>
-                              <SelectValue placeholder='选择部门（含子部门）' />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {departments.map(item => (
-                                <SelectItem key={item.open_department_id} value={item.open_department_id}>
-                                  {item.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            variant='outline'
-                            disabled={!selectedDepartment}
-                            onClick={() => onAddDepartment(selectedDepartment)}
-                          >
-                            <PlusIcon />
-                            添加
-                          </Button>
-                        </div>
-                      </Field>
-                    )}
+                  <div className='flex flex-wrap items-center gap-3'>
+                    <Button type='button' onClick={() => setParticipantPickerOpen(true)}>
+                      <UsersIcon />
+                      添加参与者
+                    </Button>
+                    <p className='text-muted-foreground text-sm'>支持按员工或部门（含子部门）批量圈选</p>
+                    <LarkOrgMemberMultiSelectDialog
+                      open={participantPickerOpen}
+                      onOpenChange={setParticipantPickerOpen}
+                      confirmLabel='添加'
+                      onConfirm={items => {
+                        onAddParticipants({
+                          openIds: items.filter(item => item.kind === 'user').map(item => item.openId),
+                          departmentIds: items
+                            .filter(item => item.kind === 'department')
+                            .map(item => item.openDepartmentId)
+                        })
+                      }}
+                    />
                   </div>
                 )}
 

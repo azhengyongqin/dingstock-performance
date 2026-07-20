@@ -15,12 +15,14 @@ export { default as LarkMemberSelector } from './LarkMemberSelector'
 export type { LarkMemberSelectorProps, LarkSelectorOption } from './LarkMemberSelector'
 export { default as LarkMemberPickerDialog, memberFromSelectorOption } from './LarkMemberPickerDialog'
 export type { LarkMemberPickerDialogProps, LarkPickerMember } from './LarkMemberPickerDialog'
-export { default as LarkOrgMemberMultiSelectDialog } from './LarkOrgMemberMultiSelectDialog'
+export { default as LarkOrgMemberMultiSelectDialog, expandOrgMultiSelectToUsers } from './LarkOrgMemberMultiSelectDialog'
 export type {
   LarkOrgMemberMultiSelectDialogProps,
   OrgMultiSelectItem,
   OrgMultiSelectUser,
-  OrgMultiSelectDepartment
+  OrgMultiSelectDepartment,
+  OrgContactDepartment,
+  OrgContactUser
 } from './LarkOrgMemberMultiSelectDialog'
 export { default as LarkProfileCard } from './LarkProfileCard'
 export { useLarkThemeSync, type LarkMountStatus } from './use-lark-component-mount'

@@ -74,7 +74,6 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const [plan, setPlan] = useState<PerfCyclePlan>(EMPTY_PLAN)
   const [checkItems, setCheckItems] = useState<StartCheckItem[]>([])
   const [checkOk, setCheckOk] = useState(false)
-  const [departments, setDepartments] = useState<{ open_department_id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [activeConfigImpact, setActiveConfigImpact] = useState<ActivePerfCycleConfigImpact | null>(null)
@@ -136,9 +135,6 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     const initialLoad = setTimeout(() => {
       void listPerfConfigTemplates()
         .then(response => setConfigTemplates(response.items ?? []))
-        .catch(() => undefined)
-      void apiFetch<{ items: { open_department_id: string; name: string }[] }>('/contact/departments')
-        .then(response => setDepartments(response.items ?? []))
         .catch(() => undefined)
 
       if (realCycleId) {
@@ -212,33 +208,39 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     }
   }
 
-  const addMember = async (openId: string) => {
+  /** 组织多选确认：人名单与部门圈人分接口提交，再统一刷新参与者表 */
+  const addParticipants = async (payload: { openIds: string[]; departmentIds: string[] }) => {
     if (!realCycleId) return
+    if (payload.openIds.length === 0 && payload.departmentIds.length === 0) return
 
     try {
-      await apiFetch(`/cycles/${realCycleId}/participants`, {
-        method: 'POST',
-        body: JSON.stringify({ openIds: [openId] })
-      })
+      let added = 0
+
+      if (payload.openIds.length > 0) {
+        const byUsers = await apiFetch<{ added?: number }>(`/cycles/${realCycleId}/participants`, {
+          method: 'POST',
+          body: JSON.stringify({ openIds: payload.openIds })
+        })
+
+        added += byUsers.added ?? payload.openIds.length
+      }
+
+      if (payload.departmentIds.length > 0) {
+        const byDepartments = await apiFetch<{ added: number }>(
+          `/cycles/${realCycleId}/participants/by-departments`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ departmentIds: payload.departmentIds })
+          }
+        )
+
+        added += byDepartments.added
+      }
+
+      toast.success(`已添加 ${added} 人`)
       await refreshParticipants()
     } catch (error) {
       toast.error(errorMessage(error, '添加参与者失败'))
-    }
-  }
-
-  const addDepartment = async (departmentId: string) => {
-    if (!realCycleId) return
-
-    try {
-      const result = await apiFetch<{ added: number }>(`/cycles/${realCycleId}/participants/by-departments`, {
-        method: 'POST',
-        body: JSON.stringify({ departmentIds: [departmentId] })
-      })
-
-      toast.success(`已添加 ${result.added} 人`)
-      await refreshParticipants()
-    } catch (error) {
-      toast.error(errorMessage(error, '按部门添加参与者失败'))
     }
   }
 
@@ -435,11 +437,9 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         editable={editable}
         saving={saving}
         setupReady={realCycleId != null && snapshot != null}
-        departments={departments}
         onDraftChange={setDraft}
         onSaveBasic={saveBasic}
-        onAddMember={openId => void addMember(openId)}
-        onAddDepartment={departmentId => void addDepartment(departmentId)}
+        onAddParticipants={payload => void addParticipants(payload)}
         onRemoveMember={participantId => void removeMember(participantId)}
         onPlanChange={setPlan}
         onSavePlan={savePlan}

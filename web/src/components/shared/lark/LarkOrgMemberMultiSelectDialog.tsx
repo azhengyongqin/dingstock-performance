@@ -1,12 +1,12 @@
 'use client'
 
 /**
- * PROTOTYPE — 飞书式「人员 / 组织」双栏多选弹窗。
- * 问题：按截图还原的组织树钻取 + 搜索 + 人/部门混选，在真实 /contact 数据下交互是否成立？
- * 数据：打开时拉取 /contact/departments 与 /contact/users，内存筛选，无持久化。
+ * 飞书式「人员 / 组织」双栏多选弹窗。
+ * 左栏：搜索（拼音模糊 + 主题色高亮、可清除、跨次打开保留关键字）+ 面包屑钻取；
+ * 右栏：已选人/部门；确认时同时回传展开后的全量用户列表。
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { Loader2Icon, NetworkIcon, SearchIcon, XIcon } from 'lucide-react'
 
@@ -14,48 +14,32 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog'
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+import {
+  avatarUrlFromContactUser,
+  expandOrgMultiSelectToUsers,
+  getOrgSearchHighlightIndices,
+  indicesToRanges,
+  matchesOrgSearch,
+  type OrgContactDepartment,
+  type OrgContactUser,
+  type OrgMultiSelectDepartment,
+  type OrgMultiSelectItem,
+  type OrgMultiSelectUser
+} from './org-multi-select-utils'
 import UserAvatar from './UserAvatar'
 
-// —— 通讯录原始类型（与组织架构页一致）——
-
-type ContactDepartment = {
-  open_department_id: string
-  department_id: string
-  name: string
-  parent_department_id: string
-  member_count: number
-  leader_user_id?: string | null
-}
-
-type ContactUser = {
-  open_id: string
-  user_id: string
-  name: string
-  avatar?: string | { avatar_72?: string; avatar_240?: string; avatar_640?: string; avatar_origin?: string }
-  department_ids?: string[]
-  status?: string | { is_activated?: boolean; is_resigned?: boolean; is_frozen?: boolean }
-}
-
-export type OrgMultiSelectUser = {
-  kind: 'user'
-  openId: string
-  name: string
-  avatarUrl?: string
-  departmentPath?: string
-}
-
-export type OrgMultiSelectDepartment = {
-  kind: 'department'
-  openDepartmentId: string
-  name: string
-  memberCount: number
-}
-
-export type OrgMultiSelectItem = OrgMultiSelectUser | OrgMultiSelectDepartment
+export type {
+  OrgContactDepartment,
+  OrgContactUser,
+  OrgMultiSelectDepartment,
+  OrgMultiSelectItem,
+  OrgMultiSelectUser
+} from './org-multi-select-utils'
+export { expandOrgMultiSelectToUsers } from './org-multi-select-utils'
 
 export type LarkOrgMemberMultiSelectDialogProps = {
   open: boolean
@@ -64,12 +48,20 @@ export type LarkOrgMemberMultiSelectDialogProps = {
   /** 打开弹窗时的已选项（弹窗内可改，确认后才回传） */
   initialSelected?: OrgMultiSelectItem[]
 
-  onConfirm: (items: OrgMultiSelectItem[]) => void
+  /**
+   * 确认回调。
+   * @param items 原始已选（人 + 部门混选）
+   * @param expandedUsers 将部门展开为子树全量成员后的去重用户列表（含直接勾选的人）
+   */
+  onConfirm: (items: OrgMultiSelectItem[], expandedUsers: OrgMultiSelectUser[]) => void
 
-  /** 是否允许勾选部门，默认 true */
+  /**
+   * 是否允许勾选部门，默认 true。
+   * 为 false 时仍展示部门行用于「下级」钻取导航，只是不能勾选部门实体。
+   */
   allowDepartments?: boolean
 
-  /** 是否允许勾选人员，默认 true */
+  /** 是否允许勾选人员，默认 true。为 false 时不展示人员行（纯选部门场景）。 */
   allowUsers?: boolean
 
   confirmLabel?: string
@@ -89,36 +81,25 @@ const ROOT_CRUMBS: BreadcrumbNode[] = [
 const itemKey = (item: OrgMultiSelectItem) =>
   item.kind === 'user' ? `user:${item.openId}` : `dept:${item.openDepartmentId}`
 
-const parseJsonField = <T,>(value: string | T | undefined | null): T | undefined => {
-  if (value === undefined || value === null) return undefined
+const isResigned = (user: OrgContactUser) => {
+  const status = user.status
 
-  if (typeof value === 'string') {
+  if (!status) return false
+  if (typeof status === 'string') {
     try {
-      return JSON.parse(value) as T
+      return Boolean((JSON.parse(status) as { is_resigned?: boolean }).is_resigned)
     } catch {
-      return undefined
+      return false
     }
   }
 
-  return value
-}
-
-const getAvatarUrl = (user: ContactUser): string | undefined => {
-  const avatar = parseJsonField<{ avatar_72?: string; avatar_240?: string }>(user.avatar)
-
-  return avatar?.avatar_72 ?? avatar?.avatar_240
-}
-
-const isResigned = (user: ContactUser) => {
-  const status = parseJsonField<{ is_resigned?: boolean }>(user.status)
-
-  return Boolean(status?.is_resigned)
+  return Boolean(status.is_resigned)
 }
 
 /** 由扁平部门列表构建 parent → children 与 id → dept 索引 */
-const indexDepartments = (departments: ContactDepartment[]) => {
-  const byId = new Map<string, ContactDepartment>()
-  const childrenByParent = new Map<string, ContactDepartment[]>()
+const indexDepartments = (departments: OrgContactDepartment[]) => {
+  const byId = new Map<string, OrgContactDepartment>()
+  const childrenByParent = new Map<string, OrgContactDepartment[]>()
 
   for (const dept of departments) {
     byId.set(dept.open_department_id, dept)
@@ -138,11 +119,10 @@ const indexDepartments = (departments: ContactDepartment[]) => {
 
 const buildDepartmentPath = (
   departmentIds: string[] | undefined,
-  byId: Map<string, ContactDepartment>
+  byId: Map<string, OrgContactDepartment>
 ): string => {
   if (!departmentIds?.length) return ''
 
-  // 取第一条主部门，向上拼路径
   const leafId = departmentIds[0]
   const parts: string[] = []
   let current = byId.get(leafId)
@@ -169,6 +149,37 @@ const selectedSummary = (items: OrgMultiSelectItem[]) => {
   return `已选：${parts.join('，')}`
 }
 
+/** 搜索命中片段用主题色高亮 */
+const HighlightMatch = ({ text, keyword, className }: { text: string; keyword: string; className?: string }) => {
+  const ranges = useMemo(() => indicesToRanges(getOrgSearchHighlightIndices(text, keyword)), [text, keyword])
+
+  if (!keyword.trim() || ranges.length === 0) {
+    return <span className={className}>{text}</span>
+  }
+
+  const nodes: ReactNode[] = []
+  let cursor = 0
+
+  ranges.forEach(([start, end], rangeIndex) => {
+    if (start > cursor) {
+      nodes.push(<span key={`t-${cursor}`}>{text.slice(cursor, start)}</span>)
+    }
+
+    nodes.push(
+      <span key={`h-${rangeIndex}`} className='text-primary'>
+        {text.slice(start, end)}
+      </span>
+    )
+    cursor = end
+  })
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`t-${cursor}`}>{text.slice(cursor)}</span>)
+  }
+
+  return <span className={className}>{nodes}</span>
+}
+
 const DepartmentIcon = ({ className }: { className?: string }) => (
   <span
     className={cn(
@@ -193,14 +204,16 @@ const LarkOrgMemberMultiSelectDialog = ({
   confirmLabel = '确定',
   searchPlaceholder = '搜索联系人、部门和我管理的群组'
 }: LarkOrgMemberMultiSelectDialogProps) => {
-  const [departments, setDepartments] = useState<ContactDepartment[]>([])
-  const [users, setUsers] = useState<ContactUser[]>([])
+  const [departments, setDepartments] = useState<OrgContactDepartment[]>([])
+  const [users, setUsers] = useState<OrgContactUser[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const [crumbs, setCrumbs] = useState<BreadcrumbNode[]>(ROOT_CRUMBS)
+  /** 搜索关键字跨次打开保留，仅用户点清除或手动改写时变化 */
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<OrgMultiSelectItem[]>([])
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const { byId, childrenByParent } = useMemo(() => indexDepartments(departments), [departments])
 
@@ -210,8 +223,8 @@ const LarkOrgMemberMultiSelectDialog = ({
 
     try {
       const [deptRes, userRes] = await Promise.all([
-        apiFetch<{ items: ContactDepartment[] }>('/contact/departments'),
-        apiFetch<{ items: ContactUser[] }>('/contact/users')
+        apiFetch<{ items: OrgContactDepartment[] }>('/contact/departments'),
+        apiFetch<{ items: OrgContactUser[] }>('/contact/users')
       ])
 
       setDepartments(deptRes.items ?? [])
@@ -225,17 +238,25 @@ const LarkOrgMemberMultiSelectDialog = ({
 
   const wasOpenRef = useRef(false)
 
-  // 仅在「关闭 → 打开」时重置导航/搜索并灌入 initialSelected，避免父组件重渲染把勾选冲掉
+  // 仅在「关闭 → 打开」时重置导航并灌入 initialSelected；不清空搜索关键字
   useEffect(() => {
     if (open && !wasOpenRef.current) {
       setCrumbs(ROOT_CRUMBS)
-      setQuery('')
-      setSelected(initialSelected.map(item => ({ ...item })))
+      setSelected(
+        initialSelected
+          .filter(item => (item.kind === 'user' ? allowUsers : allowDepartments))
+          .map(item => ({ ...item }))
+      )
       void loadContact()
     }
 
     wasOpenRef.current = open
-  }, [open, initialSelected, loadContact])
+  }, [open, initialSelected, loadContact, allowUsers, allowDepartments])
+
+  const resolveExpandedUsers = useCallback(
+    (items: OrgMultiSelectItem[]) => expandOrgMultiSelectToUsers(items, users, departments),
+    [users, departments]
+  )
 
   // ⌘/Ctrl + Enter 确认
   useEffect(() => {
@@ -244,37 +265,40 @@ const LarkOrgMemberMultiSelectDialog = ({
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return
       event.preventDefault()
-      onConfirm(selected)
+      onConfirm(selected, resolveExpandedUsers(selected))
       onOpenChange(false)
     }
 
     window.addEventListener('keydown', onKeyDown)
 
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, onConfirm, onOpenChange, selected])
+  }, [open, onConfirm, onOpenChange, selected, resolveExpandedUsers])
 
   const currentDeptId = crumbs[crumbs.length - 1]?.id ?? null
   const searching = query.trim().length > 0
-  const keyword = query.trim().toLowerCase()
+  const keyword = query.trim()
 
   const childDepartments = useMemo(() => {
+    // 搜索时：仅「可选部门」模式才列出部门命中；人员-only 搜索不展示部门结果
     if (searching) {
+      if (!allowDepartments) return []
+
       return departments
-        .filter(dept => dept.name.toLowerCase().includes(keyword))
+        .filter(dept => matchesOrgSearch(dept.name, keyword))
         .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
     }
 
     const parentKey = currentDeptId ?? '0'
 
     return childrenByParent.get(parentKey) ?? []
-  }, [searching, departments, keyword, currentDeptId, childrenByParent])
+  }, [searching, allowDepartments, departments, keyword, currentDeptId, childrenByParent])
 
   const visibleUsers = useMemo(() => {
     if (!allowUsers) return []
 
     if (searching) {
       return users
-        .filter(user => user.name.toLowerCase().includes(keyword))
+        .filter(user => matchesOrgSearch(user.name, keyword))
         .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
         .slice(0, 50)
     }
@@ -290,6 +314,9 @@ const LarkOrgMemberMultiSelectDialog = ({
   const selectedKeys = useMemo(() => new Set(selected.map(itemKey)), [selected])
 
   const toggleItem = (item: OrgMultiSelectItem) => {
+    if (item.kind === 'department' && !allowDepartments) return
+    if (item.kind === 'user' && !allowUsers) return
+
     const key = itemKey(item)
 
     setSelected(prev => (prev.some(row => itemKey(row) === key) ? prev.filter(row => itemKey(row) !== key) : [...prev, item]))
@@ -301,13 +328,11 @@ const LarkOrgMemberMultiSelectDialog = ({
     setSelected(prev => prev.filter(row => itemKey(row) !== key))
   }
 
-  const drillInto = (dept: ContactDepartment) => {
-    setQuery('')
+  const drillInto = (dept: OrgContactDepartment) => {
     setCrumbs(prev => [...prev, { id: dept.open_department_id, name: dept.name }])
   }
 
   const jumpToCrumb = (index: number) => {
-    // 「联系人」与「组织内联系人」都回到根列表
     if (index <= 1) {
       setCrumbs(ROOT_CRUMBS)
 
@@ -317,8 +342,13 @@ const LarkOrgMemberMultiSelectDialog = ({
     setCrumbs(prev => prev.slice(0, index + 1))
   }
 
+  const clearQuery = () => {
+    setQuery('')
+    searchInputRef.current?.focus()
+  }
+
   const handleConfirm = () => {
-    onConfirm(selected)
+    onConfirm(selected, resolveExpandedUsers(selected))
     onOpenChange(false)
   }
 
@@ -333,7 +363,6 @@ const LarkOrgMemberMultiSelectDialog = ({
         <DialogTitle className='sr-only'>选择人员与组织</DialogTitle>
 
         <div className='flex min-h-0 flex-1'>
-          {/* 左栏：搜索 / 面包屑 / 可选列表 */}
           <div className='flex min-h-0 min-w-0 flex-1 flex-col border-r'>
             <div className='shrink-0 space-y-3 p-4 pb-2'>
               <InputGroup>
@@ -341,10 +370,18 @@ const LarkOrgMemberMultiSelectDialog = ({
                   <SearchIcon />
                 </InputGroupAddon>
                 <InputGroupInput
+                  ref={searchInputRef}
                   value={query}
                   placeholder={searchPlaceholder}
                   onChange={event => setQuery(event.target.value)}
                 />
+                {query.length > 0 && (
+                  <InputGroupAddon align='inline-end'>
+                    <InputGroupButton size='icon-xs' variant='ghost' aria-label='清除搜索' onClick={clearQuery}>
+                      <XIcon />
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                )}
               </InputGroup>
 
               {!searching && (
@@ -393,13 +430,12 @@ const LarkOrgMemberMultiSelectDialog = ({
 
               {!loading &&
                 !error &&
-                allowDepartments &&
                 childDepartments.map(dept => {
                   const item: OrgMultiSelectDepartment = {
                     kind: 'department',
                     openDepartmentId: dept.open_department_id,
                     name: dept.name,
-                    memberCount: dept.member_count
+                    memberCount: dept.member_count ?? 0
                   }
                   const checked = selectedKeys.has(itemKey(item))
 
@@ -408,27 +444,47 @@ const LarkOrgMemberMultiSelectDialog = ({
                       key={dept.open_department_id}
                       className='hover:bg-muted/80 group flex items-center gap-2 rounded-md px-2 py-2'
                     >
-                      <Checkbox
-                        checked={checked}
-                        aria-label={`选择部门 ${dept.name}`}
-                        onCheckedChange={() => toggleItem(item)}
-                      />
-                      <DepartmentIcon />
-                      <div className='min-w-0 flex-1'>
-                        <div className='truncate text-sm'>
-                          {dept.name}
-                          <span className='text-muted-foreground'> ({dept.member_count})</span>
-                        </div>
-                        {searching && (
-                          <div className='text-muted-foreground truncate text-xs'>
-                            {buildDepartmentPath([dept.open_department_id], byId)}
+                      {allowDepartments ? (
+                        <button
+                          type='button'
+                          className='flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left'
+                          onClick={() => toggleItem(item)}
+                        >
+                          <Checkbox checked={checked} tabIndex={-1} aria-hidden className='pointer-events-none' />
+                          <DepartmentIcon />
+                          <div className='min-w-0 flex-1'>
+                            <div className='truncate text-sm'>
+                              {searching ? <HighlightMatch text={dept.name} keyword={keyword} /> : dept.name}
+                              <span className='text-muted-foreground'> ({dept.member_count ?? 0})</span>
+                            </div>
+                            {searching && (
+                              <div className='text-muted-foreground truncate text-xs'>
+                                {buildDepartmentPath([dept.open_department_id], byId)}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        </button>
+                      ) : (
+                        // 仅导航：不可勾选部门，点击行也可进入下级（与「下级」一致）
+                        <button
+                          type='button'
+                          className='flex min-w-0 flex-1 items-center gap-2 text-left'
+                          onClick={() => !searching && drillInto(dept)}
+                        >
+                          <span className='size-4 shrink-0' />
+                          <DepartmentIcon />
+                          <div className='min-w-0 flex-1'>
+                            <div className='truncate text-sm'>
+                              {dept.name}
+                              <span className='text-muted-foreground'> ({dept.member_count ?? 0})</span>
+                            </div>
+                          </div>
+                        </button>
+                      )}
                       {!searching && (
                         <button
                           type='button'
-                          className='text-primary shrink-0 px-1 text-sm'
+                          className='text-primary! hover:text-primary/80! shrink-0 px-1 text-sm font-medium'
                           onClick={() => drillInto(dept)}
                         >
                           下级
@@ -440,32 +496,28 @@ const LarkOrgMemberMultiSelectDialog = ({
 
               {!loading &&
                 !error &&
+                allowUsers &&
                 visibleUsers.map(user => {
                   const item: OrgMultiSelectUser = {
                     kind: 'user',
                     openId: user.open_id,
                     name: user.name,
-                    avatarUrl: getAvatarUrl(user),
+                    avatarUrl: avatarUrlFromContactUser(user),
                     departmentPath: buildDepartmentPath(user.department_ids, byId)
                   }
                   const checked = selectedKeys.has(itemKey(item))
+                  const leaderId = currentDeptId ? byId.get(currentDeptId)?.leader_user_id : undefined
                   const isLeader =
-                    currentDeptId != null &&
-                    (byId.get(currentDeptId)?.leader_user_id === user.open_id ||
-                      byId.get(currentDeptId)?.leader_user_id === user.user_id)
+                    leaderId != null && (leaderId === user.open_id || leaderId === user.user_id)
 
                   return (
-                    <div
+                    <button
                       key={user.open_id}
-                      className='hover:bg-muted/80 flex cursor-pointer items-center gap-2 rounded-md px-2 py-2'
+                      type='button'
+                      className='hover:bg-muted/80 flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-left'
                       onClick={() => toggleItem(item)}
                     >
-                      <Checkbox
-                        checked={checked}
-                        aria-label={`选择 ${user.name}`}
-                        onCheckedChange={() => toggleItem(item)}
-                        onClick={event => event.stopPropagation()}
-                      />
+                      <Checkbox checked={checked} tabIndex={-1} aria-hidden className='pointer-events-none' />
                       <UserAvatar
                         openId={user.open_id}
                         name={user.name}
@@ -475,9 +527,11 @@ const LarkOrgMemberMultiSelectDialog = ({
                       />
                       <div className='min-w-0 flex-1'>
                         <div className='flex items-center gap-1.5'>
-                          <span className={cn('truncate text-sm font-medium', searching && 'text-primary')}>
-                            {user.name}
-                          </span>
+                          <HighlightMatch
+                            text={user.name}
+                            keyword={searching ? keyword : ''}
+                            className='truncate text-sm font-medium'
+                          />
                           {isLeader && (
                             <Badge variant='secondary' className='h-5 px-1.5 text-[10px]'>
                               负责人
@@ -488,13 +542,12 @@ const LarkOrgMemberMultiSelectDialog = ({
                           {searching ? item.departmentPath || '未分配部门' : currentDeptName}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   )
                 })}
             </div>
           </div>
 
-          {/* 右栏：已选摘要 */}
           <div className='flex w-[42%] shrink-0 flex-col'>
             <div className='text-muted-foreground shrink-0 px-4 py-3 text-sm'>{selectedSummary(selected)}</div>
             <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-3'>
