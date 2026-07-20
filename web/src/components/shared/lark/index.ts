@@ -4,6 +4,7 @@
  * - MemberPill：只读人员胶囊（头像 + 姓名），元信息/列表展示用
  * - LarkMemberSelector：人员搜索选择（飞书 Selector 组件）
  * - LarkMemberPickerDialog：通用人员选择弹窗（搜索 → 待确认区 → 已选成员列表）
+ * - LarkOrgMemberMultiSelectDialog：飞书式人员/组织双栏多选（组织树钻取 + 搜索）
  * - LarkProfileCard：成员名片内联容器（一般经 UserAvatar 间接使用）
  */
 export { default as UserAvatar } from './UserAvatar'
@@ -14,5 +15,14 @@ export { default as LarkMemberSelector } from './LarkMemberSelector'
 export type { LarkMemberSelectorProps, LarkSelectorOption } from './LarkMemberSelector'
 export { default as LarkMemberPickerDialog, memberFromSelectorOption } from './LarkMemberPickerDialog'
 export type { LarkMemberPickerDialogProps, LarkPickerMember } from './LarkMemberPickerDialog'
+export { default as LarkOrgMemberMultiSelectDialog, expandOrgMultiSelectToUsers } from './LarkOrgMemberMultiSelectDialog'
+export type {
+  LarkOrgMemberMultiSelectDialogProps,
+  OrgMultiSelectItem,
+  OrgMultiSelectUser,
+  OrgMultiSelectDepartment,
+  OrgContactDepartment,
+  OrgContactUser
+} from './LarkOrgMemberMultiSelectDialog'
 export { default as LarkProfileCard } from './LarkProfileCard'
 export { useLarkThemeSync, type LarkMountStatus } from './use-lark-component-mount'

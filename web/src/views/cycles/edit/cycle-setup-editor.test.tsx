@@ -13,7 +13,7 @@ import type {
 import CycleSetupEditor from './cycle-setup-editor'
 
 vi.mock('@/components/shared/lark', () => ({
-  LarkMemberSelector: () => <div>飞书选人</div>,
+  LarkOrgMemberMultiSelectDialog: () => null,
   UserAvatar: ({ name }: { name?: string }) => <div>{name}</div>
 }))
 
@@ -131,10 +131,8 @@ const createProps = () => ({
   saving: false,
   onDraftChange: vi.fn(),
   onSaveBasic: vi.fn(async () => true),
-  onAddMember: vi.fn(),
-  onAddDepartment: vi.fn(),
+  onAddParticipants: vi.fn(),
   onRemoveMember: vi.fn(),
-  onTogglePromotion: vi.fn(),
   onPlanChange: vi.fn(),
   onSavePlan: vi.fn(async () => true),
   onRunChecks: vi.fn(),

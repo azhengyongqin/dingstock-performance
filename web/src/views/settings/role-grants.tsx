@@ -5,12 +5,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 // Third-party Imports
 import { getCoreRowModel, useReactTable } from '@tanstack/react-table'
-import { Loader2Icon, PlusIcon, ShieldCheckIcon, XIcon } from 'lucide-react'
+import { Loader2Icon, ShieldCheckIcon, UsersIcon, XIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
 import { DataTable } from '@/components/datatable'
-import { LarkMemberSelector } from '@/components/shared/lark'
+import {
+  LarkOrgMemberMultiSelectDialog,
+  type OrgMultiSelectDepartment,
+  type OrgMultiSelectItem,
+  type OrgMultiSelectUser
+} from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // Context Imports
@@ -35,7 +40,7 @@ import type { ListResponse } from '@/lib/perf-api'
 import { buildRoleGrantColumns } from './role-grant-columns'
 import type { RoleGrantRow } from './role-grant-columns'
 
-type Department = { open_department_id: string; name: string }
+type Department = { open_department_id: string; name: string; member_count?: number }
 
 /** 可授予的显式角色 */
 const GRANT_ROLES = [
@@ -57,21 +62,20 @@ const RoleGrantManager = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // 新增授权表单态
-  const [selectedUser, setSelectedUser] = useState<{ openId: string; name?: string } | null>(null)
+  // 一次组织多选：人选 = 被授权人；部门（仅 HR）= 组织范围
+  const [selectedUsers, setSelectedUsers] = useState<OrgMultiSelectUser[]>([])
+  const [orgScope, setOrgScope] = useState<OrgMultiSelectDepartment[]>([])
   const [role, setRole] = useState<'HR' | 'ADMIN'>('HR')
-  const [orgScope, setOrgScope] = useState<string[]>([])
-  const [scopeDept, setScopeDept] = useState('')
-
-  // 组织范围下拉选项（排除已加入范围的部门）
-  const scopeDeptOptions = departments
-    .filter(dept => !orgScope.includes(dept.open_department_id))
-    .map(dept => ({ value: dept.open_department_id, label: dept.name }))
-
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
   // 撤销确认弹窗
   const [revokeTarget, setRevokeTarget] = useState<RoleGrantRow | null>(null)
+
+  const pickerInitialSelected = useMemo<OrgMultiSelectItem[]>(
+    () => (role === 'HR' ? [...selectedUsers, ...orgScope] : selectedUsers),
+    [role, selectedUsers, orgScope]
+  )
 
   const fetchGrants = useCallback(async () => {
     setLoading(true)
@@ -105,12 +109,30 @@ const RoleGrantManager = () => {
   }, [fetchGrants])
 
   const departmentNameOf = useCallback(
-    (id: string) => departments.find(dept => dept.open_department_id === id)?.name ?? id,
-    [departments]
+    (id: string) =>
+      orgScope.find(dept => dept.openDepartmentId === id)?.name ??
+      departments.find(dept => dept.open_department_id === id)?.name ??
+      id,
+    [departments, orgScope]
   )
 
+  const handleRoleChange = (value: 'HR' | 'ADMIN') => {
+    setRole(value)
+    // 超级管理员无组织范围
+    if (value === 'ADMIN') setOrgScope([])
+  }
+
+  const handlePickerConfirm = (items: OrgMultiSelectItem[]) => {
+    setSelectedUsers(items.filter((item): item is OrgMultiSelectUser => item.kind === 'user'))
+    setOrgScope(
+      role === 'HR'
+        ? items.filter((item): item is OrgMultiSelectDepartment => item.kind === 'department')
+        : []
+    )
+  }
+
   const handleCreate = async () => {
-    if (!selectedUser) {
+    if (selectedUsers.length === 0) {
       toast.error('请先选择被授权人')
 
       return
@@ -119,16 +141,23 @@ const RoleGrantManager = () => {
     setSaving(true)
 
     try {
-      await apiFetch('/role-grants', {
-        method: 'POST',
-        body: JSON.stringify({
-          userOpenId: selectedUser.openId,
-          role,
-          orgScope: role === 'HR' ? orgScope : []
+      const scopeIds = role === 'HR' ? orgScope.map(dept => dept.openDepartmentId) : []
+      let successCount = 0
+
+      for (const user of selectedUsers) {
+        await apiFetch('/role-grants', {
+          method: 'POST',
+          body: JSON.stringify({
+            userOpenId: user.openId,
+            role,
+            orgScope: scopeIds
+          })
         })
-      })
-      toast.success(`已授予 ${selectedUser.name ?? selectedUser.openId} ${role === 'ADMIN' ? '超级管理员' : 'HR'} 角色`)
-      setSelectedUser(null)
+        successCount += 1
+      }
+
+      toast.success(`已授予 ${successCount} 人${role === 'ADMIN' ? '超级管理员' : ' HR '}角色`)
+      setSelectedUsers([])
       setOrgScope([])
       await fetchGrants()
     } catch (err) {
@@ -179,43 +208,12 @@ const RoleGrantManager = () => {
         </CardDescription>
       </CardHeader>
       <CardContent className='flex flex-col gap-4'>
-        {/* 新增授权（仅 ADMIN） */}
         {canManage && (
           <div className='flex flex-wrap items-end gap-3 rounded-lg border p-4'>
             <Field className='gap-2'>
-              <FieldLabel>被授权人</FieldLabel>
-              {selectedUser ? (
-                <div className='flex h-9 items-center gap-2'>
-                  <Badge variant='outline' className='gap-1.5'>
-                    {selectedUser.name ?? selectedUser.openId}
-                    <Button
-                      type='button'
-                      variant='ghost'
-                      size='icon'
-                      className='size-4 rounded-sm'
-                      aria-label='移除被授权人'
-                      onClick={() => setSelectedUser(null)}
-                    >
-                      <XIcon className='size-3' />
-                    </Button>
-                  </Badge>
-                </div>
-              ) : (
-                <LarkMemberSelector
-                  placeholder='搜索并选择员工'
-                  onSelect={option => {
-                    if (option.id) {
-                      setSelectedUser({ openId: option.id as string, name: (option.name ?? option.label) as string })
-                    }
-                  }}
-                />
-              )}
-            </Field>
-
-            <Field className='gap-2'>
               <FieldLabel>角色</FieldLabel>
-              <Select value={role} items={GRANT_ROLES} onValueChange={value => setRole(value as 'HR' | 'ADMIN')}>
-                <SelectTrigger className='w-full'>
+              <Select value={role} items={GRANT_ROLES} onValueChange={value => handleRoleChange(value as 'HR' | 'ADMIN')}>
+                <SelectTrigger className='w-40'>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -228,66 +226,71 @@ const RoleGrantManager = () => {
               </Select>
             </Field>
 
-            {/* 组织范围：仅 HR 角色可限定；留空 = 全局 */}
-            {role === 'HR' && (
-              <Field className='gap-2'>
-                <FieldLabel>组织范围（可选，留空 = 全局；含子部门）</FieldLabel>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <Select
-                    value={scopeDept || null}
-                    items={scopeDeptOptions}
-                    onValueChange={value => setScopeDept((value as string | null) ?? '')}
-                  >
-                    <SelectTrigger className='min-w-44'>
-                      <SelectValue placeholder='选择部门…' />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {scopeDeptOptions.map(option => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant='outline'
-                    size='sm'
-                    disabled={!scopeDept}
-                    onClick={() => {
-                      setOrgScope(prev => [...prev, scopeDept])
-                      setScopeDept('')
-                    }}
-                  >
-                    <PlusIcon />
-                    添加
-                  </Button>
-                  {orgScope.map(id => (
-                    <Badge key={id} variant='outline' className='gap-1.5'>
-                      {departmentNameOf(id)}
+            <Field className='min-w-56 flex-1 gap-2'>
+              <FieldLabel>授权对象</FieldLabel>
+              <div className='flex flex-wrap items-center gap-2'>
+                <Button type='button' variant='outline' onClick={() => setPickerOpen(true)}>
+                  <UsersIcon />
+                  选择
+                </Button>
+                {selectedUsers.map(user => (
+                  <Badge key={user.openId} variant='outline' className='gap-1.5'>
+                    {user.name}
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='size-4 rounded-sm'
+                      aria-label={`移除 ${user.name}`}
+                      onClick={() => setSelectedUsers(prev => prev.filter(item => item.openId !== user.openId))}
+                    >
+                      <XIcon className='size-3' />
+                    </Button>
+                  </Badge>
+                ))}
+                {role === 'HR' &&
+                  orgScope.map(dept => (
+                    <Badge key={dept.openDepartmentId} variant='secondary' className='gap-1.5'>
+                      {dept.name}
                       <Button
                         type='button'
                         variant='ghost'
                         size='icon'
                         className='size-4 rounded-sm'
-                        aria-label='移除组织范围'
-                        onClick={() => setOrgScope(prev => prev.filter(item => item !== id))}
+                        aria-label={`移除 ${dept.name}`}
+                        onClick={() =>
+                          setOrgScope(prev => prev.filter(item => item.openDepartmentId !== dept.openDepartmentId))
+                        }
                       >
                         <XIcon className='size-3' />
                       </Button>
                     </Badge>
                   ))}
-                </div>
-              </Field>
-            )}
+              </div>
+              <FieldDescription>
+                {role === 'HR'
+                  ? '勾选人员为被授权人；勾选部门为组织范围（可选，留空 = 全局，含子部门）'
+                  : '勾选人员为被授权人'}
+              </FieldDescription>
+            </Field>
 
-            <Button disabled={saving || !selectedUser} onClick={() => void handleCreate()}>
+            <Button disabled={saving || selectedUsers.length === 0} onClick={() => void handleCreate()}>
               {saving && <Loader2Icon className='size-4 animate-spin' />}
               授予角色
             </Button>
+
+            <LarkOrgMemberMultiSelectDialog
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              allowDepartments={role === 'HR'}
+              initialSelected={pickerInitialSelected}
+              confirmLabel='确定'
+              searchPlaceholder={role === 'HR' ? '搜索人员或部门' : '搜索被授权人'}
+              onConfirm={handlePickerConfirm}
+            />
           </div>
         )}
 
-        {/* 授权列表：basic 变体 */}
         {loading ? (
           <div className='text-muted-foreground flex items-center justify-center gap-2 py-10'>
             <Loader2Icon className='size-4 animate-spin' />
@@ -300,7 +303,6 @@ const RoleGrantManager = () => {
         )}
       </CardContent>
 
-      {/* 撤销确认 */}
       <Dialog open={Boolean(revokeTarget)} onOpenChange={open => !open && setRevokeTarget(null)}>
         <DialogContent>
           <DialogHeader>
