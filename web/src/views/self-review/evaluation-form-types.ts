@@ -257,7 +257,7 @@ export const buildSubmitPayload = (
 const DECIMAL_SCORE_PATTERN = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
 
 /** 新版维度/字段回答回填为统一表单本地状态。 */
-export const toSelfEvaluationAnswers = (dimensions: PerfEvaluationDimensionAnswer[]): EvaluationAnswers => {
+export const toDimensionEvaluationAnswers = (dimensions: PerfEvaluationDimensionAnswer[]): EvaluationAnswers => {
   const answers: EvaluationAnswers = {}
 
   for (const dimension of dimensions) {
@@ -293,21 +293,21 @@ export const levelForDimensionAnswer = (
   )
 }
 
-const selfFieldRequired = (
+const dimensionFieldRequired = (
   field: PerfEvalFormField,
   level: PerfPerformanceLevel | null
 ): boolean =>
   field.requiredRule === 'ALWAYS' ||
   (field.requiredRule === 'CONDITIONAL' && level != null && (field.requiredLevels ?? []).includes(level))
 
-const validateSelfField = (
+const validateDimensionField = (
   field: PerfEvalFormField,
   answer: EvaluationItemAnswer | undefined,
   required: boolean
 ) => validateEvaluationItem({ ...field, required } as PerfEvalFormItem, answer)
 
 /** 新版 SELF 正式提交前校验：计分维度固定必填，字段按自身规则校验。 */
-export const validateSelfEvaluationForm = (
+export const validateDimensionEvaluationForm = (
   subforms: PerfEvalFormSubform[],
   answers: EvaluationAnswers,
   ratings: PerfConfigTemplateRating[]
@@ -331,7 +331,7 @@ export const validateSelfEvaluationForm = (
       }
 
       for (const field of dimension.fields ?? []) {
-        const error = validateSelfField(field, answers[field.key], selfFieldRequired(field, level))
+        const error = validateDimensionField(field, answers[field.key], dimensionFieldRequired(field, level))
 
         if (error) errors[field.key] = error
       }
@@ -341,7 +341,7 @@ export const validateSelfEvaluationForm = (
   return errors
 }
 
-const selfFieldPayload = (field: PerfEvalFormField, answer: EvaluationItemAnswer | undefined) => {
+const dimensionFieldPayload = (field: PerfEvalFormField, answer: EvaluationItemAnswer | undefined) => {
   if (field.type === 'ATTACHMENT') {
     const value = nonEmptyAttachmentRows(answer?.value)
 
@@ -369,7 +369,7 @@ export const buildDraftPayloadDimensions = (
       const answer = answers[dimension.key]
 
       const fields = (dimension.fields ?? []).flatMap(field => {
-        const payload = selfFieldPayload(field, answers[field.key])
+        const payload = dimensionFieldPayload(field, answers[field.key])
 
         return payload ? [payload] : []
       })
@@ -386,12 +386,12 @@ export const buildDraftPayloadDimensions = (
   return dimensions
 }
 
-export const buildSelfSubmitPayload = (
+export const buildDimensionSubmitPayload = (
   subforms: PerfEvalFormSubform[],
   answers: EvaluationAnswers,
   ratings: PerfConfigTemplateRating[]
 ): { errors: Record<string, string>; dimensions: PerfEvaluationDimensionAnswerInput[] } => {
-  const errors = validateSelfEvaluationForm(subforms, answers, ratings)
+  const errors = validateDimensionEvaluationForm(subforms, answers, ratings)
 
   return {
     errors,

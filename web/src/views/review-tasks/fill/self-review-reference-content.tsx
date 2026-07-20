@@ -8,10 +8,15 @@ import {
   EvaluationLevelRow
 } from '@/components/shared/EvaluationReferenceSection'
 import { EvaluationAnswerContent } from '@/components/shared/markdown'
-import type { PerfEvaluationItemResult, PerfPerformanceLevel } from '@/lib/perf-api'
+import type {
+  PerfEvaluationDimensionAnswer,
+  PerfEvaluationItemResult,
+  PerfPerformanceLevel
+} from '@/lib/perf-api'
 
 export type SelfReviewReferenceContentProps = {
   selfItems: PerfEvaluationItemResult[]
+  selfDimensionAnswers?: PerfEvaluationDimensionAnswer[]
   notice?: string
 }
 
@@ -51,23 +56,51 @@ const resultValue = (item: PerfEvaluationItemResult) => {
 const itemTitle = (item: PerfEvaluationItemResult, index: number) => {
   const match = item.itemKey.match(/:(\d+:\d+)$/)
   const suffix = match?.[1]
+
   if (suffix && TITLE_BY_SUFFIX[suffix]) return TITLE_BY_SUFFIX[suffix]
 
-  return TYPE_FALLBACK[item.itemType] ?? `评估项 ${index + 1}`
+  return TYPE_FALLBACK[item.itemType] ?? `表单字段 ${index + 1}`
 }
 
 const isLevel = (value: string): value is PerfPerformanceLevel =>
   value === 'S' || value === 'A' || value === 'B' || value === 'C'
 
-const SelfReviewReferenceContent = ({ selfItems, notice }: SelfReviewReferenceContentProps) => {
+const SelfReviewReferenceContent = ({ selfItems, selfDimensionAnswers = [], notice }: SelfReviewReferenceContentProps) => {
   const items = useMemo(
-    () =>
-      selfItems.map((item, index) => ({
+    () => {
+      // PEER 新链路只消费维度/字段作答；MANAGER 切票前仍可传旧 items。
+      const visibleItems: PerfEvaluationItemResult[] = selfDimensionAnswers.length
+        ? selfDimensionAnswers.flatMap(dimension => [
+            ...(dimension.rawLevel
+              ? [{
+                  id: dimension.id,
+                  submissionId: dimension.submissionId,
+                  subformKey: dimension.subformKey,
+                  dimensionKey: dimension.dimensionKey,
+                  itemKey: dimension.dimensionKey,
+                  itemType: 'RATING' as const,
+                  rawLevel: dimension.rawLevel
+                }]
+              : []),
+            ...dimension.fields.map(field => ({
+              id: field.id,
+              submissionId: dimension.submissionId,
+              subformKey: dimension.subformKey,
+              dimensionKey: dimension.dimensionKey,
+              itemKey: field.fieldKey,
+              itemType: field.fieldType,
+              value: field.value
+            }))
+          ])
+        : selfItems
+
+      return visibleItems.map((item, index) => ({
         item,
         title: itemTitle(item, index),
         value: resultValue(item)
-      })),
-    [selfItems]
+      }))
+    },
+    [selfDimensionAnswers, selfItems]
   )
 
   if (items.length === 0) {

@@ -816,7 +816,7 @@ export const returnPerfCycleToDraft = (cycleId: number) =>
 
 // ===== 统一评估提交（Ticket 06，员工自评） =====
 
-/** 旧 PEER/MANAGER 链路仍使用的评估项形状；SELF 已切换到维度 + 字段。 */
+/** 旧 MANAGER 链路暂时使用的评估项形状；SELF/PEER 已切换到维度 + 字段。 */
 export type PerfEvalFormItem = {
   key: string
   type: PerfFormItemType
@@ -1014,7 +1014,7 @@ export type PerfPeerEvaluationContext = {
 
 export type SavePeerEvaluationInput = {
   assignmentId: number
-  items: PerfEvaluationItemAnswer[]
+  dimensions: PerfEvaluationDimensionAnswerInput[]
 }
 
 export const getPeerEvaluationContext = (assignmentId: number) =>
@@ -1055,12 +1055,10 @@ export type PerfManagerStageResult = {
   dimensions: PerfStageDimensionResultView[]
 }
 
-export type PerfPeerReviewAnalysisItem = {
-  itemKey: string
+export type PerfPeerReviewAnalysisField = {
+  fieldKey: string
   title: string
-  type: PerfFormItemType
-  rawLevel: PerfPerformanceLevel | null
-  rawScore: string | null
+  type: PerfFormFieldType
   value: unknown
 }
 
@@ -1069,8 +1067,8 @@ export type PerfPeerReviewAnalysisDimension = {
   name: string
   rawLevel: PerfPerformanceLevel | null
   rawScore: string | null
-  mappedLevel: PerfPerformanceLevel
-  items: PerfPeerReviewAnalysisItem[]
+  mappedLevel: PerfPerformanceLevel | null
+  fields: PerfPeerReviewAnalysisField[]
 }
 
 export type PerfPeerReviewAnalysis = {

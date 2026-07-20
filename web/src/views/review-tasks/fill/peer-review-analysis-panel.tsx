@@ -22,7 +22,7 @@ import {
   type PerfConfigReviewerRelation,
   type PerfPeerReviewAnalysis,
   type PerfPeerReviewAnalysisDimension,
-  type PerfPeerReviewAnalysisItem,
+  type PerfPeerReviewAnalysisField,
   type PerfPeerStageResult,
   type PerfPerformanceLevel
 } from '@/lib/perf-api'
@@ -71,10 +71,12 @@ const DistributionTooltip = ({
   if (!active || !payload?.length) return null
 
   const datum = payload[0]?.payload
+
   if (!datum) return null
 
   const groups = RELATION_ORDER.flatMap(relation => {
     const reviewers = datum.reviewers.filter(review => review.relation === relation)
+
     return reviewers.length > 0 ? [{ relation, reviewers }] : []
   })
 
@@ -124,12 +126,10 @@ const formatScore = (value: string | null) => {
   return Number.isFinite(score) ? score.toFixed(2) : value
 }
 
-const itemValue = (item: PerfPeerReviewAnalysisItem) => {
-  if (item.rawLevel) return item.rawLevel
-  if (item.rawScore !== null) return formatScore(item.rawScore)
-  if (typeof item.value === 'string') return item.value
-  if (Array.isArray(item.value)) return item.value.map(String).join('、')
-  if (item.value !== null && item.value !== undefined) return JSON.stringify(item.value)
+const fieldValue = (field: PerfPeerReviewAnalysisField) => {
+  if (typeof field.value === 'string') return field.value
+  if (Array.isArray(field.value)) return field.value.map(String).join('、')
+  if (field.value !== null && field.value !== undefined) return JSON.stringify(field.value)
 
   return '—'
 }
@@ -203,14 +203,14 @@ const shortDimensionName = (name: string) => {
 /** 折叠态：维度简称 + 等级徽章横排摘要 */
 const DimensionSummary = ({ dimensions }: { dimensions: PerfPeerReviewAnalysisDimension[] }) => (
   <div className='flex flex-wrap items-center gap-x-4 gap-y-1.5 pl-5'>
-    {dimensions.map(item => (
+    {dimensions.filter(item => item.mappedLevel !== null).map(item => (
       <span key={item.id} className='text-muted-foreground flex items-center gap-1.5 text-xs'>
         {shortDimensionName(item.name)}
         <Badge
           variant='outline'
           className={cn(
             'h-5 min-w-5 justify-center px-1.5 tabular-nums',
-            EVALUATION_LEVEL_STYLES[item.mappedLevel]
+            EVALUATION_LEVEL_STYLES[item.mappedLevel!]
           )}
         >
           {item.mappedLevel}
@@ -228,14 +228,12 @@ const ExpandedReviewSections = ({
 }) => (
   <div className='ml-5 space-y-6'>
     {dimensions.map(item => {
-      const comments = item.items.filter(candidate => !['RATING', 'SCORE'].includes(candidate.type))
-
       return (
         <div key={item.id} className='space-y-6'>
-          <EvaluationLevelRow title={item.name} level={item.mappedLevel} />
-          {comments.map(comment => (
-            <EvaluationContentSection key={comment.itemKey} title={comment.title}>
-              <EvaluationAnswerContent type={comment.type} value={itemValue(comment)} />
+          {item.mappedLevel && <EvaluationLevelRow title={item.name} level={item.mappedLevel} />}
+          {item.fields.map(field => (
+            <EvaluationContentSection key={field.fieldKey} title={field.title}>
+              <EvaluationAnswerContent type={field.type} value={fieldValue(field)} />
             </EvaluationContentSection>
           ))}
         </div>

@@ -13,20 +13,15 @@ import {
 } from '../generated/prisma/enums';
 import { Prisma } from '../generated/prisma/client';
 import {
-  calculateStageResult,
-  mapScoreToPerformanceLevel,
-  type MatchedConstraint,
-  type PerformanceLevel,
-  type RatingScaleEntry,
-  type StageConstraintRule,
-  type StageDimensionInput,
-  type StageDimensionResult,
-  type StageResultMode,
-} from '../calculation/stage-result-calculator';
+  calculateUnifiedStageResult,
+  type UnifiedMatchedConstraint,
+  type UnifiedStageDimensionResult,
+} from '../calculation/unified-stage-result-calculator';
 import type {
-  ConfigConstraintProfiles,
-  ReviewerRelation,
-} from '../config-template/config-template.contract';
+  PerformanceLevel,
+  RatingScaleEntry,
+} from '../calculation/stage-result-calculator';
+import type { ReviewerRelation } from '../config-template/config-template.contract';
 import { REVIEWER_RELATIONS } from '../config-template/config-template.contract';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -41,6 +36,27 @@ type PeerStageResultDb = Pick<
   'perfParticipant' | 'perfEvaluationSubmission' | 'perfStageResult'
 >;
 
+type StoredDimensionAnswer = {
+  dimensionKey: string;
+  rawLevel: PerformanceLevel | null;
+  rawScore: { toString(): string } | string | number | null;
+  derivedLevel: PerformanceLevel | null;
+  fields: Array<{ fieldKey: string; fieldType: string; value: unknown }>;
+};
+
+type EffectiveSubmission = {
+  id: number;
+  reviewerOpenId: string;
+  reviewerAssignmentId: number | null;
+  status: string;
+  reviewerAssignment: {
+    id: number;
+    relation: string;
+    status: string;
+  } | null;
+  dimensionAnswers: StoredDimensionAnswer[];
+};
+
 type RelationResultView = {
   relation: ReviewerRelation;
   baseWeight: string;
@@ -49,12 +65,10 @@ type RelationResultView = {
   dimensionScores: Array<{ dimensionKey: string; score: string }>;
 };
 
-type PeerReviewItemView = {
-  itemKey: string;
+type PeerReviewFieldView = {
+  fieldKey: string;
   title: string;
   type: string;
-  rawLevel: PerformanceLevel | null;
-  rawScore: string | null;
   value: unknown;
 };
 
@@ -63,8 +77,8 @@ type PeerReviewDimensionView = {
   name: string;
   rawLevel: PerformanceLevel | null;
   rawScore: string | null;
-  mappedLevel: PerformanceLevel;
-  items: PeerReviewItemView[];
+  mappedLevel: PerformanceLevel | null;
+  fields: PeerReviewFieldView[];
 };
 
 export type PeerReviewAnalysisView = {
@@ -93,15 +107,15 @@ export type PeerStageResultView = {
   participantId: number;
   cycleConfigVersionId: number;
   status: 'READY' | 'NO_DATA';
-  mode: StageResultMode;
+  /** 数据库旧列尚待最终清理 Ticket 删除；运行时不再读取配置模式。 */
+  mode: 'WEIGHTED_SCORE';
   reviewerCount: number;
   compositeScore: string | null;
   initialLevel: PerformanceLevel | null;
   stageLevel: PerformanceLevel | null;
-  constraintReasons: MatchedConstraint[];
+  constraintReasons: UnifiedMatchedConstraint[];
   validRelations: RelationResultView[];
-  dimensions: StageDimensionResult[];
-  /** 上级评估参考区使用的当前生效答卷统计，不包含草稿和历史答卷。 */
+  dimensions: UnifiedStageDimensionResult[];
   analysis: PeerReviewAnalysisView;
   inputSummary: {
     assignedReviewerCount: number;
@@ -126,8 +140,8 @@ export type PeerStageResultView = {
 };
 
 /**
- * 360°阶段结果应用服务：把当前有效提交转换为计算引擎输入，持久化可解释结果，
- * 并提供 Leader / 授权 HR / Admin 的对象级查询边界。
+ * 360°阶段结果服务：只读取新版维度/字段作答，保持“关系内平均 → 有效关系归一化
+ * → 关系加权 → 维度加权”的既有口径，并提供实名管理视角权限边界。
  */
 @Injectable()
 export class PeerStageResultService {
@@ -136,7 +150,6 @@ export class PeerStageResultService {
     private readonly rbacService: RbacService,
   ) {}
 
-  /** 基于当前有效答卷重算；可传事务 client，保证提交与阶段结果原子生效。 */
   async recalculate(
     participantId: number,
     db: PeerStageResultDb = this.prisma,
@@ -162,35 +175,31 @@ export class PeerStageResultService {
     }
     const config = participant.cycle.currentConfigVersion;
     if (!participant.cycle.currentConfigVersionId || !config) {
-      throw new ConflictException(
-        '周期缺少当前配置快照，无法计算 360°阶段结果',
-      );
+      throw new ConflictException('周期缺少当前配置快照，无法计算 360°阶段结果');
     }
-    const mode = this.requirePeerMode(config.peerStageMode);
     const content = participant.formSnapshot?.content as
-      FormSnapshotContent | undefined;
+      | FormSnapshotContent
+      | undefined;
     if (!content) {
       throw new ConflictException('参与者缺少表单快照，无法计算 360°阶段结果');
     }
 
-    // 同时读取 SUBMITTED 与 DRAFT：只有前者计分，后者只进入输入摘要用于解释排除原因。
-    const submissions = await db.perfEvaluationSubmission.findMany({
-      where: {
-        participantId,
-        stage: PerfEvaluationTaskType.PEER,
-      },
+    const submissions = (await db.perfEvaluationSubmission.findMany({
+      where: { participantId, stage: PerfEvaluationTaskType.PEER },
       include: {
         reviewerAssignment: {
           select: { id: true, relation: true, status: true },
         },
-        items: true,
+        dimensionAnswers: {
+          include: { fields: true },
+          orderBy: { id: 'asc' },
+        },
       },
-    });
+    })) as unknown as EffectiveSubmission[];
     const validSubmissions = submissions.filter(
       (submission) =>
         submission.status === PerfReviewStatus.SUBMITTED &&
-        submission.reviewerAssignment?.status ===
-          PerfAssignmentStatus.SUBMITTED,
+        submission.reviewerAssignment?.status === PerfAssignmentStatus.SUBMITTED,
     );
     const draftReviewerOpenIds = new Set(
       submissions
@@ -199,9 +208,7 @@ export class PeerStageResultService {
     );
     const effectiveAssignmentIds = new Set(
       validSubmissions.flatMap((submission) =>
-        submission.reviewerAssignmentId
-          ? [submission.reviewerAssignmentId]
-          : [],
+        submission.reviewerAssignmentId ? [submission.reviewerAssignmentId] : [],
       ),
     );
     const excludedAssignments = participant.reviewerAssignments
@@ -233,7 +240,7 @@ export class PeerStageResultService {
         participantId,
         cycleConfigVersionId: config.id,
         status: 'NO_DATA',
-        mode,
+        mode: 'WEIGHTED_SCORE',
         reviewerCount: 0,
         compositeScore: null,
         initialLevel: null,
@@ -254,23 +261,43 @@ export class PeerStageResultService {
       return view;
     }
 
+    const peerDimensions = this.scoringDimensionsOf(content);
     const relationWeights = this.relationWeightsOf(config);
-    const engineDimensions = this.buildDimensions(
-      content,
-      mode,
-      validSubmissions,
-      relationWeights,
-    );
-    const result = calculateStageResult({
-      mode,
+    const result = calculateUnifiedStageResult({
       ratings: this.ratingsOf(config.ratings),
-      dimensions: engineDimensions,
-      constraints: this.constraintsOf(config.constraintProfiles, mode),
       confirmedRedLine: null,
+      dimensions: peerDimensions.map((dimension) => ({
+        id: dimension.key,
+        name: dimension.name ?? dimension.key,
+        scoringMethod: dimension.scoringMethod!,
+        weight: dimension.weight ?? '0',
+        isCore: Boolean(dimension.isCore),
+        relations: REVIEWER_RELATIONS.flatMap((relation) => {
+          const members = validSubmissions.filter(
+            (submission) => submission.reviewerAssignment?.relation === relation,
+          );
+          if (members.length === 0) return [];
+          return [
+            {
+              type: relation,
+              weight: relationWeights[relation],
+              items: members.map((submission) => {
+                const answer = this.requireDimensionAnswer(submission, dimension);
+                return {
+                  submissionId: String(submission.id),
+                  ...(dimension.scoringMethod === 'RATING'
+                    ? { rawLevel: this.requirePerformanceLevel(answer.rawLevel) }
+                    : { rawScore: this.requireRawScore(answer.rawScore) }),
+                };
+              }),
+            },
+          ];
+        }),
+      })),
     });
     const validRelations = REVIEWER_RELATIONS.flatMap((relation) => {
       const first = result.dimensions[0]?.relations.find(
-        (item) => item.type === relation,
+        (entry) => entry.type === relation,
       );
       if (!first) return [];
       return [
@@ -279,14 +306,13 @@ export class PeerStageResultService {
           baseWeight: first.baseWeight,
           adjustedWeight: first.effectiveWeight,
           reviewerCount: validSubmissions.filter(
-            (submission) =>
-              submission.reviewerAssignment?.relation === relation,
+            (submission) => submission.reviewerAssignment?.relation === relation,
           ).length,
           dimensionScores: result.dimensions.map((dimension) => ({
             dimensionKey: dimension.id,
             score:
-              dimension.relations.find((item) => item.type === relation)
-                ?.score ?? '0',
+              dimension.relations.find((entry) => entry.type === relation)?.score ??
+              '0',
           })),
         },
       ];
@@ -295,7 +321,7 @@ export class PeerStageResultService {
       participantId,
       cycleConfigVersionId: config.id,
       status: 'READY',
-      mode,
+      mode: 'WEIGHTED_SCORE',
       reviewerCount: validSubmissions.length,
       compositeScore: result.compositeScore,
       initialLevel: result.initialLevel,
@@ -305,94 +331,92 @@ export class PeerStageResultService {
       dimensions: result.dimensions,
       analysis: this.buildAnalysis(
         content,
-        mode,
-        this.ratingsOf(config.ratings),
         participant.reviewerAssignments.length,
         validSubmissions,
         result.dimensions,
       ),
       inputSummary,
     };
-    await this.persist(
-      db,
-      participant.cycleId,
-      view,
-      result.unroundedCompositeScore,
-    );
+    await this.persist(db, participant.cycleId, view, result.unroundedCompositeScore);
     return view;
   }
 
-  /**
-   * 展示统计直接来自当前生效答卷：汇总结果仍复用阶段计算产物，
-   * 人数分布和原始评语不经过关系权重二次加工。
-   */
-  private buildAnalysis(
-    content: FormSnapshotContent,
-    mode: StageResultMode,
-    ratings: RatingScaleEntry[],
-    assignedReviewerCount: number,
-    submissions: Array<{
-      id: number;
-      reviewerOpenId: string;
-      reviewerAssignment: { relation: string } | null;
-      items: Array<{
-        itemKey: string;
-        dimensionKey: string;
-        itemType: string;
-        rawLevel: PerformanceLevel | null;
-        rawScore: { toString(): string } | string | number | null;
-        value: unknown;
-      }>;
-    }>,
-    resultDimensions: StageDimensionResult[],
-  ): PeerReviewAnalysisView {
+  async getForManager(operatorOpenId: string, participantId: number) {
+    const participant = await this.prisma.perfParticipant.findUnique({
+      where: { id: participantId },
+      include: { cycle: { select: { deletedAt: true } } },
+    });
+    if (!participant || participant.cycle.deletedAt) {
+      throw new NotFoundException('参与者不存在');
+    }
+    await this.assertCanView(operatorOpenId, participant);
+    return omitStageResultMode(await this.recalculate(participantId));
+  }
+
+  private scoringDimensionsOf(content: FormSnapshotContent) {
     const dimensions = content.subforms
       .filter((subform) => subform.type === 'PEER')
       .flatMap((subform) => subform.dimensions)
       .filter(
         (dimension) =>
-          dimension.audience === 'REVIEWER' &&
-          (!dimension.kind || dimension.kind === 'REGULAR'),
+          dimension.audience === 'REVIEWER' && dimension.type === 'SCORING',
       );
-    const reviewerDimensions = (submission: (typeof submissions)[number]) =>
-      dimensions.map((dimension) => {
-        const scoringItem = this.scoringItemOf(dimension, mode);
-        const scoringResult = submission.items.find(
-          (item) => item.itemKey === scoringItem.key,
-        );
-        const rawLevel = scoringResult?.rawLevel ?? null;
-        const rawScore = scoringResult?.rawScore?.toString() ?? null;
-        const mappedLevel =
-          mode === 'WEIGHTED_RATING'
-            ? this.requirePerformanceLevel(rawLevel)
-            : this.levelForScore(rawScore, ratings);
+    if (dimensions.length === 0) {
+      throw new ConflictException('PEER 表单快照缺少计分维度');
+    }
+    return dimensions;
+  }
 
-        return {
-          id: dimension.key,
-          name: dimension.name ?? dimension.key,
-          rawLevel,
-          rawScore,
-          mappedLevel,
-          items: dimension.items.map((item) => {
-            const stored = submission.items.find(
-              (candidate) => candidate.itemKey === item.key,
-            );
-            return {
-              itemKey: item.key,
-              title: item.title,
-              type: item.type,
-              rawLevel: stored?.rawLevel ?? null,
-              rawScore: stored?.rawScore?.toString() ?? null,
-              value: stored?.value ?? null,
-            };
-          }),
-        };
-      });
+  private buildAnalysis(
+    content: FormSnapshotContent,
+    assignedReviewerCount: number,
+    submissions: EffectiveSubmission[],
+    resultDimensions: UnifiedStageDimensionResult[],
+  ): PeerReviewAnalysisView {
+    const dimensions = content.subforms
+      .filter((subform) => subform.type === 'PEER')
+      .flatMap((subform) => subform.dimensions)
+      .filter((dimension) => dimension.audience === 'REVIEWER');
     const reviewers = submissions.map((submission) => ({
       submissionId: submission.id,
       reviewerOpenId: submission.reviewerOpenId,
       relation: submission.reviewerAssignment!.relation as ReviewerRelation,
-      dimensions: reviewerDimensions(submission),
+      dimensions: dimensions.map((dimension) => {
+        const answer = submission.dimensionAnswers.find(
+          (candidate) => candidate.dimensionKey === dimension.key,
+        );
+        if (dimension.type === 'SCORING' && !answer) {
+          throw new ConflictException(
+            `有效 360°提交缺少维度「${dimension.name ?? dimension.key}」的维度作答`,
+          );
+        }
+        const mappedLevel =
+          dimension.type === 'SCORING'
+            ? this.requirePerformanceLevel(answer?.derivedLevel)
+            : null;
+        return {
+          id: dimension.key,
+          name: dimension.name ?? dimension.key,
+          rawLevel: answer?.rawLevel ?? null,
+          rawScore: answer?.rawScore?.toString() ?? null,
+          mappedLevel,
+          fields: (dimension.fields ?? []).flatMap((field) => {
+            const stored = answer?.fields.find(
+              (candidate) => candidate.fieldKey === field.key,
+            );
+            return stored
+              ? [
+                  {
+                    fieldKey: field.key,
+                    title: field.title,
+                    type: field.type,
+                    value: stored.value,
+                  },
+                ]
+              : [];
+          }),
+        };
+      }),
     }));
 
     return {
@@ -413,7 +437,7 @@ export class PeerStageResultService {
         };
         reviewers.forEach((reviewer) => {
           const level = reviewer.dimensions.find(
-            (item) => item.id === dimension.id,
+            (entry) => entry.id === dimension.id,
           )?.mappedLevel;
           if (level) distribution[level] += 1;
         });
@@ -429,120 +453,40 @@ export class PeerStageResultService {
     };
   }
 
+  private requireDimensionAnswer(
+    submission: EffectiveSubmission,
+    dimension: FormSnapshotDimension,
+  ) {
+    const answer = submission.dimensionAnswers.find(
+      (candidate) => candidate.dimensionKey === dimension.key,
+    );
+    if (!answer) {
+      throw new ConflictException(
+        `有效 360°提交缺少维度「${dimension.name ?? dimension.key}」的维度作答`,
+      );
+    }
+    return answer;
+  }
+
   private requirePerformanceLevel(value: unknown): PerformanceLevel {
     if (value === 'S' || value === 'A' || value === 'B' || value === 'C') {
       return value;
     }
-    throw new ConflictException('有效 360°提交缺少评级结果');
+    throw new ConflictException('有效 360°提交缺少派生维度等级');
   }
 
-  private levelForScore(
-    value: string | null,
-    ratings: RatingScaleEntry[],
-  ): PerformanceLevel {
+  private requireRawScore(value: StoredDimensionAnswer['rawScore']) {
     if (value === null) {
-      throw new ConflictException('有效 360°提交缺少评分结果');
+      throw new ConflictException('有效 360°提交缺少原始分数');
     }
-    return mapScoreToPerformanceLevel(value, ratings);
+    return value.toString();
   }
 
-  /** 管理视角读取时始终按当前有效输入重算，避免替换或未来配置变更留下陈旧结果。 */
-  async getForManager(operatorOpenId: string, participantId: number) {
-    const participant = await this.prisma.perfParticipant.findUnique({
-      where: { id: participantId },
-      include: { cycle: { select: { deletedAt: true } } },
-    });
-    if (!participant || participant.cycle.deletedAt) {
-      throw new NotFoundException('参与者不存在');
+  private ratingsOf(value: unknown): RatingScaleEntry[] {
+    if (!Array.isArray(value)) {
+      throw new ConflictException('周期配置快照缺少评级定义');
     }
-    await this.assertCanView(operatorOpenId, participant);
-    return omitStageResultMode(await this.recalculate(participantId));
-  }
-
-  private buildDimensions(
-    content: FormSnapshotContent,
-    mode: StageResultMode,
-    submissions: Array<{
-      id: number;
-      reviewerAssignment: { relation: unknown } | null;
-      items: Array<{
-        itemKey: string;
-        dimensionKey: string;
-        rawLevel: string | null;
-        rawScore: { toString(): string } | number | string | null;
-      }>;
-    }>,
-    relationWeights: Record<ReviewerRelation, string>,
-  ): StageDimensionInput[] {
-    const dimensions = content.subforms
-      .filter((subform) => subform.type === 'PEER')
-      .flatMap((subform) => subform.dimensions)
-      .filter(
-        (dimension) =>
-          dimension.audience === 'REVIEWER' &&
-          (!dimension.kind || dimension.kind === 'REGULAR'),
-      );
-    if (dimensions.length === 0) {
-      throw new ConflictException('PEER 表单快照缺少可计算维度');
-    }
-
-    return dimensions.map((dimension) => {
-      const scoringItem = this.scoringItemOf(dimension, mode);
-      return {
-        id: dimension.key,
-        name: dimension.name ?? dimension.key,
-        weight: dimension.weight ?? '0',
-        isCore: Boolean(dimension.isCore),
-        relations: REVIEWER_RELATIONS.flatMap((relation) => {
-          const relationSubmissions = submissions.filter(
-            (submission) =>
-              submission.reviewerAssignment?.relation === relation,
-          );
-          if (relationSubmissions.length === 0) return [];
-          return [
-            {
-              type: relation,
-              weight: relationWeights[relation],
-              items: relationSubmissions.map((submission) => {
-                const item = submission.items.find(
-                  (candidate) =>
-                    candidate.dimensionKey === dimension.key &&
-                    candidate.itemKey === scoringItem.key,
-                );
-                const rawValue =
-                  mode === 'WEIGHTED_RATING'
-                    ? item?.rawLevel
-                    : item?.rawScore?.toString();
-                if (rawValue === null || rawValue === undefined) {
-                  throw new ConflictException(
-                    `有效 360°提交缺少维度「${dimension.name ?? dimension.key}」的计分项`,
-                  );
-                }
-                return {
-                  itemId: scoringItem.key,
-                  submissionId: String(submission.id),
-                  rawValue,
-                };
-              }),
-            },
-          ];
-        }),
-      };
-    });
-  }
-
-  private scoringItemOf(
-    dimension: FormSnapshotDimension,
-    mode: StageResultMode,
-  ) {
-    const expectedType = mode === 'WEIGHTED_RATING' ? 'RATING' : 'SCORE';
-    const items = dimension.items.filter((item) => item.type === expectedType);
-    if (items.length !== 1) {
-      throw new ConflictException(
-        `维度「${dimension.name ?? dimension.key}」必须且只能包含一个 ${expectedType} 计分项`,
-      );
-    }
-    return items[0];
+    return value as RatingScaleEntry[];
   }
 
   private relationWeightsOf(config: {
@@ -559,67 +503,12 @@ export class PeerStageResultService {
     };
   }
 
-  private requirePeerMode(mode: unknown): StageResultMode {
-    if (mode !== 'WEIGHTED_RATING' && mode !== 'WEIGHTED_SCORE') {
-      throw new ConflictException('360°阶段结果模式必须是加权评级或加权评分');
-    }
-    return mode;
-  }
-
-  private ratingsOf(value: unknown): RatingScaleEntry[] {
-    if (!Array.isArray(value)) {
-      throw new ConflictException('周期配置快照缺少评级定义');
-    }
-    return value as RatingScaleEntry[];
-  }
-
-  private constraintsOf(
-    value: unknown,
-    mode: StageResultMode,
-  ): StageConstraintRule[] {
-    const profiles = value as ConfigConstraintProfiles | null;
-    if (!profiles) {
-      throw new ConflictException('周期配置快照缺少阶段约束配置');
-    }
-    if (mode === 'WEIGHTED_RATING') {
-      if (!Array.isArray(profiles.WEIGHTED_RATING)) {
-        throw new ConflictException('周期配置快照缺少阶段约束配置');
-      }
-      return profiles.WEIGHTED_RATING.filter((rule) => rule.enabled).map(
-        (rule) => ({
-          id: rule.id,
-          type: rule.type,
-          triggerRating: rule.triggerRating,
-          targetLevel: rule.targetLevel,
-        }),
-      );
-    }
-    if (!Array.isArray(profiles.WEIGHTED_SCORE)) {
-      throw new ConflictException('周期配置快照缺少阶段约束配置');
-    }
-    return profiles.WEIGHTED_SCORE.filter((rule) => rule.enabled).map(
-      (rule) => ({
-        id: rule.id,
-        type: rule.type,
-        threshold: rule.threshold,
-        targetLevel: rule.targetLevel,
-      }),
-    );
-  }
-
   private async persist(
     db: PeerStageResultDb,
     cycleId: number,
     view: PeerStageResultView,
     unroundedCompositeScore: string | null,
   ) {
-    const calculatedAt = new Date();
-    const calculationDetail = {
-      inputSummary: view.inputSummary,
-      validRelations: view.validRelations,
-      dimensions: view.dimensions,
-      unroundedCompositeScore,
-    } as unknown as Prisma.InputJsonValue;
     const data = {
       cycleId,
       participantId: view.participantId,
@@ -636,8 +525,13 @@ export class PeerStageResultService {
       stageLevel: view.stageLevel,
       constraintReasons:
         view.constraintReasons as unknown as Prisma.InputJsonValue,
-      calculationDetail,
-      calculatedAt,
+      calculationDetail: {
+        inputSummary: view.inputSummary,
+        validRelations: view.validRelations,
+        dimensions: view.dimensions,
+        unroundedCompositeScore,
+      } as unknown as Prisma.InputJsonValue,
+      calculatedAt: new Date(),
     };
     const dimensions = view.dimensions.map((dimension) => ({
       dimensionKey: dimension.id,
@@ -664,17 +558,10 @@ export class PeerStageResultService {
           cycleConfigVersionId: view.cycleConfigVersionId,
         },
       },
-      create: {
-        ...data,
-        dimensions: { create: dimensions },
-      },
+      create: { ...data, dimensions: { create: dimensions } },
       update: {
         ...data,
-        // 子聚合不单独版本化；每次重算以当前有效输入原子替换完整集合。
-        dimensions: {
-          deleteMany: {},
-          create: dimensions,
-        },
+        dimensions: { deleteMany: {}, create: dimensions },
       },
     });
   }
@@ -691,10 +578,9 @@ export class PeerStageResultService {
       PerfRole.HR,
       PerfRole.ADMIN,
     ]);
-    if (!isHr)
-      throw new ForbiddenException(
-        '仅考核 Leader 或授权 HR 可查看 360°阶段结果',
-      );
+    if (!isHr) {
+      throw new ForbiddenException('仅考核 Leader 或授权 HR 可查看 360°阶段结果');
+    }
     const scope = await this.rbacService.getOrgScope(operatorOpenId);
     if (
       scope !== null &&

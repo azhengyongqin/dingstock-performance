@@ -43,12 +43,12 @@ export type ResolvedAnswer = {
   item: FormSnapshotItem;
 };
 
-type ResolvedFieldAnswer = {
+export type ResolvedFieldAnswer = {
   answer: EvaluationFieldAnswerDto;
   field: FormSnapshotField;
 };
 
-type ResolvedDimensionAnswer = {
+export type ResolvedDimensionAnswer = {
   answer: EvaluationDimensionAnswerDto;
   dimension: FormSnapshotDimension;
   fields: ResolvedFieldAnswer[];
@@ -241,13 +241,14 @@ export class EvaluationSubmissionService {
     );
     const content = this.requireSnapshotContent(participant);
     const resolved = this.validateSelfDimensionAnswers(content, dto.dimensions);
-    const ratings = this.requireSelfRatings(participant);
-    const stageResult = this.calculateSelfStageResult(
+    const ratings = this.requireUnifiedRatings(participant);
+    const stageResult = this.calculateDimensionStageResult(
       this.selectEmployeeSubforms(content)[0],
       resolved,
       ratings,
+      { relationType: 'LEADER', submissionId: `self:${employeeOpenId}` },
     );
-    this.assertSelfComplete(
+    this.assertDimensionAnswersComplete(
       this.selectEmployeeSubforms(content)[0],
       resolved,
       stageResult,
@@ -407,7 +408,7 @@ export class EvaluationSubmissionService {
     const content = participant.formSnapshot?.content as
       FormSnapshotContent | undefined;
     if (!participant.formSnapshotId || !content?.subforms) {
-      throw new ConflictException('该参与者未匹配表单快照，无法填写自评');
+      throw new ConflictException('该参与者未匹配表单快照，无法填写评估表单');
     }
     return content;
   }
@@ -435,8 +436,8 @@ export class EvaluationSubmissionService {
     return ratings;
   }
 
-  /** 统一维度计算还依赖等级区间；旧 PEER/MANAGER 公开策略只要求 mappingScore。 */
-  private requireSelfRatings(participant: {
+  /** 统一维度计算依赖完整等级区间；旧 MANAGER 策略暂时只要求 mappingScore。 */
+  requireUnifiedRatings(participant: {
     cycle: { currentConfigVersion: { ratings: unknown } | null };
   }) {
     const ratings = this.requireRatings(participant);
@@ -457,13 +458,17 @@ export class EvaluationSubmissionService {
   }
 
   /** SELF 与另外两类人工评估共用统一维度加权入口；员工本人视为单一 100% 关系。 */
-  private calculateSelfStageResult(
-    self: FormSnapshotSubform | undefined,
+  calculateDimensionStageResult(
+    subform: FormSnapshotSubform | undefined,
     resolved: ResolvedDimensionAnswer[],
-    ratings: ReturnType<EvaluationSubmissionService['requireSelfRatings']>,
+    ratings: ReturnType<EvaluationSubmissionService['requireUnifiedRatings']>,
+    source: {
+      relationType: 'LEADER' | 'PEER';
+      submissionId: string;
+    },
   ) {
-    if (!self) throw new ConflictException('当前表单快照缺少员工自评子表单');
-    const scoringDimensions = self.dimensions.filter(
+    if (!subform) throw new ConflictException('当前表单快照缺少人工评估子表单');
+    const scoringDimensions = subform.dimensions.filter(
       (dimension) => dimension.type === 'SCORING',
     );
     const dimensions = scoringDimensions.map((dimension) => {
@@ -488,11 +493,11 @@ export class EvaluationSubmissionService {
         isCore: Boolean(dimension.isCore),
         relations: [
           {
-            type: 'LEADER' as const,
+            type: source.relationType,
             weight: '100',
             items: [
               {
-                submissionId: 'self-current',
+                submissionId: source.submissionId,
                 ...(dimension.scoringMethod === 'RATING'
                   ? { rawLevel: answer.rawLevel }
                   : { rawScore: answer.rawScore }),
@@ -510,16 +515,16 @@ export class EvaluationSubmissionService {
   }
 
   /** 正式提交完整性：所有计分维度固定必填，字段按 ALWAYS/维度派生等级执行。 */
-  private assertSelfComplete(
-    self: FormSnapshotSubform | undefined,
+  assertDimensionAnswersComplete(
+    subform: FormSnapshotSubform | undefined,
     resolved: ResolvedDimensionAnswer[],
     result: UnifiedStageResult,
   ) {
-    if (!self) throw new ConflictException('当前表单快照缺少员工自评子表单');
+    if (!subform) throw new ConflictException('当前表单快照缺少人工评估子表单');
     const levels = new Map(
       result.dimensions.map((dimension) => [dimension.id, dimension.level]),
     );
-    for (const dimension of self.dimensions) {
+    for (const dimension of subform.dimensions) {
       const answer = resolved.find(
         (entry) => entry.dimension.key === dimension.key,
       );
@@ -559,19 +564,32 @@ export class EvaluationSubmissionService {
   ): ResolvedDimensionAnswer[] {
     const self = this.selectEmployeeSubforms(content)[0];
     if (!self) throw new ConflictException('当前表单快照缺少员工自评子表单');
+    return this.validateDimensionAnswersInSubform(self, answers, '员工自评');
+  }
 
+  /** 360°新版防伪造边界：只接受当前 PEER 子表单内稳定的维度与字段 key。 */
+  validatePeerDimensionAnswers(
+    content: FormSnapshotContent,
+    answers: EvaluationDimensionAnswerDto[],
+  ): ResolvedDimensionAnswer[] {
+    const peer = this.selectPeerSubforms(content)[0];
+    if (!peer) throw new ConflictException('当前表单快照缺少 360°评估子表单');
+    return this.validateDimensionAnswersInSubform(peer, answers, '360°评估');
+  }
+
+  private validateDimensionAnswersInSubform(
+    subform: FormSnapshotSubform,
+    answers: EvaluationDimensionAnswerDto[],
+    scopeLabel: string,
+  ): ResolvedDimensionAnswer[] {
     const seenDimensions = new Set<string>();
     return answers.map((answer) => {
-      const dimension = self.dimensions.find(
+      const dimension = subform.dimensions.find(
         (candidate) => candidate.key === answer.dimensionKey,
       );
-      if (
-        answer.subformKey !== self.key ||
-        !dimension ||
-        dimension.audience !== 'EMPLOYEE'
-      ) {
+      if (answer.subformKey !== subform.key || !dimension) {
         throw new BadRequestException(
-          `评估维度 ${answer.dimensionKey} 不存在于当前员工自评表单快照`,
+          `评估维度 ${answer.dimensionKey} 不存在于当前${scopeLabel}表单快照`,
         );
       }
       if (seenDimensions.has(answer.dimensionKey)) {
@@ -606,9 +624,7 @@ export class EvaluationSubmissionService {
         }
         seenFields.add(field.key);
         if (!this.isFieldValueAnswered(fieldAnswer.value)) {
-          throw new BadRequestException(
-            `表单字段「${field.title}」没有有效内容`,
-          );
+          throw new BadRequestException(`表单字段「${field.title}」没有有效内容`);
         }
         if (!this.isFieldValueCompatible(field, fieldAnswer.value)) {
           throw new BadRequestException(
@@ -675,7 +691,7 @@ export class EvaluationSubmissionService {
     }
   }
 
-  private toDimensionAnswerRow(
+  toDimensionAnswerRow(
     resolved: ResolvedDimensionAnswer,
     formSnapshotId: number,
     calculationScore: string | null = null,
@@ -699,7 +715,7 @@ export class EvaluationSubmissionService {
   }
 
   /** 维度回答整体替换；字段回答通过父维度的级联删除与嵌套创建保持原子性。 */
-  private async replaceDimensionAnswers(
+  async replaceDimensionAnswers(
     tx: Prisma.TransactionClient,
     submissionId: number,
     rows: Array<

@@ -49,10 +49,10 @@ const context = {
     status: 'ACTIVE',
     currentConfigVersion: {
       ratings: [
-        { symbol: 'S', name: '卓越' },
-        { symbol: 'A', name: '优秀' },
-        { symbol: 'B', name: '良好' },
-        { symbol: 'C', name: '待改进' }
+        { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95' },
+        { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85' },
+        { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70' },
+        { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50' }
       ]
     }
   },
@@ -74,15 +74,47 @@ const context = {
         dimensions: [
           {
             key: 'dimension:PEER:REVIEWER:0',
+            type: 'SCORING',
             audience: 'REVIEWER',
             name: '协作沟通',
+            scoringMethod: 'RATING',
+            weight: '60',
+            isCore: true,
             sortOrder: 0,
-            items: [
+            fields: [
               {
-                key: 'item:peer:rating',
-                type: 'RATING',
-                title: '协作评级',
-                required: true,
+                key: 'field:peer:comment',
+                type: 'LONG_TEXT',
+                title: '评价说明',
+                requiredRule: 'CONDITIONAL',
+                requiredLevels: ['S', 'C'],
+                sortOrder: 0
+              }
+            ]
+          },
+          {
+            key: 'dimension:PEER:REVIEWER:1',
+            type: 'SCORING',
+            audience: 'REVIEWER',
+            name: '学习成长',
+            scoringMethod: 'SCORE',
+            weight: '40',
+            isCore: false,
+            sortOrder: 1,
+            fields: []
+          },
+          {
+            key: 'dimension:PEER:REVIEWER:2',
+            type: 'NON_SCORING',
+            audience: 'REVIEWER',
+            name: '补充反馈',
+            sortOrder: 2,
+            fields: [
+              {
+                key: 'field:peer:suggestion',
+                type: 'MARKDOWN',
+                title: '改进建议',
+                requiredRule: 'OPTIONAL',
                 sortOrder: 0
               }
             ]
@@ -98,15 +130,28 @@ const context = {
     stage: 'PEER',
     reviewerOpenId: 'ou_reviewer',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 1,
         submissionId: 100,
         subformKey: 'subform:PEER',
         dimensionKey: 'dimension:PEER:REVIEWER:0',
-        itemKey: 'item:peer:rating',
-        itemType: 'RATING',
-        rawLevel: 'A'
+        scoringMethod: 'RATING',
+        rawLevel: 'A',
+        calculationScore: '85',
+        derivedLevel: 'A',
+        fields: []
+      },
+      {
+        id: 2,
+        submissionId: 100,
+        subformKey: 'subform:PEER',
+        dimensionKey: 'dimension:PEER:REVIEWER:1',
+        scoringMethod: 'SCORE',
+        rawScore: '86.5',
+        calculationScore: '86.5',
+        derivedLevel: 'A',
+        fields: []
       }
     ]
   },
@@ -119,15 +164,21 @@ const context = {
     stage: 'SELF',
     reviewerOpenId: 'ou_employee',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 901,
         submissionId: 90,
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-        itemKey: 'item:self:summary',
-        itemType: 'MARKDOWN',
-        value: '## 完成核心项目\n\n- 协作落地'
+        scoringMethod: null,
+        fields: [
+          {
+            id: 902,
+            fieldKey: 'field:self:summary',
+            fieldType: 'MARKDOWN',
+            value: '## 完成核心项目\n\n- 协作落地'
+          }
+        ]
       }
     ]
   }
@@ -148,7 +199,7 @@ describe('PeerReviewFill 关键流程', () => {
     triggerParticipantOkrSync.mockResolvedValue({ ok: true, status: 'success' })
   })
 
-  it('已提交答卷先只读，进入编辑后可按 PEER 动态表单原子重新提交，页面没有晋升或无法评价入口', async () => {
+  it('按计分/非计分维度呈现并用新版维度载荷重新提交，页面不出现评估项', async () => {
     render(<PeerReviewFill assignmentId={11} />)
 
     expect(await screen.findByText('360°可观察行为评估')).toBeInTheDocument()
@@ -162,21 +213,31 @@ describe('PeerReviewFill 关键流程', () => {
     expect(screen.getByText('协作落地').closest('ul')).toBeInTheDocument()
     expect(screen.queryByText(/晋升/)).not.toBeInTheDocument()
     expect(screen.queryByText(/无法评价|了解不足/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/评估项/)).not.toBeInTheDocument()
+    expect(screen.getByText('学习成长')).toBeInTheDocument()
+    expect(screen.getByText('补充反馈')).toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))
 
     fireEvent.click(screen.getByRole('button', { name: '编辑并重新提交' }))
     fireEvent.click(screen.getByRole('radio', { name: /B · 良好/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: '学习成长' }), { target: { value: '91.25' } })
     fireEvent.click(screen.getByRole('button', { name: '重新提交' }))
 
     await waitFor(() =>
       expect(submitPeerEvaluation).toHaveBeenCalledWith({
         assignmentId: 11,
-        items: [
+        dimensions: [
           {
             subformKey: 'subform:PEER',
             dimensionKey: 'dimension:PEER:REVIEWER:0',
-            itemKey: 'item:peer:rating',
-            rawLevel: 'B'
+            rawLevel: 'B',
+            fields: []
+          },
+          {
+            subformKey: 'subform:PEER',
+            dimensionKey: 'dimension:PEER:REVIEWER:1',
+            rawScore: 91.25,
+            fields: []
           }
         ]
       })

@@ -30,8 +30,8 @@ import {
 import EvaluationForm from './evaluation-form'
 import {
   buildDraftPayloadDimensions,
-  buildSelfSubmitPayload,
-  toSelfEvaluationAnswers,
+  buildDimensionSubmitPayload,
+  toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
 } from './evaluation-form-types'
@@ -74,7 +74,7 @@ const SelfReview = () => {
 
       setData(result)
       setState(result.state)
-      setAnswers(toSelfEvaluationAnswers((result.draft ?? result.submitted)?.dimensionAnswers ?? []))
+      setAnswers(toDimensionEvaluationAnswers((result.draft ?? result.submitted)?.dimensionAnswers ?? []))
       setErrors({})
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : '无法加载自评数据，请确认后端服务已启动。')
@@ -124,7 +124,7 @@ const SelfReview = () => {
   const handleSubmit = async () => {
     if (!data?.participant || !data.form) return
 
-    const { errors: validationErrors, dimensions } = buildSelfSubmitPayload(
+    const { errors: validationErrors, dimensions } = buildDimensionSubmitPayload(
       data.form.subforms,
       answers,
       data.participant.cycle.currentConfigVersion?.ratings ?? []

@@ -64,7 +64,7 @@ import ActiveConfigImpactDialog from '@/views/cycles/edit/active-config-impact-d
 import OkrReferencePreview from '@/views/component-test/okr-reference-preview'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
-import { buildSelfSubmitPayload } from '@/views/self-review/evaluation-form-types'
+import { buildDimensionSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
 import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
@@ -1234,7 +1234,7 @@ const EvaluationFormEditablePreview = () => {
           <Button
             type='button'
             onClick={() =>
-              setErrors(buildSelfSubmitPayload(EVALUATION_FORM_SUBFORMS, answers, EVALUATION_FORM_RATINGS).errors)
+              setErrors(buildDimensionSubmitPayload(EVALUATION_FORM_SUBFORMS, answers, EVALUATION_FORM_RATINGS).errors)
             }
           >
             校验

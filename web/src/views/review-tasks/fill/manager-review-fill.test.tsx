@@ -183,21 +183,11 @@ const context = {
               rawLevel: 'A',
               rawScore: null,
               mappedLevel: 'A',
-              items: [
+              fields: [
                 {
-                  itemKey: 'item:collaboration:rating',
-                  title: '协作表现',
-                  type: 'RATING',
-                  rawLevel: 'A',
-                  rawScore: null,
-                  value: null
-                },
-                {
-                  itemKey: 'item:collaboration:comment',
+                  fieldKey: 'field:collaboration:comment',
                   title: '协作评语',
                   type: 'LONG_TEXT',
-                  rawLevel: null,
-                  rawScore: null,
                   value: '沟通及时，能够主动补位。'
                 }
               ]
@@ -208,7 +198,7 @@ const context = {
               rawLevel: 'S',
               rawScore: null,
               mappedLevel: 'S',
-              items: []
+              fields: []
             }
           ]
         },
@@ -230,7 +220,7 @@ const context = {
               rawLevel: 'B',
               rawScore: null,
               mappedLevel: 'B',
-              items: []
+              fields: []
             },
             {
               id: 'dimension:responsibility',
@@ -238,7 +228,7 @@ const context = {
               rawLevel: 'A',
               rawScore: null,
               mappedLevel: 'A',
-              items: []
+              fields: []
             }
           ]
         }

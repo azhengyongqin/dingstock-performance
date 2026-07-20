@@ -14,7 +14,6 @@ import { PrismaService } from '../shared/database/prisma.service';
 import type { SavePeerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
-import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
 
@@ -30,7 +29,6 @@ export class PeerEvaluationSubmissionService {
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly submissionPolicy: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
-    private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
     private readonly employeeProfileService: EvaluationEmployeeProfileService,
   ) {}
@@ -106,7 +104,12 @@ export class PeerEvaluationSubmissionService {
           stage: PerfEvaluationTaskType.PEER,
           reviewerOpenId,
         },
-        include: { items: true },
+        include: {
+          dimensionAnswers: {
+            include: { fields: true },
+            orderBy: { id: 'asc' },
+          },
+        },
       }),
       // 左侧参考区展示员工已生效自评摘要（只读，不参与 360° 计分）
       this.prisma.perfEvaluationSubmission.findFirst({
@@ -115,7 +118,12 @@ export class PeerEvaluationSubmissionService {
           stage: PerfEvaluationTaskType.SELF,
           status: PerfReviewStatus.SUBMITTED,
         },
-        include: { items: true },
+        include: {
+          dimensionAnswers: {
+            include: { fields: true },
+            orderBy: { id: 'asc' },
+          },
+        },
       }),
       this.employeeProfileService.getPeerSafe(participant.employeeOpenId),
     ]);
@@ -151,16 +159,19 @@ export class PeerEvaluationSubmissionService {
     );
     const { participant } = assignment;
     const content = this.submissionPolicy.requireSnapshotContent(participant);
-    const resolved = this.submissionPolicy.validatePeerAnswers(
+    const resolved = this.submissionPolicy.validatePeerDimensionAnswers(
       content,
-      dto.items,
+      dto.dimensions,
     );
     await this.taskAccessService.ensureWritable(
       participant.id,
       PerfEvaluationTaskType.PEER,
     );
     const rows = resolved.map((entry) =>
-      this.submissionPolicy.toItemRow(entry, participant.formSnapshotId!, null),
+      this.submissionPolicy.toDimensionAnswerRow(
+        entry,
+        participant.formSnapshotId!,
+      ),
     );
 
     return this.prisma.$transaction(async (tx) => {
@@ -216,7 +227,11 @@ export class PeerEvaluationSubmissionService {
           );
         }
       }
-      await this.submissionPolicy.replaceItems(tx, submission.id, rows);
+      await this.submissionPolicy.replaceDimensionAnswers(
+        tx,
+        submission.id,
+        rows,
+      );
       return submission;
     });
   }
@@ -229,26 +244,39 @@ export class PeerEvaluationSubmissionService {
     );
     const { participant } = assignment;
     const content = this.submissionPolicy.requireSnapshotContent(participant);
-    const resolved = this.submissionPolicy.validatePeerAnswers(
+    const resolved = this.submissionPolicy.validatePeerDimensionAnswers(
       content,
-      dto.items,
+      dto.dimensions,
     );
-    this.submissionPolicy.assertSubformsComplete(
-      this.submissionPolicy.selectPeerSubforms(content),
+    const peerSubform = this.submissionPolicy.selectPeerSubforms(content)[0];
+    const ratings = this.submissionPolicy.requireUnifiedRatings(participant);
+    const submissionResult = this.submissionPolicy.calculateDimensionStageResult(
+      peerSubform,
       resolved,
+      ratings,
+      { relationType: 'PEER', submissionId: `peer:${reviewerOpenId}` },
     );
-    const ratings = this.submissionPolicy.requireRatings(participant);
+    this.submissionPolicy.assertDimensionAnswersComplete(
+      peerSubform,
+      resolved,
+      submissionResult,
+    );
     await this.taskAccessService.ensureWritable(
       participant.id,
       PerfEvaluationTaskType.PEER,
     );
-    const rows = resolved.map((entry) =>
-      this.submissionPolicy.toItemRow(
+    const resultByDimension = new Map(
+      submissionResult.dimensions.map((dimension) => [dimension.id, dimension]),
+    );
+    const rows = resolved.map((entry) => {
+      const result = resultByDimension.get(entry.dimension.key);
+      return this.submissionPolicy.toDimensionAnswerRow(
         entry,
         participant.formSnapshotId!,
-        this.submissionPolicy.calculationScoreOf(entry, ratings),
-      ),
-    );
+        result?.score ?? null,
+        result?.level ?? null,
+      );
+    });
     const submittedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
@@ -313,7 +341,11 @@ export class PeerEvaluationSubmissionService {
           );
         }
       }
-      await this.submissionPolicy.replaceItems(tx, submission.id, rows);
+      await this.submissionPolicy.replaceDimensionAnswers(
+        tx,
+        submission.id,
+        rows,
+      );
       await tx.perfEvaluationSubmission.deleteMany({
         where: {
           participantId: participant.id,
@@ -324,7 +356,7 @@ export class PeerEvaluationSubmissionService {
       });
       // 答卷与阶段结果同事务生效，任何计算失败都会回滚本次提交/重新提交。
       await this.peerStageResultService.recalculate(participant.id, tx);
-      await this.aiReportService.refreshForParticipant(participant.id, tx);
+      // AI 输入仍读取旧评估项；待“结果消费者迁移”Ticket 切到维度回答后再恢复 PEER 刷新。
       const pending = await tx.perfReviewerAssignment.count({
         where: {
           participantId: participant.id,

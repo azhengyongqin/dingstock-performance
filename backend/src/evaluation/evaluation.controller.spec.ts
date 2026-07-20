@@ -83,7 +83,7 @@ describe('EvaluationController 薄壳转调', () => {
   });
 
   it('360°草稿与正式提交转调统一提交服务', async () => {
-    const dto = { assignmentId: 11, items: [] };
+    const dto = { assignmentId: 11, dimensions: [] };
 
     await controller.savePeerDraft(request, dto);
     await controller.submitPeer(request, dto);

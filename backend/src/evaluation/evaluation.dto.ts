@@ -104,8 +104,8 @@ export class SavePeerEvaluationDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => EvaluationItemAnswerDto)
-  items!: EvaluationItemAnswerDto[];
+  @Type(() => EvaluationDimensionAnswerDto)
+  dimensions!: EvaluationDimensionAnswerDto[];
 }
 
 /** 上级评估身份只从 participant 的当前 Leader 快照派生，不接受人工初评等级。 */

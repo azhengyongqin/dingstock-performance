@@ -53,13 +53,11 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'B',
             rawScore: null,
             mappedLevel: 'B',
-            items: [
+            fields: [
               {
-                itemKey: 'item:contribution:comment',
+                fieldKey: 'field:contribution:comment',
                 title: '业绩评价',
                 type: 'MARKDOWN',
-                rawLevel: null,
-                rawScore: null,
                 value:
                   '整体表现符合预期，能稳定推进重点事项。\n\n1. 完成数据中台需求澄清与验收节奏对齐\n2. 在跨团队走查中及时补位'
               }
@@ -71,13 +69,11 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'A',
             rawScore: null,
             mappedLevel: 'A',
-            items: [
+            fields: [
               {
-                itemKey: 'item:collaboration:comment',
+                fieldKey: 'field:collaboration:comment',
                 title: '协作评价',
                 type: 'LONG_TEXT',
-                rawLevel: null,
-                rawScore: null,
                 value: '沟通主动，能在跨团队协作中及时补位并推动问题闭环。'
               }
             ]
@@ -102,7 +98,7 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'B',
             rawScore: null,
             mappedLevel: 'B',
-            items: []
+            fields: []
           },
           {
             id: 'dimension:collaboration',
@@ -110,7 +106,7 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'A',
             rawScore: null,
             mappedLevel: 'A',
-            items: []
+            fields: []
           }
         ]
       },
@@ -132,7 +128,7 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'A',
             rawScore: null,
             mappedLevel: 'A',
-            items: []
+            fields: []
           },
           {
             id: 'dimension:collaboration',
@@ -140,7 +136,7 @@ const SAMPLE_RESULT: PerfPeerStageResult = {
             rawLevel: 'B',
             rawScore: null,
             mappedLevel: 'B',
-            items: []
+            fields: []
           }
         ]
       }
