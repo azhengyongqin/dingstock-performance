@@ -57,7 +57,8 @@ type ResultSnapshot = {
     fields: VisibleFieldAnswer[];
   };
   self: { level: PerfRatingSymbol | null; fields: VisibleFieldAnswer[] };
-  promotion: null;
+  /** 新发布固定为空；旧结果版本中的员工可见晋升投影按原值只读返回。 */
+  promotion: Prisma.JsonValue | null;
 };
 
 /**
@@ -640,7 +641,8 @@ export class ResultService {
         level: this.ratingOrNull(self.level),
         fields: this.sanitizeVisibleFields(self.fields),
       },
-      promotion: null,
+      // 旧结果版本一经发布不可变；历史晋升投影属于当时员工可见内容，不能在查询时抹除。
+      promotion: root.promotion ?? null,
     };
   }
 

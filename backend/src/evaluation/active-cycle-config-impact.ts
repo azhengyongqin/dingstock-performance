@@ -63,7 +63,11 @@ export const cycleImpactInclude = {
       stageResults: {
         where: {
           stage: {
-            in: [PerfEvaluationTaskType.PEER, PerfEvaluationTaskType.MANAGER],
+            in: [
+              PerfEvaluationTaskType.SELF,
+              PerfEvaluationTaskType.PEER,
+              PerfEvaluationTaskType.MANAGER,
+            ],
           },
         },
         select: {
@@ -127,7 +131,7 @@ export type ImpactCycle = Prisma.PerfCycleGetPayload<{
   include: typeof cycleImpactInclude;
 }>;
 
-export type ImpactStage = 'PEER' | 'MANAGER';
+export type ImpactStage = 'SELF' | 'PEER' | 'MANAGER';
 
 export type ActiveConfigImpactPreview = {
   cycleId: number;
@@ -187,6 +191,11 @@ type Submission =
   ImpactCycle['participants'][number]['evaluationSubmissions'][number];
 
 const STAGE_POLICIES = {
+  SELF: {
+    audience: 'EMPLOYEE',
+    acceptsSubmission: () => true,
+    relationOf: () => 'LEADER' as const,
+  },
   PEER: {
     audience: 'REVIEWER',
     acceptsSubmission: (submission: Submission) =>
@@ -202,7 +211,7 @@ const STAGE_POLICIES = {
 } satisfies Record<
   ImpactStage,
   {
-    audience: 'REVIEWER' | 'LEADER';
+    audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
     acceptsSubmission: (submission: Submission) => boolean;
     relationOf: (submission: Submission) => string | undefined;
   }
@@ -247,11 +256,19 @@ export function buildActiveConfigImpact(
     );
     const stages = new Set<ImpactStage>();
     for (const result of currentStageResults) {
-      if (result.stage === 'PEER' || result.stage === 'MANAGER')
+      if (
+        result.stage === 'SELF' ||
+        result.stage === 'PEER' ||
+        result.stage === 'MANAGER'
+      )
         stages.add(result.stage);
     }
     for (const submission of participant.evaluationSubmissions) {
-      if (submission.stage === 'PEER' || submission.stage === 'MANAGER')
+      if (
+        submission.stage === 'SELF' ||
+        submission.stage === 'PEER' ||
+        submission.stage === 'MANAGER'
+      )
         stages.add(submission.stage);
     }
     for (const stage of stages) {

@@ -675,6 +675,14 @@ enum PerfRatingSymbol {
   @@schema("performance")
 }
 
+/// 旧晋升只读归档来源；不参与新版模板、快照或人工评估提交链。
+enum PerfLegacyPromotionArchiveSource {
+  EVALUATION_ITEM_RESULT /// contract 前的旧评估项作答
+  RESULT_VERSION_SNAPSHOT /// 已发布结果快照中的员工可见晋升投影
+
+  @@schema("performance")
+}
+
 /// 评估表单模板的稳定标识；名称、适用职级与表单内容都保存在不可变版本中。
 model PerfFormTemplate {
   id              Int      @id @default(autoincrement()) /// 内部自增主键
@@ -946,6 +954,7 @@ model PerfCycle {
   exportTasks           ReportExportTask[]
   rollbacks             PerfCycleRollback[]
   archive               PerfCycleArchive?
+  legacyPromotionArchives PerfLegacyPromotionArchive[]
 
   @@unique([currentConfigVersionId, id])
   @@index([status, plannedStartAt])
@@ -1021,6 +1030,7 @@ model PerfParticipant {
   evaluationTasks       PerfEvaluationTask[]
   evaluationSubmissions PerfEvaluationSubmission[]
   stageResults          PerfStageResult[]
+  legacyPromotionArchives PerfLegacyPromotionArchive[]
 
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
   @@unique([id, cycleId]) /// 供统一任务复合外键保证任务与参与人属于同一周期
@@ -1332,7 +1342,7 @@ model PerfResultVersion {
   finalLevel              PerfRatingSymbol @map("final_level") /// 员工可见的最终等级；有效红线强制为 C（数据库触发器兜底）
   employeeExplanation     String?          @map("employee_explanation") /// 员工可见解释；发布时收敛，不含内部校准讨论
   sourceCalibrationId     Int?             @map("source_calibration_id") /// 来源校准决定；仅迁移回填的历史版本可为空
-  resultSnapshot          Json             @map("result_snapshot") /// 隐私收敛后的员工可见结果快照：{ cycle, manager{compositeScore,dimensions,overallComment}, self, promotion }
+  resultSnapshot          Json             @map("result_snapshot") /// 员工安全快照；新版本 promotion 固定 null，历史非空投影按原值只读保留并写入专用归档
   publishedByOpenId       String           @map("published_by_open_id") /// 发布操作人 open_id；迁移回填为 system:migration
   publishedAt             DateTime         @default(now()) @map("published_at") /// 发布时间
   supersededAt            DateTime?        @map("superseded_at") /// 被新版本替代时间；新版本发布同事务一次性写入
@@ -1354,6 +1364,27 @@ model PerfResultVersion {
   @@index([participantId, invalidatedAt])
   @@index([invalidatedByRollbackId])
   @@map("perf_result_versions")
+  @@schema("performance")
+}
+
+/// 旧晋升表单答案的只读归档；仅迁移写入，append-only，不进入新版绩效计算或提交链。
+model PerfLegacyPromotionArchive {
+  id              Int                              @id @default(autoincrement()) /// 内部自增主键
+  cycleId         Int                              @map("cycle_id") /// 来源周期；归档历史禁止删除周期
+  participantId   Int                              @map("participant_id") /// 来源参与者；与 cycleId 组成复合归属约束
+  sourceType      PerfLegacyPromotionArchiveSource @map("source_type") /// 旧评估项或历史结果快照
+  sourceRecordId  Int                              @map("source_record_id") /// 来源表主键；与 sourceType 联合唯一保证幂等
+  payload         Json /// 原旧答案及提交上下文，或完整 resultSnapshot.promotion 投影
+  sourceCreatedAt DateTime?                        @map("source_created_at") /// 来源记录原创建时间
+  archivedAt      DateTime                         @default(now()) @map("archived_at") /// 归档写入时间
+
+  cycle       PerfCycle       @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  participant PerfParticipant @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Restrict)
+
+  @@unique([sourceType, sourceRecordId])
+  @@index([participantId, sourceType])
+  @@index([cycleId])
+  @@map("perf_legacy_promotion_archives")
   @@schema("performance")
 }
 

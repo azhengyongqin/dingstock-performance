@@ -31,6 +31,9 @@ jest.mock('./manager-stage-result.service', () => ({
 jest.mock('./peer-stage-result.service', () => ({
   PeerStageResultService: class {},
 }));
+jest.mock('./evaluation-submission.service', () => ({
+  EvaluationSubmissionService: class {},
+}));
 
 const ratings = [
   {
@@ -79,6 +82,23 @@ const formContent = {
   name: 'D 表单',
   jobLevelPrefix: 'D',
   subforms: [
+    {
+      key: 'subform:SELF',
+      type: 'SELF',
+      title: '员工自评',
+      dimensions: [
+        {
+          key: 'dimension:self',
+          type: 'SCORING',
+          audience: 'EMPLOYEE',
+          name: '自评等级',
+          scoringMethod: 'RATING',
+          weight: '100',
+          isCore: true,
+          fields: [],
+        },
+      ],
+    },
     {
       key: 'subform:MANAGER',
       type: 'MANAGER',
@@ -163,13 +183,13 @@ function cycleFixture() {
           {
             id: 62,
             stage: 'SELF',
-            status: 'DRAFT',
+            status: 'SUBMITTED',
             reviewerOpenId: 'ou_employee',
             reviewerAssignment: null,
             dimensionAnswers: [
               {
                 subformKey: 'subform:SELF',
-                dimensionKey: 'dimension:delivery',
+                dimensionKey: 'dimension:self',
                 scoringMethod: 'RATING',
                 rawLevel: 'A',
                 rawScore: null,
@@ -181,6 +201,25 @@ function cycleFixture() {
           },
         ],
         stageResults: [
+          {
+            id: 70,
+            cycleConfigVersionId: 31,
+            stage: 'SELF',
+            status: 'READY',
+            compositeScore: { toString: () => '85' },
+            stageLevel: 'A',
+            constraintReasons: [],
+            dimensions: [
+              {
+                dimensionKey: 'dimension:self',
+                name: '自评等级',
+                weight: { toString: () => '100' },
+                isCore: true,
+                score: { toString: () => '85' },
+                level: 'A',
+              },
+            ],
+          },
           {
             id: 71,
             cycleConfigVersionId: 31,
@@ -251,6 +290,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
   };
   const peer = { recalculate: jest.fn() };
   const manager = { recalculate: jest.fn() };
+  const self = { recalculateSelf: jest.fn() };
   let service: ActiveCycleConfigChangeService;
 
   beforeEach(() => {
@@ -268,6 +308,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     service = new ActiveCycleConfigChangeService(
       prisma as never,
       rbac as never,
+      self as never,
       peer as never,
       manager as never,
     );
@@ -288,7 +329,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
 
     expect(preview.summary).toEqual({
       affectedParticipantCount: 1,
-      affectedStageResultCount: 1,
+      affectedStageResultCount: 2,
       changedStageResultCount: 1,
       calibratedParticipantCount: 1,
       publishedParticipantCount: 1,
@@ -297,7 +338,9 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       affectedCalculationDimensionCount: 1,
       changedCalculationDimensionCount: 0,
     });
-    expect(preview.stageChanges[0]).toMatchObject({
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'MANAGER'),
+    ).toMatchObject({
       participantId: 51,
       employeeOpenId: 'ou_employee',
       stage: 'MANAGER',
@@ -355,7 +398,9 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       expectedConfigVersionId: 31,
     } as never);
 
-    expect(preview.stageChanges[0]).toMatchObject({
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'MANAGER'),
+    ).toMatchObject({
       before: { compositeScore: '70', stageLevel: 'B' },
       after: { compositeScore: '70.00', stageLevel: 'B' },
       changed: false,
@@ -434,10 +479,17 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     });
     expect(preview.calculationDimensionChanges[0]).toMatchObject({
       stage: 'SELF',
-      status: 'DRAFT',
-      dimensionKey: 'dimension:delivery',
+      status: 'SUBMITTED',
+      dimensionKey: 'dimension:self',
       before: '85',
       after: '88',
+      changed: true,
+    });
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'SELF'),
+    ).toMatchObject({
+      before: { compositeScore: '85', stageLevel: 'A' },
+      after: { compositeScore: '88.00', stageLevel: 'A' },
       changed: true,
     });
   });
@@ -473,6 +525,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       data: { currentConfigVersionId: 32 },
     });
     expect(manager.recalculate).toHaveBeenCalledWith(51, tx);
+    expect(self.recalculateSelf).toHaveBeenCalledWith(51, tx);
     expect(tx.perfEvaluationDimensionAnswer.updateMany).toHaveBeenCalledTimes(
       4,
     );
@@ -510,6 +563,25 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
         confirmed: true,
       } as never),
     ).rejects.toThrow('阶段重算失败');
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('自评重算失败时中止配置切换事务且不写成功审计', async () => {
+    const preview = await service.preview('ou_hr', 8, {
+      ...configInput,
+      expectedConfigVersionId: 31,
+    } as never);
+    self.recalculateSelf.mockRejectedValueOnce(new Error('自评重算失败'));
+
+    await expect(
+      service.apply('ou_hr', 8, {
+        ...configInput,
+        expectedConfigVersionId: 31,
+        impactRevision: preview.impactRevision,
+        reason: '修正规则',
+        confirmed: true,
+      } as never),
+    ).rejects.toThrow('自评重算失败');
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 });

@@ -7,7 +7,7 @@
 import { Client } from 'pg';
 import { loadAppConfig } from '../config/configuration';
 
-const PERFORMANCE_TABLES = [
+export const PERFORMANCE_TABLES = [
   'perf_ai_reports',
   'perf_appeals',
   'perf_calibrations',
@@ -29,6 +29,7 @@ const PERFORMANCE_TABLES = [
   'perf_form_template_versions',
   'perf_form_templates',
   'perf_interviews',
+  'perf_legacy_promotion_archives',
   'perf_notification_events',
   'perf_notifications',
   'perf_participants',
@@ -40,7 +41,7 @@ const PERFORMANCE_TABLES = [
   'perf_stage_results',
 ] as const;
 
-const PERFORMANCE_AUDIT_TARGETS = [
+export const PERFORMANCE_AUDIT_TARGETS = [
   'perf_appeal',
   'perf_config_template_version',
   'perf_cycle',
@@ -52,11 +53,21 @@ const PERFORMANCE_AUDIT_TARGETS = [
 
 type CountRow = { table_name: string; row_count: string };
 
+export type ResetPerformanceQueryClient = {
+  query<T extends Record<string, unknown> = Record<string, unknown>>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: T[]; rowCount: number | null }>;
+};
+
 const quotedPerformanceTables = PERFORMANCE_TABLES.map(
   (table) => `"performance"."${table}"`,
 ).join(', ');
 
-async function readCounts(client: Client, tables: readonly string[]) {
+async function readCounts(
+  client: ResetPerformanceQueryClient,
+  tables: readonly string[],
+) {
   const rows: CountRow[] = [];
   for (const table of tables) {
     // 表名来自本文件的固定白名单，绝不接收命令行或环境变量输入。
@@ -68,80 +79,83 @@ async function readCounts(client: Client, tables: readonly string[]) {
   return rows;
 }
 
-async function main() {
-  const client = new Client({ connectionString: loadAppConfig().database.url });
-  await client.connect();
-
-  try {
-    const actualPerfTables = await client.query<{ table_name: string }>(
-      `SELECT table_name
+/**
+ * 可测试的重置核心：调用方负责连接生命周期；任何校验失败都不会提交部分清理。
+ */
+export async function resetPerformanceData(
+  client: ResetPerformanceQueryClient,
+) {
+  const actualPerfTables = await client.query<{ table_name: string }>(
+    `SELECT table_name
        FROM information_schema.tables
        WHERE table_schema = 'performance' AND table_name LIKE 'perf\\_%' ESCAPE '\\'
        ORDER BY table_name`,
+  );
+  const actual = actualPerfTables.rows.map((row) => row.table_name);
+  const expected = [...PERFORMANCE_TABLES].sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      `绩效表白名单与数据库不一致，拒绝重置。expected=${expected.join(',')} actual=${actual.join(',')}`,
     );
-    const actual = actualPerfTables.rows.map((row) => row.table_name);
-    const expected = [...PERFORMANCE_TABLES].sort();
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-      throw new Error(
-        `绩效表白名单与数据库不一致，拒绝重置。expected=${expected.join(',')} actual=${actual.join(',')}`,
-      );
-    }
+  }
 
-    const preservedTables = await client.query<{ table_name: string }>(
-      `SELECT table_name
+  const preservedTables = await client.query<{ table_name: string }>(
+    `SELECT table_name
        FROM information_schema.tables
        WHERE table_schema = 'performance'
          AND (table_name LIKE 'lark\\_%' ESCAPE '\\' OR table_name IN ('role_grants', 'system_configs'))
        ORDER BY table_name`,
+  );
+  const preservedNames = preservedTables.rows.map((row) => row.table_name);
+  const preservedBefore = await readCounts(client, preservedNames);
+  const performanceBefore = await readCounts(client, PERFORMANCE_TABLES);
+
+  await client.query('BEGIN');
+  try {
+    // 审计表有 append-only 保护；仅在本事务内对固定绩效目标精确删除。
+    await client.query(
+      'ALTER TABLE "performance"."audit_logs" DISABLE TRIGGER USER',
     );
-    const preservedNames = preservedTables.rows.map((row) => row.table_name);
-    const preservedBefore = await readCounts(client, preservedNames);
-    const performanceBefore = await readCounts(client, PERFORMANCE_TABLES);
+    const removedAudits = await client.query(
+      `DELETE FROM "performance"."audit_logs" WHERE "target_type" = ANY($1::text[])`,
+      [[...PERFORMANCE_AUDIT_TARGETS]],
+    );
+    await client.query(
+      'ALTER TABLE "performance"."audit_logs" ENABLE TRIGGER USER',
+    );
 
-    await client.query('BEGIN');
-    try {
-      // 审计表有 append-only 保护；仅在本事务内对固定绩效目标精确删除。
-      await client.query(
-        'ALTER TABLE "performance"."audit_logs" DISABLE TRIGGER USER',
-      );
-      const removedAudits = await client.query(
-        `DELETE FROM "performance"."audit_logs" WHERE "target_type" = ANY($1::text[])`,
-        [[...PERFORMANCE_AUDIT_TARGETS]],
-      );
-      await client.query(
-        'ALTER TABLE "performance"."audit_logs" ENABLE TRIGGER USER',
-      );
+    // 导出任务通过外键引用周期，必须与全部绩效表放在同一条 TRUNCATE 中。
+    await client.query(
+      `TRUNCATE TABLE ${quotedPerformanceTables}, "performance"."report_export_tasks" RESTART IDENTITY`,
+    );
 
-      // 导出任务通过外键引用周期，必须与全部绩效表放在同一条 TRUNCATE 中。
-      await client.query(
-        `TRUNCATE TABLE ${quotedPerformanceTables}, "performance"."report_export_tasks" RESTART IDENTITY`,
-      );
-
-      const preservedAfter = await readCounts(client, preservedNames);
-      if (JSON.stringify(preservedBefore) !== JSON.stringify(preservedAfter)) {
-        throw new Error('受保护表行数发生变化，已回滚绩效数据重置');
-      }
-
-      await client.query('COMMIT');
-      console.log(
-        JSON.stringify(
-          {
-            performanceBefore,
-            removedAuditLogs: removedAudits.rowCount,
-            preservedBefore,
-            preservedAfter,
-          },
-          null,
-          2,
-        ),
-      );
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
+    const preservedAfter = await readCounts(client, preservedNames);
+    if (JSON.stringify(preservedBefore) !== JSON.stringify(preservedAfter)) {
+      throw new Error('受保护表行数发生变化，已回滚绩效数据重置');
     }
+
+    await client.query('COMMIT');
+    return {
+      performanceBefore,
+      removedAuditLogs: removedAudits.rowCount,
+      preservedBefore,
+      preservedAfter,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  }
+}
+
+async function main() {
+  const client = new Client({ connectionString: loadAppConfig().database.url });
+  await client.connect();
+  try {
+    const result = await resetPerformanceData(client);
+    console.log(JSON.stringify(result, null, 2));
   } finally {
     await client.end();
   }
 }
 
-void main();
+if (require.main === module) void main();

@@ -24,6 +24,7 @@ import {
 import type { FormSnapshotContent } from './evaluation.service-types';
 import { ManagerStageResultService } from './manager-stage-result.service';
 import { PeerStageResultService } from './peer-stage-result.service';
+import { EvaluationSubmissionService } from './evaluation-submission.service';
 
 export type ApplyActiveConfigInput = ActiveConfigInput & {
   reason: string;
@@ -40,6 +41,7 @@ export class ActiveCycleConfigChangeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rbacService: RbacService,
+    private readonly evaluationSubmissionService: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
     private readonly managerStageResultService: ManagerStageResultService,
   ) {}
@@ -233,9 +235,14 @@ export class ActiveCycleConfigChangeService {
         ImpactStage,
       ];
       const participantId = Number(participantIdText);
-      if (stage === 'PEER') {
+      if (stage === 'SELF') {
+        await this.evaluationSubmissionService.recalculateSelf(
+          participantId,
+          tx,
+        );
+      } else if (stage === 'PEER') {
         await this.peerStageResultService.recalculate(participantId, tx);
-      } else {
+      } else if (stage === 'MANAGER') {
         await this.managerStageResultService.recalculate(participantId, tx);
       }
     }

@@ -653,4 +653,89 @@ describe('员工自评维度回答链路', () => {
       ],
     });
   });
+
+  it('配置切换后通过公开重算入口按新评级映射写入新版本 SELF 结果', async () => {
+    const participant = {
+      id: 7,
+      cycleId: 1,
+      formSnapshotId: 99,
+      formSnapshot: { id: 99, content: snapshotContent },
+      cycle: {
+        currentConfigVersion: {
+          id: 10,
+          ratings: [
+            {
+              symbol: 'S',
+              minScore: '90',
+              maxScore: '100',
+              mappingScore: '95',
+            },
+            { symbol: 'A', minScore: '80', maxScore: '90', mappingScore: '88' },
+            { symbol: 'B', minScore: '60', maxScore: '80', mappingScore: '70' },
+            { symbol: 'C', minScore: '0', maxScore: '60', mappingScore: '50' },
+          ],
+        },
+      },
+      evaluationSubmissions: [
+        {
+          id: 101,
+          dimensionAnswers: [
+            {
+              id: 201,
+              subformKey: 'subform:self',
+              dimensionKey: 'dimension:result',
+              rawLevel: 'A',
+              rawScore: null,
+              fields: [],
+            },
+            {
+              id: 202,
+              subformKey: 'subform:self',
+              dimensionKey: 'dimension:delivery',
+              rawLevel: null,
+              rawScore: { toString: () => '90' },
+              fields: [],
+            },
+          ],
+        },
+      ],
+    };
+    const tx = {
+      perfParticipant: { findUnique: jest.fn().mockResolvedValue(participant) },
+      perfStageResult: {
+        upsert: jest.fn().mockResolvedValue({ id: 302 }),
+      },
+      perfStageDimensionResult: {
+        deleteMany: jest.fn(),
+        createMany: jest.fn(),
+      },
+    };
+    const service = new EvaluationSubmissionService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      new ParticipantEvaluationLockService(),
+      {} as never,
+    );
+
+    await expect(
+      service.recalculateSelf(7, tx as never),
+    ).resolves.toMatchObject({ compositeScore: '88.80', finalLevel: 'A' });
+    expect(tx.perfStageResult.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          participantId_stage_cycleConfigVersionId: {
+            participantId: 7,
+            stage: 'SELF',
+            cycleConfigVersionId: 10,
+          },
+        },
+        create: expect.objectContaining({
+          cycleConfigVersionId: 10,
+          compositeScore: '88.80',
+        }),
+      }),
+    );
+  });
 });

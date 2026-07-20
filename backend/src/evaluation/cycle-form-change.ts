@@ -4,6 +4,7 @@ import type {
   FormSnapshotField,
   FormSnapshotSubform,
 } from './evaluation.service-types';
+import { isFormFieldValueCompatible } from './form-field-value-compatibility';
 
 export type HumanEvaluationStage = 'SELF' | 'PEER' | 'MANAGER';
 export type CycleFormChangeCategory =
@@ -450,7 +451,7 @@ export function buildCycleFormChangePlan(
         !nextField ||
         nextField.stage !== stage ||
         nextField.field.type !== fieldAnswer.fieldType ||
-        !isFieldValueCompatible(nextField.field, fieldAnswer.value)
+        !isFormFieldValueCompatible(nextField.field, fieldAnswer.value)
       ) {
         incompatibleAnswerKeys.push(`field:${fieldAnswer.fieldKey}`);
         continue;
@@ -469,82 +470,6 @@ export function buildCycleFormChangePlan(
     compatibleFieldAnswers,
     incompatibleAnswerKeys,
   };
-}
-
-function isFieldValueCompatible(field: FormSnapshotField, value: unknown) {
-  const config = isRecord(field.config) ? field.config : {};
-  if (
-    field.type === 'SHORT_TEXT' ||
-    field.type === 'LONG_TEXT' ||
-    field.type === 'MARKDOWN'
-  ) {
-    if (typeof value !== 'string') return false;
-    const length = value.length;
-    return !(
-      (typeof config.minLength === 'number' && length < config.minLength) ||
-      (typeof config.maxLength === 'number' && length > config.maxLength)
-    );
-  }
-  if (field.type === 'SINGLE_SELECT') {
-    return typeof value === 'string' && allowedOptions(config).has(value);
-  }
-  if (field.type === 'MULTI_SELECT') {
-    if (
-      !Array.isArray(value) ||
-      !value.every((item) => typeof item === 'string')
-    )
-      return false;
-    const allowed = allowedOptions(config);
-    return (
-      value.every((item) => allowed.has(item)) &&
-      !(
-        typeof config.minSelections === 'number' &&
-        value.length < config.minSelections
-      ) &&
-      !(
-        typeof config.maxSelections === 'number' &&
-        value.length > config.maxSelections
-      )
-    );
-  }
-  if (field.type === 'LINK') {
-    if (typeof value !== 'string') return false;
-    try {
-      const protocol = new URL(value).protocol.replace(':', '');
-      const allowed = Array.isArray(config.allowedProtocols)
-        ? config.allowedProtocols
-        : ['http', 'https'];
-      return allowed.includes(protocol);
-    } catch {
-      return false;
-    }
-  }
-  if (field.type === 'ATTACHMENT') {
-    return (
-      Array.isArray(value) &&
-      !(
-        typeof config.maxFiles === 'number' && value.length > config.maxFiles
-      ) &&
-      value.every(
-        (item) =>
-          isRecord(item) &&
-          typeof item.name === 'string' &&
-          typeof item.url === 'string',
-      )
-    );
-  }
-  return false;
-}
-
-function allowedOptions(config: Record<string, unknown>) {
-  const options = Array.isArray(config.options) ? config.options : [];
-  return new Set(
-    options.flatMap((option) =>
-      isRecord(option) && typeof option.value === 'string'
-        ? [option.value]
-        : [],
-    ),
-  );
 }
 
 function flattenDimensions(content: FormSnapshotContent) {
@@ -638,8 +563,4 @@ function explanationOf(category: CycleFormChangeCategory) {
     return '纯文案或展示顺序变更不会改变答卷状态，已有评估无需重新提交。';
   }
   return '未检测到表单变更。';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

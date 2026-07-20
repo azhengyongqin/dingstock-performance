@@ -511,7 +511,10 @@ describe('ResultService 不可变结果版本', () => {
           resultSnapshot: {
             manager: { dimensions: [], fields: [] },
             self: { fields: [] },
-            promotion: null,
+            promotion: {
+              visible: true,
+              items: [{ title: '晋升陈述', value: '历史员工可见内容' }],
+            },
             peer: { reviewerOpenId: 'ou_secret_reviewer' },
             aiReport: { referenceLevel: 'S' },
             calibrationNote: '内部敏感讨论',
@@ -546,7 +549,10 @@ describe('ResultService 不可变结果版本', () => {
         resultSnapshot: {
           manager: { dimensions: [], fields: [] },
           self: { fields: [] },
-          promotion: null,
+          promotion: {
+            visible: true,
+            items: [{ title: '晋升陈述', value: '历史员工可见内容' }],
+          },
         },
       },
     });

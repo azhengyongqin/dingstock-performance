@@ -30,6 +30,7 @@ import {
   calculateUnifiedStageResult,
   type UnifiedStageResult,
 } from '../calculation/unified-stage-result-calculator';
+import { isFormFieldValueCompatible } from './form-field-value-compatibility';
 
 /** 自评提交状态标记：无 SUBMITTED=草稿；有 SUBMITTED 无 DRAFT=已生效；两者都有=待重新提交 */
 export type SelfEvaluationState = 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT';
@@ -348,6 +349,76 @@ export class EvaluationSubmissionService {
     return { ok: true };
   }
 
+  /**
+   * 按事务内当前配置与当前表单快照重算 SELF 阶段。
+   * ACTIVE 配置切换只重放已生效原始答案，不触发任务、AI、通知或用户提交审计副作用。
+   */
+  async recalculateSelf(
+    participantId: number,
+    db: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const client = db;
+    const participant = await client.perfParticipant.findUnique({
+      where: { id: participantId },
+      include: {
+        cycle: {
+          include: {
+            currentConfigVersion: { select: { id: true, ratings: true } },
+          },
+        },
+        formSnapshot: { select: { id: true, content: true } },
+        evaluationSubmissions: {
+          where: {
+            stage: PerfEvaluationTaskType.SELF,
+            status: PerfReviewStatus.SUBMITTED,
+          },
+          orderBy: { id: 'desc' },
+          take: 1,
+          include: {
+            dimensionAnswers: {
+              orderBy: { id: 'asc' },
+              include: { fields: { orderBy: { id: 'asc' } } },
+            },
+          },
+        },
+      },
+    });
+    if (!participant) throw new NotFoundException('参与者不存在');
+    const cycleConfigVersionId = participant.cycle.currentConfigVersion?.id;
+    if (!cycleConfigVersionId) {
+      throw new ConflictException('周期缺少当前配置版本，无法重算自评结果');
+    }
+    const submission = participant.evaluationSubmissions[0];
+    if (!submission) {
+      return this.replaceSelfNoDataStageResult(client, participant);
+    }
+
+    const content = this.requireSnapshotContent(participant);
+    const resolved = this.validateSelfDimensionAnswers(
+      content,
+      submission.dimensionAnswers.map((answer) => ({
+        subformKey: answer.subformKey,
+        dimensionKey: answer.dimensionKey,
+        ...(answer.rawLevel ? { rawLevel: answer.rawLevel } : {}),
+        ...(answer.rawScore != null
+          ? { rawScore: Number(answer.rawScore.toString()) }
+          : {}),
+        fields: answer.fields.map((field) => ({
+          fieldKey: field.fieldKey,
+          value: field.value,
+        })),
+      })),
+    );
+    const result = this.calculateDimensionStageResult(
+      this.selectEmployeeSubforms(content)[0],
+      resolved,
+      this.requireUnifiedRatings(participant),
+      { relationType: 'LEADER', submissionId: String(submission.id) },
+    );
+    await this.replaceSelfStageResult(client, participant, result);
+    return result;
+  }
+
   // ---- 私有辅助 ----
 
   /**
@@ -631,7 +702,7 @@ export class EvaluationSubmissionService {
             `表单字段「${field.title}」没有有效内容`,
           );
         }
-        if (!this.isFieldValueCompatible(field, fieldAnswer.value)) {
+        if (!isFormFieldValueCompatible(field, fieldAnswer.value)) {
           throw new BadRequestException(
             `表单字段「${field.title}」的内容载荷与字段类型不匹配`,
           );
@@ -640,60 +711,6 @@ export class EvaluationSubmissionService {
       });
       return { answer, dimension, fields };
     });
-  }
-
-  /** 服务端按快照字段类型约束 JSON 形状，不能只依赖可被绕过的前端控件。 */
-  private isFieldValueCompatible(field: FormSnapshotField, value: unknown) {
-    if (
-      field.type === 'SHORT_TEXT' ||
-      field.type === 'LONG_TEXT' ||
-      field.type === 'MARKDOWN' ||
-      field.type === 'SINGLE_SELECT'
-    ) {
-      return typeof value === 'string';
-    }
-    if (field.type === 'LINK') {
-      return typeof value === 'string' && this.isHttpUrl(value);
-    }
-    if (field.type === 'MULTI_SELECT') {
-      return (
-        Array.isArray(value) &&
-        value.every(
-          (entry) => typeof entry === 'string' && entry.trim().length > 0,
-        )
-      );
-    }
-    if (field.type === 'ATTACHMENT') {
-      return (
-        Array.isArray(value) &&
-        value.every((entry) => {
-          if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-            return false;
-          }
-          const attachment = entry as Record<string, unknown>;
-          const name = attachment.name;
-          const url = attachment.url;
-          if (
-            typeof name !== 'string' ||
-            !name.trim() ||
-            typeof url !== 'string'
-          ) {
-            return false;
-          }
-          return this.isHttpUrl(url);
-        })
-      );
-    }
-    return false;
-  }
-
-  private isHttpUrl(value: string) {
-    try {
-      const parsed = new URL(value);
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-    } catch {
-      return false;
-    }
   }
 
   toDimensionAnswerRow(
@@ -800,6 +817,53 @@ export class EvaluationSubmissionService {
         level: dimension.level,
       })),
     });
+  }
+
+  private async replaceSelfNoDataStageResult(
+    tx: Prisma.TransactionClient,
+    participant: {
+      id: number;
+      cycleId: number;
+      cycle: { currentConfigVersion: { id: number } | null };
+    },
+  ) {
+    const cycleConfigVersionId = participant.cycle.currentConfigVersion?.id;
+    if (!cycleConfigVersionId) {
+      throw new ConflictException('周期缺少当前配置版本，无法重算自评结果');
+    }
+    const stageResult = await tx.perfStageResult.upsert({
+      where: {
+        participantId_stage_cycleConfigVersionId: {
+          participantId: participant.id,
+          stage: PerfEvaluationTaskType.SELF,
+          cycleConfigVersionId,
+        },
+      },
+      create: {
+        cycleId: participant.cycleId,
+        participantId: participant.id,
+        cycleConfigVersionId,
+        stage: PerfEvaluationTaskType.SELF,
+        status: 'NO_DATA',
+        reviewerCount: 0,
+        constraintReasons: [],
+        calculationDetail: {},
+      },
+      update: {
+        status: 'NO_DATA',
+        reviewerCount: 0,
+        compositeScore: null,
+        initialLevel: null,
+        stageLevel: null,
+        constraintReasons: [],
+        calculationDetail: {},
+        calculatedAt: new Date(),
+      },
+    });
+    await tx.perfStageDimensionResult.deleteMany({
+      where: { stageResultId: stageResult.id },
+    });
+    return null;
   }
 
   private isFieldValueAnswered(value: unknown) {
