@@ -1266,6 +1266,7 @@ const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
         audience: 'REVIEWER',
         name: '协作与责任担当',
         description: '只评价在协作中能够直接观察到的行为。',
+        weight: '100',
         isCore: true,
         sortOrder: 0,
         fields: [

@@ -21,6 +21,12 @@ export type EvaluationItemAnswer = {
 
 export type EvaluationAnswers = Record<string, EvaluationItemAnswer>
 
+export type WeightedEvaluationPreview = {
+  compositeScore: string
+  initialLevel: PerfPerformanceLevel
+  finalLevel: PerfPerformanceLevel
+}
+
 /** 填写页只消费当前阶段的精确子表单，避免接口异常时跨阶段渲染或提交。 */
 export const subformsForStage = (
   subforms: PerfEvalFormSubform[],
@@ -58,6 +64,99 @@ const isValidUrl = (text: string, allowedProtocols?: readonly string[]): boolean
 
 const DECIMAL_SCORE_PATTERN = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
 
+/** 将最多两位小数精确转换为整数“分”，避免 79.995 一类边界被二进制浮点误差影响。 */
+const toHundredths = (value: string | number): number | null => {
+  const matched = String(value)
+    .trim()
+    .match(/^(\d+)(?:\.(\d{1,2}))?$/)
+
+  if (!matched) return null
+
+  return Number(matched[1]) * 100 + Number((matched[2] ?? '').padEnd(2, '0'))
+}
+
+const levelForScoreHundredths = (score: number, ratings: PerfConfigTemplateRating[]): PerfPerformanceLevel | null => {
+  for (const rating of ratings) {
+    const min = toHundredths(rating.minScore)
+    const max = toHundredths(rating.maxScore)
+
+    if (min == null || max == null) return null
+    if (score >= min && (score < max || (max === 10_000 && score <= max))) return rating.symbol
+  }
+
+  return null
+}
+
+const lowerLevel = (current: PerfPerformanceLevel, target: PerfPerformanceLevel): PerfPerformanceLevel => {
+  const rank: Record<PerfPerformanceLevel, number> = { S: 4, A: 3, B: 2, C: 1 }
+
+  return rank[current] <= rank[target] ? current : target
+}
+
+/**
+ * 当前人工评估答卷的实时加权预览。
+ * 只在所有计分维度完整且权重合计 100% 时返回，计算顺序与后端统一阶段计算器保持一致。
+ */
+export const calculateWeightedEvaluationPreview = (
+  subforms: PerfEvalFormSubform[],
+  answers: EvaluationAnswers,
+  ratings: PerfConfigTemplateRating[]
+): WeightedEvaluationPreview | null => {
+  const dimensions = subforms.flatMap(subform => subform.dimensions.filter(dimension => dimension.type === 'SCORING'))
+
+  if (dimensions.length === 0 || dimensions.filter(dimension => dimension.isCore).length !== 1) return null
+
+  let totalWeight = 0
+  let weightedScoreNumerator = 0
+  const dimensionLevels = new Map<string, PerfPerformanceLevel>()
+
+  for (const dimension of dimensions) {
+    const answer = answers[dimension.key]
+    const weight = dimension.weight == null ? null : toHundredths(dimension.weight)
+    let score: number | null = null
+
+    if (dimension.scoringMethod === 'RATING' && answer?.rawLevel) {
+      const rating = ratings.find(candidate => candidate.symbol === answer.rawLevel)
+
+      score = rating ? toHundredths(rating.mappingScore) : null
+    } else if (dimension.scoringMethod === 'SCORE') {
+      const rawScore = answer?.rawScoreText?.trim() ?? ''
+
+      score = DECIMAL_SCORE_PATTERN.test(rawScore) ? toHundredths(rawScore) : null
+    }
+
+    if (weight == null || weight <= 0 || score == null) return null
+    const dimensionLevel = levelForScoreHundredths(score, ratings)
+
+    if (!dimensionLevel) return null
+    totalWeight += weight
+    weightedScoreNumerator += score * weight
+    dimensionLevels.set(dimension.key, dimensionLevel)
+  }
+
+  // weight 以百分比的百分之一存储，因此 100% 等于 10_000。
+  if (totalWeight !== 10_000) return null
+
+  const compositeScoreHundredths = Math.floor((weightedScoreNumerator + 5_000) / 10_000)
+  const initialLevel = levelForScoreHundredths(compositeScoreHundredths, ratings)
+  const core = dimensions.find(dimension => dimension.isCore)!
+  const coreLevel = dimensionLevels.get(core.key)
+
+  if (!initialLevel || !coreLevel) return null
+
+  let finalLevel = initialLevel
+
+  if (coreLevel === 'C') finalLevel = lowerLevel(finalLevel, 'C')
+  if (coreLevel === 'B') finalLevel = lowerLevel(finalLevel, 'B')
+  if ([...dimensionLevels.values()].includes('C')) finalLevel = lowerLevel(finalLevel, 'B')
+
+  return {
+    compositeScore: `${Math.floor(compositeScoreHundredths / 100)}.${String(compositeScoreHundredths % 100).padStart(2, '0')}`,
+    initialLevel,
+    finalLevel
+  }
+}
+
 /** 新版维度/字段回答回填为统一表单本地状态。 */
 export const toDimensionEvaluationAnswers = (dimensions: PerfEvaluationDimensionAnswer[]): EvaluationAnswers => {
   const answers: EvaluationAnswers = {}
@@ -83,16 +182,9 @@ export const levelForDimensionAnswer = (
   const text = answer?.rawScoreText?.trim() ?? ''
 
   if (!DECIMAL_SCORE_PATTERN.test(text)) return null
-  const score = Number(text)
-  const sorted = [...ratings].sort((left, right) => Number(left.minScore) - Number(right.minScore))
+  const score = toHundredths(text)
 
-  return (
-    sorted.find((rating, index) => {
-      const isHighest = index === sorted.length - 1
-
-      return score >= Number(rating.minScore) && (isHighest ? score <= Number(rating.maxScore) : score < Number(rating.maxScore))
-    })?.symbol ?? null
-  )
+  return score == null ? null : levelForScoreHundredths(score, ratings)
 }
 
 const dimensionFieldRequired = (

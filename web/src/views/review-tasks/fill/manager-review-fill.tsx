@@ -261,6 +261,7 @@ const ManagerReviewFill = ({ participantId, previewContext }: ManagerReviewFillP
                 errors={errors}
                 disabled={!editing || saving}
                 ratings={ratings}
+                showWeightedResult
               />
             }
           />

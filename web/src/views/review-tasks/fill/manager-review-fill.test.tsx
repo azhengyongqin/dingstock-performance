@@ -323,6 +323,8 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByText('选择 S 时必填')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: '业绩说明' }), { target: { value: '超额达成' } })
     fireEvent.click(screen.getByRole('radio', { name: /A · 优秀/ }))
+    expect(screen.getByText('加权评分 91.00 分')).toBeInTheDocument()
+    expect(screen.getByText('加权等级 S')).toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: '综合建议' }), { target: { value: '建议承担更复杂项目' } })
     fireEvent.click(screen.getByRole('button', { name: '提交上级评估' }))
 

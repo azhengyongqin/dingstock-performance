@@ -245,6 +245,8 @@ describe('PeerReviewFill 关键流程', () => {
     expect(screen.queryByText(/评估项/)).not.toBeInTheDocument()
     expect(screen.getByText('学习成长')).toBeInTheDocument()
     expect(screen.getByText('补充反馈')).toBeInTheDocument()
+    expect(screen.getByText('加权评分 85.60 分')).toBeInTheDocument()
+    expect(screen.getByText('本次加权等级 A')).toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))
 
     fireEvent.click(screen.getByRole('button', { name: '编辑并重新提交' }))

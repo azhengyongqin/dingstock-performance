@@ -21,6 +21,7 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
       scoringMethod: 'RATING',
       audience: 'EMPLOYEE',
       name: '综合评估',
+      weight: '60',
       isCore: true,
       sortOrder: 0,
       fields: [
@@ -80,6 +81,7 @@ const ALL_TYPES_SUBFORM: PerfEvalFormSubform = {
       scoringMethod: 'SCORE',
       audience: 'EMPLOYEE',
       name: '目标完成度',
+      weight: '40',
       sortOrder: 1,
       fields: []
     }
@@ -99,12 +101,14 @@ const Harness = ({
   errors,
   disabled,
   ratings,
+  showWeightedResult,
   onAnswerChange
 }: {
   subforms: PerfEvalFormSubform[]
   errors?: Record<string, string>
   disabled?: boolean
   ratings?: PerfConfigTemplateRating[]
+  showWeightedResult?: boolean
   onAnswerChange?: (itemKey: string, value: unknown) => void
 }) => {
   const [answers, setAnswers] = useState<EvaluationAnswers>({})
@@ -116,6 +120,7 @@ const Harness = ({
       errors={errors}
       disabled={disabled}
       ratings={ratings}
+      showWeightedResult={showWeightedResult}
       onAnswerChange={(itemKey, answer) => {
         setAnswers(prev => ({ ...prev, [itemKey]: answer }))
         onAnswerChange?.(itemKey, answer)
@@ -130,6 +135,75 @@ const openSelect = async (user: ReturnType<typeof userEvent.setup>, name: string
 }
 
 describe('EvaluationForm 各评估项类型渲染正确组件', () => {
+  it('完成全部计分维度后实时显示加权评分与最终等级', async () => {
+    const user = userEvent.setup()
+
+    render(<Harness subforms={[ALL_TYPES_SUBFORM]} ratings={RATINGS} showWeightedResult />)
+
+    expect(screen.getByText('请完成全部计分维度')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('radio', { name: 'A · 优秀' }))
+    await user.type(screen.getByRole('textbox', { name: '目标完成度' }), '95')
+
+    expect(screen.getByText('加权评分 89.00 分')).toBeInTheDocument()
+    expect(screen.getByText('加权等级 A')).toBeInTheDocument()
+  })
+
+  it('综合分只在最终出口四舍五入后映射等级', async () => {
+    const user = userEvent.setup()
+
+    const boundarySubform: PerfEvalFormSubform = {
+      key: 'subform:MANAGER',
+      type: 'MANAGER',
+      title: '边界评分',
+      sortOrder: 0,
+      dimensions: [
+        {
+          key: 'dimension:core',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'LEADER',
+          name: '核心维度',
+          weight: '50',
+          isCore: true,
+          sortOrder: 0,
+          fields: []
+        },
+        {
+          key: 'dimension:other',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'LEADER',
+          name: '其他维度',
+          weight: '50',
+          isCore: false,
+          sortOrder: 1,
+          fields: []
+        }
+      ]
+    }
+
+    render(<Harness subforms={[boundarySubform]} ratings={RATINGS} showWeightedResult />)
+    await user.type(screen.getByRole('textbox', { name: '核心维度' }), '89.99')
+    await user.type(screen.getByRole('textbox', { name: '其他维度' }), '90')
+
+    // 89.995 应先四舍五入为 90.00，再按 S 档区间映射等级。
+    expect(screen.getByText('加权评分 90.00 分')).toBeInTheDocument()
+    expect(screen.getByText('加权等级 S')).toBeInTheDocument()
+  })
+
+  it('实时结果应用核心维度等级上限约束', async () => {
+    const user = userEvent.setup()
+
+    render(<Harness subforms={[ALL_TYPES_SUBFORM]} ratings={RATINGS} showWeightedResult />)
+    await user.click(screen.getByRole('radio', { name: 'B · 良好' }))
+    await user.type(screen.getByRole('textbox', { name: '目标完成度' }), '100')
+
+    expect(screen.getByText('加权评分 82.00 分')).toBeInTheDocument()
+    expect(screen.getByText('加权等级 B')).toBeInTheDocument()
+    expect(screen.getByText('已应用维度约束（初始 A）')).toBeInTheDocument()
+  })
+
   it('RATING 渲染 4 档 radio，SCORE 渲染数字输入，文本类渲染 Input/Textarea', () => {
     render(<Harness subforms={[ALL_TYPES_SUBFORM]} ratings={RATINGS} />)
 

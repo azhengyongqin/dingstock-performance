@@ -259,6 +259,8 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
                 errors={errors}
                 disabled={!editing || saving}
                 ratings={ratings}
+                showWeightedResult
+                weightedResultLevelLabel='本次加权等级'
               />
             }
           />

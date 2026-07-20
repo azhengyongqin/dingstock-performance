@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils'
 
 import EvaluationItemField from './evaluation-item-field'
 import {
+  calculateWeightedEvaluationPreview,
   levelForDimensionAnswer,
   type EvaluationAnswers,
   type EvaluationItemAnswer
@@ -23,6 +24,10 @@ export type EvaluationFormProps = {
   errors?: Record<string, string>
   disabled?: boolean
   ratings?: PerfConfigTemplateRating[]
+
+  /** 上级评估与 360°评估填写页开启，实时呈现当前完整答卷的加权结果。 */
+  showWeightedResult?: boolean
+  weightedResultLevelLabel?: string
   className?: string
 }
 
@@ -44,6 +49,7 @@ const DimensionBlock = ({
   const dimensionAnswer = answers[dimension.key]
   const level = levelForDimensionAnswer(dimension, dimensionAnswer, ratings ?? [])
   const fields = dimension.fields ?? []
+
   // 计分控件（评级 / 0～100 分）与维度标题同一行两端对齐，与组件实验台一致
   const isScoringDimension = dimension.type === 'SCORING'
   const scoringError = errors?.[dimension.key]
@@ -73,6 +79,7 @@ const DimensionBlock = ({
                 data-invalid={!!scoringError}
                 className={cn(
                   'gap-1',
+
                   // 评级占满剩余行宽，子项 w-full 才能让间距随宽度伸缩；分数保持内容宽
                   dimension.scoringMethod === 'RATING'
                     ? 'min-w-0 max-w-full flex-1 *:w-full'
@@ -137,8 +144,31 @@ const EvaluationForm = ({
   errors,
   disabled,
   ratings,
+  showWeightedResult,
+  weightedResultLevelLabel = '加权等级',
   className
 }: EvaluationFormProps) => {
+  const weightedResult = showWeightedResult
+    ? calculateWeightedEvaluationPreview(subforms, answers, ratings ?? [])
+    : null
+
+  const weightedResultSummary = showWeightedResult ? (
+    <div className='flex flex-wrap items-center justify-end gap-2 text-xs' aria-live='polite' aria-atomic='true'>
+      <span className='text-muted-foreground'>实时加权结果</span>
+      {weightedResult ? (
+        <>
+          <Badge variant='outline'>加权评分 {weightedResult.compositeScore} 分</Badge>
+          <Badge>{weightedResultLevelLabel} {weightedResult.finalLevel}</Badge>
+          {weightedResult.initialLevel !== weightedResult.finalLevel && (
+            <span className='text-muted-foreground'>已应用维度约束（初始 {weightedResult.initialLevel}）</span>
+          )}
+        </>
+      ) : (
+        <Badge variant='outline'>请完成全部计分维度</Badge>
+      )}
+    </div>
+  ) : null
+
   // 单子表单：大标题固定，仅维度表单区滚动并吸顶
   if (subforms.length === 1) {
     const subform = subforms[0]
@@ -146,7 +176,10 @@ const EvaluationForm = ({
     return (
       <div className={cn('flex h-full min-h-0 flex-col', className)}>
         <div className='shrink-0 px-5 pt-5 sm:px-6 sm:pt-6'>
-          <h2 className='text-base font-semibold'>{subform.title}</h2>
+          <div className='flex flex-wrap items-center justify-between gap-2'>
+            <h2 className='text-base font-semibold'>{subform.title}</h2>
+            {weightedResultSummary}
+          </div>
           {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
         </div>
         {/* 顶 padding 放进吸顶条，避免 sticky top-0 上方留出透底空隙 */}
@@ -173,7 +206,10 @@ const EvaluationForm = ({
       {subforms.map(subform => (
         <div key={subform.key} className='flex flex-col'>
           <div className='bg-card sticky top-0 z-20 -mx-5 border-b px-5 pt-5 pb-3 sm:-mx-6 sm:px-6'>
-            <h2 className='text-base font-semibold'>{subform.title}</h2>
+            <div className='flex flex-wrap items-center justify-between gap-2'>
+              <h2 className='text-base font-semibold'>{subform.title}</h2>
+              {weightedResultSummary}
+            </div>
             {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
           </div>
           {subform.dimensions.map(dimension => (
