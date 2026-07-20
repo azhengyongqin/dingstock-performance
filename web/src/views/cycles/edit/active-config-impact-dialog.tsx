@@ -20,7 +20,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import type { ActivePerfCycleConfigImpact } from '@/lib/perf-api'
 
-import { activeConfigCalculationItemColumns, activeConfigImpactColumns } from './active-config-impact-columns'
+import { activeConfigCalculationDimensionColumns, activeConfigImpactColumns } from './active-config-impact-columns'
 
 const ActiveConfigImpactDialog = ({
   open,
@@ -38,6 +38,8 @@ const ActiveConfigImpactDialog = ({
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
 
+  // TanStack Table 返回不可安全记忆化的函数，交由其内部状态模型管理。
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: impact?.stageChanges ?? [],
     columns: activeConfigImpactColumns,
@@ -45,9 +47,9 @@ const ActiveConfigImpactDialog = ({
     enableSorting: false
   })
 
-  const calculationItemTable = useReactTable({
-    data: impact?.calculationItemChanges ?? [],
-    columns: activeConfigCalculationItemColumns,
+  const calculationDimensionTable = useReactTable({
+    data: impact?.calculationDimensionChanges ?? [],
+    columns: activeConfigCalculationDimensionColumns,
     getCoreRowModel: getCoreRowModel(),
     enableSorting: false
   })
@@ -74,8 +76,8 @@ const ActiveConfigImpactDialog = ({
             { label: '已有校准', value: summary.calibratedParticipantCount },
             { label: '已有发布', value: summary.publishedParticipantCount },
             { label: '已经确认', value: summary.confirmedParticipantCount },
-            { label: '重算评估项', value: summary.affectedCalculationItemCount },
-            { label: '映射分变化', value: summary.changedCalculationItemCount }
+            { label: '重算评估维度', value: summary.affectedCalculationDimensionCount },
+            { label: '维度映射分变化', value: summary.changedCalculationDimensionCount }
           ]}
         />
 
@@ -91,7 +93,7 @@ const ActiveConfigImpactDialog = ({
         </div>
 
         <div className='max-h-48 overflow-auto'>
-          <DataTable table={calculationItemTable} emptyText='当前没有需要重放映射分的评估项' />
+          <DataTable table={calculationDimensionTable} emptyText='当前没有需要重放映射分的评估维度' />
         </div>
 
         <div className='space-y-2'>

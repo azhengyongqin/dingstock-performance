@@ -43,7 +43,8 @@ export type FormSnapshotDimension = {
   weight?: string | null;
   isCore?: boolean;
   sortOrder?: number;
-  items: readonly FormSnapshotItem[];
+  /** 旧 v1 快照兼容形状；v2 快照只使用 fields。 */
+  items?: readonly FormSnapshotItem[];
   fields?: readonly FormSnapshotField[];
 };
 

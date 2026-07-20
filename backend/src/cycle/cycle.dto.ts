@@ -24,13 +24,19 @@ import {
 } from '../config-template/config-template.dto';
 import {
   FORM_AUDIENCES,
-  LEGACY_FORM_DIMENSION_TYPES,
-  LEGACY_FORM_ITEM_TYPES,
-  LEGACY_FORM_SUBFORM_TYPES,
+  FORM_DIMENSION_TYPES,
+  FORM_FIELD_REQUIRED_RULES,
+  FORM_FIELD_TYPES,
+  FORM_RATING_LEVELS,
+  FORM_SCORING_METHODS,
+  FORM_SUBFORM_TYPES,
   type FormAudience,
-  type LegacyFormDimensionType,
-  type LegacyFormItemType,
-  type LegacyFormSubformType,
+  type FormDimensionType,
+  type FormFieldRequiredRule,
+  type FormFieldType,
+  type FormRatingLevel,
+  type FormScoringMethod,
+  type FormSubformType,
 } from '../form-template/form-template.contract';
 
 export class CreateCycleDto {
@@ -165,14 +171,14 @@ export class ApplyActiveCycleConfigDto extends PreviewActiveCycleConfigDto {
   confirmed!: boolean;
 }
 
-/** Ticket 18 表单项输入；受控 config 的类型细则由发布校验器继续复核。 */
-export class CycleFormItemChangeDto {
+/** 周期内表单字段输入；受控 config 的类型细则由发布校验器复核。 */
+export class CycleFormFieldChangeDto {
   @IsString()
   @MaxLength(200)
   key!: string;
 
-  @IsIn(LEGACY_FORM_ITEM_TYPES)
-  type!: LegacyFormItemType;
+  @IsIn(FORM_FIELD_TYPES)
+  type!: FormFieldType;
 
   @IsString()
   @MaxLength(200)
@@ -188,8 +194,12 @@ export class CycleFormItemChangeDto {
   @MaxLength(5_000)
   placeholder?: string | null;
 
-  @IsBoolean()
-  required!: boolean;
+  @IsIn(FORM_FIELD_REQUIRED_RULES)
+  requiredRule!: FormFieldRequiredRule;
+
+  @IsArray()
+  @IsIn(FORM_RATING_LEVELS, { each: true })
+  requiredLevels!: FormRatingLevel[];
 
   @IsInt()
   @Min(0)
@@ -205,8 +215,8 @@ export class CycleFormDimensionChangeDto {
   @MaxLength(200)
   key!: string;
 
-  @IsIn(LEGACY_FORM_DIMENSION_TYPES)
-  kind!: LegacyFormDimensionType;
+  @IsIn(FORM_DIMENSION_TYPES)
+  type!: FormDimensionType;
 
   @IsIn(FORM_AUDIENCES)
   audience!: FormAudience;
@@ -219,6 +229,10 @@ export class CycleFormDimensionChangeDto {
   @IsString()
   @MaxLength(2_000)
   description?: string | null;
+
+  @IsOptional()
+  @IsIn(FORM_SCORING_METHODS)
+  scoringMethod?: FormScoringMethod | null;
 
   @IsOptional()
   @IsString()
@@ -234,8 +248,8 @@ export class CycleFormDimensionChangeDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CycleFormItemChangeDto)
-  items!: CycleFormItemChangeDto[];
+  @Type(() => CycleFormFieldChangeDto)
+  fields!: CycleFormFieldChangeDto[];
 }
 
 export class CycleFormSubformChangeDto {
@@ -243,8 +257,8 @@ export class CycleFormSubformChangeDto {
   @MaxLength(200)
   key!: string;
 
-  @IsIn(LEGACY_FORM_SUBFORM_TYPES)
-  type!: LegacyFormSubformType;
+  @IsIn(FORM_SUBFORM_TYPES)
+  type!: FormSubformType;
 
   @IsString()
   @MaxLength(200)
@@ -266,8 +280,8 @@ export class CycleFormSubformChangeDto {
 }
 
 export class CycleFormContentChangeDto {
-  @IsIn([1])
-  schemaVersion!: 1;
+  @IsIn([2])
+  schemaVersion!: 2;
 
   @IsString()
   @MaxLength(200)

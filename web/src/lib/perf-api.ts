@@ -557,9 +557,8 @@ export type UpdatePerfCycleBasicInput = {
 
 export type UpdatePerfCycleAdvancedConfigInput = Pick<PerfConfigTemplateVersion, 'ratings' | 'reviewerRelationWeights'>
 
+/** ACTIVE 周期配置输入；expectedConfigVersionId 用于拒绝并发静默覆盖。 */
 export type ActivePerfCycleConfigInput = UpdatePerfCycleAdvancedConfigInput & {
-
-  /** 页面完成影响预览时看到的配置版本；服务端用它拒绝并发静默覆盖。 */
   expectedConfigVersionId: number
   dimensionOverrides: ActivePerfCycleDimensionOverride[]
 }
@@ -585,8 +584,8 @@ export type ActivePerfCycleConfigImpact = {
     publishedParticipantCount: number
     confirmedParticipantCount: number
     automaticRecalibrationParticipantCount: 0
-    affectedCalculationItemCount: number
-    changedCalculationItemCount: number
+    affectedCalculationDimensionCount: number
+    changedCalculationDimensionCount: number
   }
   stageChanges: Array<{
     participantId: number
@@ -597,13 +596,13 @@ export type ActivePerfCycleConfigImpact = {
     changed: boolean
     finalResultProtected: boolean
   }>
-  calculationItemChanges: Array<{
+  calculationDimensionChanges: Array<{
     participantId: number
     employeeOpenId: string
     submissionId: number
     stage: string
     status: string
-    itemKey: string
+    dimensionKey: string
     before: string | null
     after: string
     changed: boolean

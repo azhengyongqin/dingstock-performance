@@ -7,17 +7,13 @@ import {
   PerfEvaluationTaskType,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
+import { type StageRelationType } from '../calculation/stage-result-calculator';
 import {
-  calculateStageResult,
-  type RatingScaleEntry,
-  type StageConstraintRule,
-  type StageDimensionInput,
-  type StageRelationType,
-  type StageResult,
-  type StageResultMode,
-} from '../calculation/stage-result-calculator';
+  calculateUnifiedStageResult,
+  type UnifiedStageDimensionInput,
+  type UnifiedStageResult,
+} from '../calculation/unified-stage-result-calculator';
 import type {
-  ConfigConstraintProfiles,
   ConfigTemplateVersionContract,
   ReviewerRelation,
   ReviewerRelationWeight,
@@ -55,7 +51,10 @@ export const cycleImpactInclude = {
         },
         orderBy: { id: 'asc' as const },
         include: {
-          items: { orderBy: { id: 'asc' as const } },
+          dimensionAnswers: {
+            include: { fields: { orderBy: { id: 'asc' as const } } },
+            orderBy: { id: 'asc' as const },
+          },
           reviewerAssignment: {
             select: { id: true, relation: true, status: true },
           },
@@ -145,8 +144,8 @@ export type ActiveConfigImpactPreview = {
     publishedParticipantCount: number;
     confirmedParticipantCount: number;
     automaticRecalibrationParticipantCount: 0;
-    affectedCalculationItemCount: number;
-    changedCalculationItemCount: number;
+    affectedCalculationDimensionCount: number;
+    changedCalculationDimensionCount: number;
   };
   stageChanges: Array<{
     participantId: number;
@@ -157,13 +156,13 @@ export type ActiveConfigImpactPreview = {
     changed: boolean;
     finalResultProtected: boolean;
   }>;
-  calculationItemChanges: Array<{
+  calculationDimensionChanges: Array<{
     participantId: number;
     employeeOpenId: string;
     submissionId: number;
     stage: string;
     status: string;
-    itemKey: string;
+    dimensionKey: string;
     before: string | null;
     after: string;
     changed: boolean;
@@ -215,25 +214,28 @@ export function buildActiveConfigImpact(
   input: ActiveConfigInput,
 ): ActiveConfigImpactPreview {
   const stageChanges: ActiveConfigImpactPreview['stageChanges'] = [];
-  const calculationItemChanges: ActiveConfigImpactPreview['calculationItemChanges'] =
+  const calculationDimensionChanges: ActiveConfigImpactPreview['calculationDimensionChanges'] =
     [];
   for (const participant of cycle.participants) {
     for (const submission of participant.evaluationSubmissions) {
-      for (const item of submission.items) {
-        if (item.itemType !== 'RATING' || !item.rawLevel) continue;
+      for (const dimension of submission.dimensionAnswers) {
+        if (dimension.scoringMethod !== 'RATING' || !dimension.rawLevel)
+          continue;
         const after = input.ratings.find(
-          (rating) => rating.symbol === item.rawLevel,
+          (rating) => rating.symbol === dimension.rawLevel,
         )?.mappingScore;
         if (after === undefined)
-          throw new ConflictException(`评级 ${item.rawLevel} 缺少新映射分`);
-        const before = item.calculationScore?.toString() ?? null;
-        calculationItemChanges.push({
+          throw new ConflictException(
+            `评级 ${dimension.rawLevel} 缺少新映射分`,
+          );
+        const before = dimension.calculationScore?.toString() ?? null;
+        calculationDimensionChanges.push({
           participantId: participant.id,
           employeeOpenId: participant.employeeOpenId,
           submissionId: submission.id,
           stage: submission.stage,
           status: submission.status,
-          itemKey: item.itemKey,
+          dimensionKey: dimension.dimensionKey,
           before,
           after,
           changed: !equalNullableDecimal(before, after),
@@ -273,12 +275,7 @@ export function buildActiveConfigImpact(
               : [],
           }
         : null;
-      const calculated = calculateParticipantStage(
-        participant,
-        stage,
-        input,
-        cycle.currentConfigVersion!,
-      );
+      const calculated = calculateParticipantStage(participant, stage, input);
       const after = {
         compositeScore: calculated?.compositeScore ?? null,
         stageLevel: calculated?.finalLevel ?? null,
@@ -318,7 +315,7 @@ export function buildActiveConfigImpact(
 
   const affectedParticipantIds = new Set([
     ...stageChanges.map((item) => item.participantId),
-    ...calculationItemChanges.map((item) => item.participantId),
+    ...calculationDimensionChanges.map((item) => item.participantId),
   ]);
   const affected = cycle.participants.filter((item) =>
     affectedParticipantIds.has(item.id),
@@ -344,13 +341,13 @@ export function buildActiveConfigImpact(
         (item) => item.resultVersions[0]?.confirmedAt,
       ).length,
       automaticRecalibrationParticipantCount: 0,
-      affectedCalculationItemCount: calculationItemChanges.length,
-      changedCalculationItemCount: calculationItemChanges.filter(
+      affectedCalculationDimensionCount: calculationDimensionChanges.length,
+      changedCalculationDimensionCount: calculationDimensionChanges.filter(
         (item) => item.changed,
       ).length,
     },
     stageChanges,
-    calculationItemChanges,
+    calculationDimensionChanges,
   };
 }
 
@@ -423,8 +420,7 @@ function calculateParticipantStage(
   participant: ImpactCycle['participants'][number],
   stage: ImpactStage,
   input: ActiveConfigInput,
-  current: NonNullable<ImpactCycle['currentConfigVersion']>,
-): StageResult | null {
+): UnifiedStageResult | null {
   const policy = STAGE_POLICIES[stage];
   const submissions = participant.evaluationSubmissions.filter(
     (item) =>
@@ -443,39 +439,21 @@ function calculateParticipantStage(
     input.dimensionOverrides,
   );
 
-  // 旧结果消费者尚未切换前只读取数据库兼容列；这些值不再由 API 输入或页面配置。
-  const persistedMode =
-    stage === 'PEER' ? current.peerStageMode : current.managerStageMode;
-  if (persistedMode === 'DIRECT_RATING') {
-    throw new ConflictException(`${stage} 阶段缺少可用的旧链路加权模式`);
-  }
-  const mode: StageResultMode = persistedMode;
   const dimensions = content.subforms
     .filter((subform) => subform.type === stage)
     .flatMap((subform) => subform.dimensions)
     .filter(
       (dimension) =>
-        dimension.audience === policy.audience &&
-        (!dimension.kind || dimension.kind === 'REGULAR'),
+        dimension.audience === policy.audience && dimension.type === 'SCORING',
     )
     .map((dimension) =>
-      toStageDimension(dimension, mode, policy, submissions, input),
+      toStageDimension(dimension, policy, submissions, input),
     );
   const activeRedLine = activeRedLineOf(participant.redLineFindings);
   try {
-    return calculateStageResult({
-      mode,
-      ratings: input.ratings.map((rating) => ({
-        symbol: rating.symbol,
-        minScore: rating.minScore,
-        maxScore: rating.maxScore,
-        mappingScore: rating.mappingScore,
-      })) satisfies RatingScaleEntry[],
+    return calculateUnifiedStageResult({
+      ratings: [...input.ratings],
       dimensions,
-      constraints: constraintsOf(
-        current.constraintProfiles as unknown as ConfigConstraintProfiles,
-        mode,
-      ),
       confirmedRedLine:
         stage === 'MANAGER' && activeRedLine
           ? {
@@ -496,21 +474,18 @@ function calculateParticipantStage(
 
 function toStageDimension(
   dimension: FormSnapshotDimension,
-  mode: StageResultMode,
   policy: (typeof STAGE_POLICIES)[ImpactStage],
   submissions: Submission[],
   input: ActiveConfigInput,
-): StageDimensionInput {
-  const expectedType = mode === 'WEIGHTED_RATING' ? 'RATING' : 'SCORE';
-  const scoringItems = dimension.items.filter(
-    (item) => item.type === expectedType,
-  );
-  if (scoringItems.length !== 1) {
+): UnifiedStageDimensionInput {
+  if (
+    dimension.scoringMethod !== 'RATING' &&
+    dimension.scoringMethod !== 'SCORE'
+  ) {
     throw new ConflictException(
-      `维度「${dimension.name ?? dimension.key}」与目标计算模式不兼容；计分项类型属于结构修改`,
+      `计分维度「${dimension.name ?? dimension.key}」缺少评级或分数计分方式`,
     );
   }
-  const scoringItem = scoringItems[0];
   const relationGroups = new Map<string, Submission[]>();
   for (const submission of submissions) {
     const relation = policy.relationOf(submission);
@@ -523,6 +498,7 @@ function toStageDimension(
   return {
     id: dimension.key,
     name: dimension.name ?? dimension.key,
+    scoringMethod: dimension.scoringMethod,
     weight: dimension.weight ?? '0',
     isCore: Boolean(dimension.isCore),
     relations: [...relationGroups.entries()].map(([relation, rows]) => ({
@@ -532,24 +508,19 @@ function toStageDimension(
           ? '100'
           : input.reviewerRelationWeights[relation as ReviewerRelation],
       items: rows.map((submission) => {
-        const item = submission.items.find(
-          (candidate) =>
-            candidate.dimensionKey === dimension.key &&
-            candidate.itemKey === scoringItem.key,
+        const answer = submission.dimensionAnswers.find(
+          (candidate) => candidate.dimensionKey === dimension.key,
         );
-        const rawValue =
-          mode === 'WEIGHTED_RATING'
-            ? item?.rawLevel
-            : item?.rawScore?.toString();
-        if (rawValue === null || rawValue === undefined) {
+        if (!answer) {
           throw new ConflictException(
-            `有效提交缺少维度「${dimension.name ?? dimension.key}」计分值`,
+            `有效提交缺少评估维度「${dimension.name ?? dimension.key}」的维度作答`,
           );
         }
         return {
-          itemId: scoringItem.key,
           submissionId: String(submission.id),
-          rawValue,
+          ...(dimension.scoringMethod === 'RATING'
+            ? { rawLevel: requireLevel(answer.rawLevel, dimension) }
+            : { rawScore: requireScore(answer.rawScore, dimension) }),
         };
       }),
     })),
@@ -569,27 +540,23 @@ function activeRedLineOf(
   );
 }
 
-function constraintsOf(
-  profiles: ConfigConstraintProfiles,
-  mode: StageResultMode,
-): StageConstraintRule[] {
-  return profiles[mode]
-    .filter((rule) => rule.enabled)
-    .map((rule) =>
-      'triggerRating' in rule
-        ? {
-            id: rule.id,
-            type: rule.type,
-            triggerRating: rule.triggerRating,
-            targetLevel: rule.targetLevel,
-          }
-        : {
-            id: rule.id,
-            type: rule.type,
-            threshold: rule.threshold,
-            targetLevel: rule.targetLevel,
-          },
-    );
+function requireLevel(value: unknown, dimension: FormSnapshotDimension) {
+  if (value === 'S' || value === 'A' || value === 'B' || value === 'C') {
+    return value;
+  }
+  throw new ConflictException(
+    `有效提交缺少评估维度「${dimension.name ?? dimension.key}」的原始评级`,
+  );
+}
+
+function requireScore(
+  value: { toString(): string } | number | string | null,
+  dimension: FormSnapshotDimension,
+) {
+  if (value !== null && value !== undefined) return value.toString();
+  throw new ConflictException(
+    `有效提交缺少评估维度「${dimension.name ?? dimension.key}」的原始分数`,
+  );
 }
 
 function equalNullableDecimal(left: string | null, right: string | null) {

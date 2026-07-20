@@ -147,7 +147,7 @@ const AdvancedConfigEditor = ({
         <Card>
           <CardHeader>
             <CardTitle>维度计算配置</CardTitle>
-            <CardDescription>只调整稳定维度的权重和核心标记；不会增删维度或评估项。</CardDescription>
+            <CardDescription>只调整稳定维度的权重和核心标记；不会增删评估维度或表单字段。</CardDescription>
           </CardHeader>
           <CardContent className='space-y-3'>
             {dimensions.map((dimension, index) => (

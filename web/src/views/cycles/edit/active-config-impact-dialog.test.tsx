@@ -17,8 +17,8 @@ const impact = {
     publishedParticipantCount: 3,
     confirmedParticipantCount: 2,
     automaticRecalibrationParticipantCount: 0 as const,
-    affectedCalculationItemCount: 1,
-    changedCalculationItemCount: 1
+    affectedCalculationDimensionCount: 1,
+    changedCalculationDimensionCount: 1
   },
   stageChanges: [
     {
@@ -41,14 +41,14 @@ const impact = {
       finalResultProtected: true
     }
   ],
-  calculationItemChanges: [
+  calculationDimensionChanges: [
     {
       participantId: 51,
       employeeOpenId: 'ou_employee',
       submissionId: 62,
       stage: 'SELF',
       status: 'DRAFT',
-      itemKey: 'item:self-rating',
+      dimensionKey: 'dimension:self-rating',
       before: '85',
       after: '88',
       changed: true

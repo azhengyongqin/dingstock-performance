@@ -6,11 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import {
-  PerfCycleStatus,
-  PerfFormItemType,
-  PerfReviewStatus,
-} from '../generated/prisma/enums';
+import { PerfCycleStatus, PerfReviewStatus } from '../generated/prisma/enums';
 import type { ConfigTemplateVersionContract } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
@@ -218,10 +214,10 @@ export class ActiveCycleConfigChangeService {
     }
     // 原始评级不变；映射分属于新配置口径，必须在阶段重算前同步重放。
     for (const rating of input.ratings) {
-      await tx.perfEvaluationItemResult.updateMany({
+      await tx.perfEvaluationDimensionAnswer.updateMany({
         where: {
           submission: { participantId: { in: participantIds } },
-          itemType: PerfFormItemType.RATING,
+          scoringMethod: 'RATING',
           rawLevel: rating.symbol,
         },
         data: { calculationScore: rating.mappingScore },

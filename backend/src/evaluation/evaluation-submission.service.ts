@@ -636,7 +636,9 @@ export class EvaluationSubmissionService {
         }
         seenFields.add(field.key);
         if (!this.isFieldValueAnswered(fieldAnswer.value)) {
-          throw new BadRequestException(`表单字段「${field.title}」没有有效内容`);
+          throw new BadRequestException(
+            `表单字段「${field.title}」没有有效内容`,
+          );
         }
         if (!this.isFieldValueCompatible(field, fieldAnswer.value)) {
           throw new BadRequestException(
@@ -894,7 +896,7 @@ export class EvaluationSubmissionService {
         (candidate: FormSnapshotDimension) =>
           candidate.key === answer.dimensionKey,
       );
-      const item = dimension?.items.find(
+      const item = dimension?.items?.find(
         (candidate) => candidate.key === answer.itemKey,
       );
       if (!allowedSubform || !dimension || !item) {
@@ -955,7 +957,7 @@ export class EvaluationSubmissionService {
     );
     for (const subform of subforms) {
       for (const dimension of subform.dimensions) {
-        for (const item of dimension.items) {
+        for (const item of dimension.items ?? []) {
           if (item.required && !answeredKeys.has(item.key)) {
             throw new BadRequestException(
               `必填评估项「${item.title}」尚未填写，无法提交`,

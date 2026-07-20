@@ -1228,9 +1228,7 @@ const EvaluationFormEditablePreview = () => {
     <div className='flex flex-col gap-4'>
       <Card>
         <CardContent className='flex items-center justify-between gap-3'>
-          <CardDescription>
-            点击「校验」触发与自评页提交前一致的维度评分、字段必填与格式校验。
-          </CardDescription>
+          <CardDescription>点击「校验」触发与自评页提交前一致的维度评分、字段必填与格式校验。</CardDescription>
           <Button
             type='button'
             onClick={() =>
@@ -1510,9 +1508,7 @@ const EvaluationFormPreview = () => (
     <Card>
       <CardHeader>
         <CardTitle>可编辑态</CardTitle>
-        <CardDescription>
-          覆盖维度级 RATING/SCORE、非计分维度、七类表单字段与条件必填规则
-        </CardDescription>
+        <CardDescription>覆盖维度级 RATING/SCORE、非计分维度、七类表单字段与条件必填规则</CardDescription>
       </CardHeader>
       <CardContent>
         <EvaluationFormEditablePreview />
@@ -1562,8 +1558,8 @@ const ACTIVE_CONFIG_IMPACT_SAMPLE: ActivePerfCycleConfigImpact = {
     publishedParticipantCount: 4,
     confirmedParticipantCount: 3,
     automaticRecalibrationParticipantCount: 0,
-    affectedCalculationItemCount: 1,
-    changedCalculationItemCount: 1
+    affectedCalculationDimensionCount: 1,
+    changedCalculationDimensionCount: 1
   },
   stageChanges: [
     {
@@ -1586,14 +1582,14 @@ const ACTIVE_CONFIG_IMPACT_SAMPLE: ActivePerfCycleConfigImpact = {
       finalResultProtected: true
     }
   ],
-  calculationItemChanges: [
+  calculationDimensionChanges: [
     {
       participantId: 51,
       employeeOpenId: 'ou_employee_demo',
       submissionId: 62,
       stage: 'SELF',
       status: 'DRAFT',
-      itemKey: 'item:self-rating',
+      dimensionKey: 'dimension:self-rating',
       before: '85',
       after: '88',
       changed: true
@@ -1655,9 +1651,8 @@ const ComponentTestPage = () => {
   const [activeComponent, setActiveComponent] = useState<ComponentKey>('date-time')
   const activeItem = COMPONENT_MENU.find(item => item.key === activeComponent) ?? COMPONENT_MENU[0]
 
+  // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
   return (
-
-    // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
     <div className='bg-muted/30 flex h-dvh flex-col overflow-hidden'>
       <Header />
       <main className='min-h-0 flex-1 overflow-hidden px-4 py-6 sm:px-6'>

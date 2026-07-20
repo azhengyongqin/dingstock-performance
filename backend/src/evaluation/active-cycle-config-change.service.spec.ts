@@ -108,7 +108,7 @@ const configInput = {
 };
 
 const formContent = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   name: 'D 表单',
   jobLevelPrefix: 'D',
   subforms: [
@@ -119,12 +119,13 @@ const formContent = {
       dimensions: [
         {
           key: 'dimension:delivery',
-          kind: 'REGULAR',
+          type: 'SCORING',
           audience: 'LEADER',
           name: '核心业绩',
+          scoringMethod: 'SCORE',
           weight: '100',
           isCore: true,
-          items: [{ key: 'item:score', type: 'SCORE' }],
+          fields: [],
         },
       ],
     },
@@ -184,13 +185,16 @@ function cycleFixture() {
             status: 'SUBMITTED',
             reviewerOpenId: 'ou_leader',
             reviewerAssignment: null,
-            items: [
+            dimensionAnswers: [
               {
+                subformKey: 'subform:MANAGER',
                 dimensionKey: 'dimension:delivery',
-                itemKey: 'item:score',
+                scoringMethod: 'SCORE',
                 rawLevel: null,
                 rawScore: { toString: () => '70' },
-                itemType: 'SCORE',
+                calculationScore: { toString: () => '70' },
+                derivedLevel: 'B',
+                fields: [],
               },
             ],
           },
@@ -200,14 +204,16 @@ function cycleFixture() {
             status: 'DRAFT',
             reviewerOpenId: 'ou_employee',
             reviewerAssignment: null,
-            items: [
+            dimensionAnswers: [
               {
+                subformKey: 'subform:SELF',
                 dimensionKey: 'dimension:delivery',
-                itemKey: 'item:self-rating',
+                scoringMethod: 'RATING',
                 rawLevel: 'A',
                 rawScore: null,
-                itemType: 'RATING',
                 calculationScore: { toString: () => '85' },
+                derivedLevel: 'A',
+                fields: [],
               },
             ],
           },
@@ -220,7 +226,17 @@ function cycleFixture() {
             status: 'READY',
             compositeScore: { toString: () => '70' },
             stageLevel: 'B',
-            constraintReasons: [],
+            constraintReasons: [
+              {
+                id: 'core-b-cap',
+                type: 'CORE_B_CAP',
+                dimensionIds: ['dimension:delivery'],
+                parameters: { targetLevel: 'B' },
+                beforeLevel: 'B',
+                afterLevel: 'B',
+                changed: false,
+              },
+            ],
             dimensions: [
               {
                 dimensionKey: 'dimension:delivery',
@@ -254,7 +270,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     perfCycleConfigVersion: { create: jest.fn() },
     perfParticipant: { updateMany: jest.fn(), update: jest.fn() },
     perfEvaluationSubmission: { updateMany: jest.fn() },
-    perfEvaluationItemResult: { updateMany: jest.fn() },
+    perfEvaluationDimensionAnswer: { updateMany: jest.fn() },
     perfStageResult: {
       findMany: jest.fn(),
       create: jest.fn(),
@@ -316,8 +332,8 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       publishedParticipantCount: 1,
       confirmedParticipantCount: 1,
       automaticRecalibrationParticipantCount: 0,
-      affectedCalculationItemCount: 1,
-      changedCalculationItemCount: 0,
+      affectedCalculationDimensionCount: 1,
+      changedCalculationDimensionCount: 0,
     });
     expect(preview.stageChanges[0]).toMatchObject({
       participantId: 51,
@@ -451,12 +467,13 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     } as never);
 
     expect(preview.summary).toMatchObject({
-      affectedCalculationItemCount: 1,
-      changedCalculationItemCount: 1,
+      affectedCalculationDimensionCount: 1,
+      changedCalculationDimensionCount: 1,
     });
-    expect(preview.calculationItemChanges[0]).toMatchObject({
+    expect(preview.calculationDimensionChanges[0]).toMatchObject({
       stage: 'SELF',
       status: 'DRAFT',
+      dimensionKey: 'dimension:delivery',
       before: '85',
       after: '88',
       changed: true,
@@ -494,11 +511,13 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       data: { currentConfigVersionId: 32 },
     });
     expect(manager.recalculate).toHaveBeenCalledWith(51, tx);
-    expect(tx.perfEvaluationItemResult.updateMany).toHaveBeenCalledTimes(4);
-    expect(tx.perfEvaluationItemResult.updateMany).toHaveBeenCalledWith({
+    expect(tx.perfEvaluationDimensionAnswer.updateMany).toHaveBeenCalledTimes(
+      4,
+    );
+    expect(tx.perfEvaluationDimensionAnswer.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
         submission: { participantId: { in: [51] } },
-        itemType: 'RATING',
+        scoringMethod: 'RATING',
       }),
       data: expect.any(Object),
     });

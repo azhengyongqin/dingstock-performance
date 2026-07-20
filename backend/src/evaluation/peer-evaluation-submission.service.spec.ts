@@ -163,7 +163,10 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
     tx.perfReviewerAssignment.updateMany.mockResolvedValue({ count: 1 });
     tx.perfReviewerAssignment.count.mockResolvedValue(0);
     taskAccess.openIfDue.mockResolvedValue({ id: 21, openedAt: new Date() });
-    taskAccess.ensureWritable.mockResolvedValue({ id: 21, openedAt: new Date() });
+    taskAccess.ensureWritable.mockResolvedValue({
+      id: 21,
+      openedAt: new Date(),
+    });
     const submissionPolicy = new EvaluationSubmissionService(
       prisma as never,
       audit as never,
@@ -178,6 +181,7 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
       taskAccess as never,
       submissionPolicy,
       peerStageResult as never,
+      aiReport as never,
       participantEvaluationLock as never,
       employeeProfile as never,
     );
@@ -190,18 +194,24 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
 
     const context = await service.getPeerContext('ou_reviewer', 11);
 
-    expect(context.form?.subforms.map((subform) => subform.type)).toEqual(['PEER']);
+    expect(context.form?.subforms.map((subform) => subform.type)).toEqual([
+      'PEER',
+    ]);
     expect(prisma.perfEvaluationSubmission.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
-          dimensionAnswers: expect.objectContaining({ include: { fields: true } }),
+          dimensionAnswers: expect.objectContaining({
+            include: { fields: true },
+          }),
         }),
       }),
     );
     expect(prisma.perfEvaluationSubmission.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         include: expect.objectContaining({
-          dimensionAnswers: expect.objectContaining({ include: { fields: true } }),
+          dimensionAnswers: expect.objectContaining({
+            include: { fields: true },
+          }),
         }),
       }),
     );
@@ -274,7 +284,9 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
           subformKey: 'subform:peer',
           dimensionKey: 'dimension:collaboration',
           rawLevel: 'S',
-          fields: [{ fieldKey: 'field:comment', value: '跨团队协作显著超出预期' }],
+          fields: [
+            { fieldKey: 'field:comment', value: '跨团队协作显著超出预期' },
+          ],
         },
         {
           subformKey: 'subform:peer',
@@ -304,6 +316,7 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
       }),
     });
     expect(peerStageResult.recalculate).toHaveBeenCalledWith(7, tx);
+    expect(aiReport.refreshForParticipant).toHaveBeenCalledWith(7, tx);
   });
 
   it('校准锁定与失效指派继续阻止写入', async () => {
@@ -311,15 +324,23 @@ describe('PeerEvaluationSubmissionService 新版 360°维度回答链路', () =>
       new ConflictException({ code: 'EVALUATION_PARTICIPANT_LOCKED' }),
     );
     await expect(
-      service.savePeerDraft('ou_reviewer', { assignmentId: 11, dimensions: [] }),
+      service.savePeerDraft('ou_reviewer', {
+        assignmentId: 11,
+        dimensions: [],
+      }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'EVALUATION_PARTICIPANT_LOCKED' }),
+      response: expect.objectContaining({
+        code: 'EVALUATION_PARTICIPANT_LOCKED',
+      }),
     });
 
     participantEvaluationLock.lockHumanWrite.mockResolvedValueOnce(undefined);
     tx.perfReviewerAssignment.updateMany.mockResolvedValueOnce({ count: 0 });
     await expect(
-      service.savePeerDraft('ou_reviewer', { assignmentId: 11, dimensions: [] }),
+      service.savePeerDraft('ou_reviewer', {
+        assignmentId: 11,
+        dimensions: [],
+      }),
     ).rejects.toThrow('评审关系已被替换');
   });
 });

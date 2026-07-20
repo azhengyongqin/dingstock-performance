@@ -227,15 +227,23 @@ export class CalibrationDecisionService {
           reviewerAssignmentId: true,
           updatedAt: true,
           submittedAt: true,
-          items: {
+          dimensionAnswers: {
             select: {
+              subformKey: true,
               dimensionKey: true,
-              itemKey: true,
-              itemType: true,
+              scoringMethod: true,
               rawLevel: true,
               rawScore: true,
               calculationScore: true,
-              value: true,
+              derivedLevel: true,
+              fields: {
+                select: {
+                  fieldKey: true,
+                  fieldType: true,
+                  value: true,
+                },
+                orderBy: { id: 'asc' },
+              },
             },
             orderBy: { id: 'asc' },
           },

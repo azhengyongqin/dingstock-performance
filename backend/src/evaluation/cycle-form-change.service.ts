@@ -11,6 +11,7 @@ import {
   PerfAssignmentStatus,
   PerfCycleStatus,
   PerfEvaluationTaskType,
+  PerfFormItemType,
   PerfReviewStatus,
 } from '../generated/prisma/enums';
 import type { FormTemplateVersionContract } from '../form-template/form-template.contract';
@@ -32,7 +33,7 @@ export type CycleFormSnapshotChangeInput = {
   formSnapshots: Array<{
     jobLevelPrefix: 'D' | 'M';
     content: FormSnapshotContent & {
-      schemaVersion: 1;
+      schemaVersion: 2;
       name: string;
       description?: string | null;
       jobLevelPrefix: 'D' | 'M';
@@ -67,7 +68,12 @@ const cycleFormChangeInclude = {
           },
         },
         orderBy: { id: 'asc' as const },
-        include: { items: { orderBy: { id: 'asc' as const } } },
+        include: {
+          dimensionAnswers: {
+            include: { fields: { orderBy: { id: 'asc' as const } } },
+            orderBy: { id: 'asc' as const },
+          },
+        },
       },
     },
   },
@@ -267,17 +273,19 @@ export class CycleFormChangeService {
         const plan = buildCycleFormChangePlan(
           nextContent,
           submission.stage as HumanEvaluationStage,
-          submission.items,
+          submission.dimensionAnswers,
         );
-        const compatibleKeys = new Set(
-          plan.compatibleItems.map((item) => item.itemKey),
-        );
-        for (const item of submission.items) {
-          const answerIdentity = `${participant.id}:${submission.stage}:${submission.reviewerOpenId}:${item.itemKey}`;
-          (compatibleKeys.has(item.itemKey)
-            ? compatibleAnswers
-            : incompatibleAnswers
-          ).add(answerIdentity);
+        const identityPrefix = `${participant.id}:${submission.stage}:${submission.reviewerOpenId}`;
+        for (const dimension of plan.compatibleDimensionAnswers) {
+          compatibleAnswers.add(
+            `${identityPrefix}:dimension:${dimension.dimensionKey}:scoring`,
+          );
+        }
+        for (const field of plan.compatibleFieldAnswers) {
+          compatibleAnswers.add(`${identityPrefix}:field:${field.fieldKey}`);
+        }
+        for (const key of plan.incompatibleAnswerKeys) {
+          incompatibleAnswers.add(`${identityPrefix}:${key}`);
         }
       }
     }
@@ -333,7 +341,10 @@ export class CycleFormChangeService {
           id: submission.id,
           status: submission.status,
           updatedAt: submission.updatedAt.toISOString(),
-          itemIds: submission.items.map((item) => item.id),
+          dimensionAnswers: submission.dimensionAnswers.map((dimension) => ({
+            id: dimension.id,
+            fieldIds: dimension.fields.map((field) => field.id),
+          })),
         })),
       ),
     };
@@ -498,36 +509,16 @@ export class CycleFormChangeService {
       (item) => item.status === PerfReviewStatus.DRAFT,
     );
     const source = draft ?? submitted ?? submissions[0];
-    const mergedItems = new Map<string, Submission['items'][number]>();
-    for (const item of submitted?.items ?? [])
-      mergedItems.set(item.itemKey, item);
-    // 已有编辑草稿代表填写人的最新输入；按 item key 覆盖旧生效值，但保留未编辑项。
-    for (const item of draft?.items ?? []) mergedItems.set(item.itemKey, item);
+    const mergedDimensions = mergeDimensionAnswers(
+      submitted?.dimensionAnswers ?? [],
+      draft?.dimensionAnswers ?? [],
+    );
     const plan = buildCycleFormChangePlan(
       nextContent,
       source.stage as HumanEvaluationStage,
-      [...mergedItems.values()],
+      mergedDimensions,
     );
-    const compatible = new Map(
-      plan.compatibleItems.map((item) => [item.itemKey, item]),
-    );
-    const rows = [...mergedItems.values()]
-      .filter((item) => compatible.has(item.itemKey))
-      .map((item) => {
-        const location = compatible.get(item.itemKey)!;
-        return {
-          formSnapshotId: nextSnapshotId,
-          subformKey: location.subformKey,
-          dimensionKey: location.dimensionKey,
-          itemKey: item.itemKey,
-          itemType: item.itemType,
-          rawLevel: item.rawLevel,
-          rawScore: item.rawScore,
-          // 草稿不参与新配置计算，保留原始值但主动清空计算分。
-          calculationScore: null,
-          value: item.value ?? undefined,
-        };
-      });
+    const rows = buildPrefilledDimensionRows(nextContent, plan, nextSnapshotId);
     // 旧提交及其全部明细原样保留，只退出当前 DRAFT/SUBMITTED 唯一槽位。
     await tx.perfEvaluationSubmission.updateMany({
       where: { id: { in: submissions.map((submission) => submission.id) } },
@@ -546,9 +537,14 @@ export class CycleFormChangeService {
         status: PerfReviewStatus.DRAFT,
       },
     });
-    if (rows.length > 0) {
-      await tx.perfEvaluationItemResult.createMany({
-        data: rows.map((row) => ({ ...row, submissionId: nextDraft.id })),
+    for (const row of rows) {
+      const { fields, ...dimension } = row;
+      await tx.perfEvaluationDimensionAnswer.create({
+        data: {
+          ...dimension,
+          submissionId: nextDraft.id,
+          fields: { create: fields },
+        },
       });
     }
   }
@@ -635,6 +631,12 @@ export class CycleFormChangeService {
           version: next?.version ?? cycle.currentConfigVersion!.version,
           impactRevision: impact.impactRevision,
           impact: impact.summary,
+          changes: impact.classifications.flatMap((classification) =>
+            classification.changes.map((change) => ({
+              jobLevelPrefix: classification.jobLevelPrefix,
+              ...change,
+            })),
+          ),
         }),
         reason,
       },
@@ -662,7 +664,7 @@ export class CycleFormChangeService {
         );
       }
       if (
-        input.content.schemaVersion !== 1 ||
+        input.content.schemaVersion !== 2 ||
         input.content.jobLevelPrefix !== input.jobLevelPrefix
       ) {
         throw new BadRequestException(
@@ -775,6 +777,102 @@ function groupSubmissions(submissions: Submission[]) {
   return result;
 }
 
+function mergeDimensionAnswers(
+  submitted: Submission['dimensionAnswers'],
+  draft: Submission['dimensionAnswers'],
+) {
+  const merged = new Map<
+    string,
+    Submission['dimensionAnswers'][number] & {
+      fields: Submission['dimensionAnswers'][number]['fields'];
+    }
+  >();
+  for (const dimension of submitted)
+    merged.set(dimension.dimensionKey, dimension);
+  for (const dimension of draft) {
+    const previous = merged.get(dimension.dimensionKey);
+    const fields = new Map(
+      (previous?.fields ?? []).map((field) => [field.fieldKey, field]),
+    );
+    // 草稿是填写人的最新输入；按稳定 fieldKey 覆盖，未编辑字段仍从生效答卷预填。
+    for (const field of dimension.fields) fields.set(field.fieldKey, field);
+    merged.set(dimension.dimensionKey, {
+      ...dimension,
+      fields: [...fields.values()],
+    });
+  }
+  return [...merged.values()];
+}
+
+function buildPrefilledDimensionRows(
+  content: FormSnapshotContent,
+  plan: ReturnType<typeof buildCycleFormChangePlan>,
+  formSnapshotId: number,
+) {
+  const dimensions = new Map<
+    string,
+    {
+      formSnapshotId: number;
+      subformKey: string;
+      dimensionKey: string;
+      scoringMethod: 'RATING' | 'SCORE' | null;
+      rawLevel: 'S' | 'A' | 'B' | 'C' | null;
+      rawScore: string | null;
+      calculationScore: null;
+      derivedLevel: null;
+      fields: Array<{
+        fieldKey: string;
+        fieldType: PerfFormItemType;
+        value: Prisma.InputJsonValue;
+      }>;
+    }
+  >();
+  const targetDimensions = new Map(
+    content.subforms.flatMap((subform) =>
+      subform.dimensions.map(
+        (dimension) => [dimension.key, { subform, dimension }] as const,
+      ),
+    ),
+  );
+  const ensureRow = (subformKey: string, dimensionKey: string) => {
+    const existing = dimensions.get(dimensionKey);
+    if (existing) return existing;
+    const target = targetDimensions.get(dimensionKey)!;
+    const row = {
+      formSnapshotId,
+      subformKey,
+      dimensionKey,
+      scoringMethod:
+        target.dimension.type === 'SCORING'
+          ? (target.dimension.scoringMethod ?? null)
+          : null,
+      rawLevel: null,
+      rawScore: null,
+      // 结构变更后草稿不参与计算，只保留兼容原始值等待重新提交。
+      calculationScore: null,
+      derivedLevel: null,
+      fields: [],
+    };
+    dimensions.set(dimensionKey, row);
+    return row;
+  };
+  for (const answer of plan.compatibleDimensionAnswers) {
+    const row = ensureRow(answer.subformKey, answer.dimensionKey);
+    row.scoringMethod = answer.scoringMethod;
+    row.rawLevel = answer.rawLevel;
+    row.rawScore = answer.rawScore === null ? null : answer.rawScore.toString();
+  }
+  for (const field of plan.compatibleFieldAnswers) {
+    const row = ensureRow(field.subformKey, field.dimensionKey);
+    row.fields.push({
+      fieldKey: field.fieldKey,
+      fieldType: field.fieldType,
+      value: field.value as Prisma.InputJsonValue,
+    });
+  }
+  return [...dimensions.values()];
+}
+
 function assertStableKeysUnique(content: FormSnapshotContent, prefix: string) {
   const keys = new Set<string>();
   for (const subform of content.subforms) {
@@ -793,13 +891,13 @@ function assertStableKeysUnique(content: FormSnapshotContent, prefix: string) {
         );
       }
       keys.add(dimension.key);
-      for (const item of dimension.items) {
-        if (!item.key || keys.has(item.key)) {
+      for (const field of dimension.fields ?? []) {
+        if (!field.key || keys.has(field.key)) {
           throw new BadRequestException(
-            `${prefix} 表单存在空或重复稳定 key: ${item.key}`,
+            `${prefix} 表单存在空或重复稳定 key: ${field.key}`,
           );
         }
-        keys.add(item.key);
+        keys.add(field.key);
       }
     }
   }
@@ -831,9 +929,9 @@ function isCycleFormContentShape(
         (dimension) =>
           isRecord(dimension) &&
           typeof dimension.key === 'string' &&
-          Array.isArray(dimension.items) &&
-          dimension.items.every(
-            (item) => isRecord(item) && typeof item.key === 'string',
+          Array.isArray(dimension.fields) &&
+          dimension.fields.every(
+            (field) => isRecord(field) && typeof field.key === 'string',
           ),
       ),
   );

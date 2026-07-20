@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table'
 import type { ActivePerfCycleConfigImpact } from '@/lib/perf-api'
 
 type StageChange = ActivePerfCycleConfigImpact['stageChanges'][number]
-type CalculationItemChange = ActivePerfCycleConfigImpact['calculationItemChanges'][number]
+type CalculationDimensionChange = ActivePerfCycleConfigImpact['calculationDimensionChanges'][number]
 
 /** 影响预览列独立维护，Dialog 只负责编排确认流程。 */
 export const activeConfigImpactColumns: ColumnDef<StageChange>[] = [
@@ -43,11 +43,11 @@ export const activeConfigImpactColumns: ColumnDef<StageChange>[] = [
   }
 ]
 
-export const activeConfigCalculationItemColumns: ColumnDef<CalculationItemChange>[] = [
+export const activeConfigCalculationDimensionColumns: ColumnDef<CalculationDimensionChange>[] = [
   { accessorKey: 'employeeOpenId', header: '参与人' },
   { accessorKey: 'stage', header: '阶段' },
   { accessorKey: 'status', header: '提交状态' },
-  { accessorKey: 'itemKey', header: '评估项' },
+  { accessorKey: 'dimensionKey', header: '评估维度' },
   {
     id: 'mappingChange',
     header: '计算分前后差异',

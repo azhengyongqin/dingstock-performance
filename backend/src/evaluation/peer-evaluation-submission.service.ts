@@ -16,6 +16,7 @@ import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
 import { EvaluationEmployeeProfileService } from './evaluation-employee-profile.service';
+import { AiReportService } from '../ai-report/ai-report.service';
 
 /**
  * 360°评估提交服务：负责评审指派鉴权、PEER 上下文和答卷生命周期。
@@ -29,6 +30,7 @@ export class PeerEvaluationSubmissionService {
     private readonly taskAccessService: EvaluationTaskAccessService,
     private readonly submissionPolicy: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
+    private readonly aiReportService: AiReportService,
     private readonly participantEvaluationLockService: ParticipantEvaluationLockService,
     private readonly employeeProfileService: EvaluationEmployeeProfileService,
   ) {}
@@ -250,12 +252,13 @@ export class PeerEvaluationSubmissionService {
     );
     const peerSubform = this.submissionPolicy.selectPeerSubforms(content)[0];
     const ratings = this.submissionPolicy.requireUnifiedRatings(participant);
-    const submissionResult = this.submissionPolicy.calculateDimensionStageResult(
-      peerSubform,
-      resolved,
-      ratings,
-      { relationType: 'PEER', submissionId: `peer:${reviewerOpenId}` },
-    );
+    const submissionResult =
+      this.submissionPolicy.calculateDimensionStageResult(
+        peerSubform,
+        resolved,
+        ratings,
+        { relationType: 'PEER', submissionId: `peer:${reviewerOpenId}` },
+      );
     this.submissionPolicy.assertDimensionAnswersComplete(
       peerSubform,
       resolved,
@@ -356,7 +359,8 @@ export class PeerEvaluationSubmissionService {
       });
       // 答卷与阶段结果同事务生效，任何计算失败都会回滚本次提交/重新提交。
       await this.peerStageResultService.recalculate(participant.id, tx);
-      // AI 输入仍读取旧评估项；待“结果消费者迁移”Ticket 切到维度回答后再恢复 PEER 刷新。
+      // AI 输入快照必须与本次生效的 360°维度/字段作答保持同一事务修订。
+      await this.aiReportService.refreshForParticipant(participant.id, tx);
       const pending = await tx.perfReviewerAssignment.count({
         where: {
           participantId: participant.id,
