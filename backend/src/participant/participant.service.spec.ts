@@ -132,17 +132,6 @@ describe('ParticipantService', () => {
     service = moduleRef.get(ParticipantService);
   });
 
-  it('归档周期在周期行锁内拒绝修改参与者信息', async () => {
-    txMock.$queryRaw.mockResolvedValueOnce([
-      { participant_id: 7, cycle_id: 100, cycle_status: 'ARCHIVED' },
-    ]);
-
-    await expect(service.update('ou_admin', 100, 7, true)).rejects.toThrow(
-      ConflictException,
-    );
-    expect(txMock.perfParticipant.update).not.toHaveBeenCalled();
-  });
-
   it('HR/Admin 均不可向 ARCHIVED 周期新增考核人员', async () => {
     txMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,

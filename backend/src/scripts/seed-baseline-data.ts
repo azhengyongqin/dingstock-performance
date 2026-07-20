@@ -6,7 +6,7 @@
  * - 评估表单模板（PerfFormTemplate D/M）：内容取自 form-template/default-form-templates，
  *   维度/权重与《盯潮-绩效系统-评估维度规则说明》一致（普通岗 35/45/20，管理岗 40/35/25 等）。
  * - 配置模板（PerfConfigTemplate，systemKey=DEFAULT_CONFIG）：评级 S/A/B/C 区间与映射分、
- *   加权/评分约束取自 config-template/default-config-template 与《绩效等级定义和计算方式》，
+ *   固定统一维度约束取自《绩效等级定义和计算方式》，
  *   并补齐一套可发布的默认日程（default-config-template 故意留 0/0 不可发布，这里覆盖为可发布值）。
  * - 绩效周期草稿：名称固定「2026年中绩效评定」，从上面已发布的配置模板版本复制配置快照与 D/M 表单快照，
  *   复刻 CycleSetupService.createFromPublishedConfig 的快照写入逻辑（保持与四步创建一致）。
@@ -24,10 +24,12 @@ import { buildDefaultConfigTemplate } from '../config-template/default-config-te
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
 import { DEFAULT_FORM_TEMPLATES } from '../form-template/default-form-templates';
-import type {
-  FormItemConfig,
-  FormTemplateSubformContract,
-} from '../form-template/form-template.contract';
+import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import { FORM_SUBFORM_TYPES } from '../form-template/form-template.contract';
+import {
+  toPerformanceSubformContracts,
+  toPerformanceSubformCreateData,
+} from '../form-template/form-template.persistence';
 import { validateFormTemplatePublication } from '../form-template/publication-validator';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaClient } from '../generated/prisma/client';
@@ -90,7 +92,7 @@ function inputJson(value: unknown): Prisma.InputJsonValue {
  * 清理旧基线数据。已发布的模板版本被数据库 guard 触发器保护（只允许删除 DRAFT），
  * 因此需临时禁用「版本级」用户触发器；子层触发器在级联删除时会自行放行（父记录已不可见），
  * 外键约束（Restrict/Cascade）不受 DISABLE TRIGGER USER 影响，仍然生效。
- * 删除顺序：先删同名周期（级联清空配置/表单快照，释放对模板版本的 Restrict 占用），
+ * 删除顺序：先删同名周期的通知发送记录、通知事件、新版字段/维度作答与可复算阶段结果，再删周期（级联清空提交、配置/表单快照，释放对模板版本的 Restrict 占用），
  * 再删配置模板版本+模板，最后删表单模板版本+模板。
  */
 async function cleanupBaseline(prisma: PrismaClient) {
@@ -115,8 +117,37 @@ async function cleanupBaseline(prisma: PrismaClient) {
         `基线周期 #${historicalRollback.cycleId} 已存在退回记录 #${historicalRollback.id}，不能由 seed 清理；请保留该历史并使用新的周期名称`,
       );
     }
-    const removedCycles = await tx.perfCycle.deleteMany({
+    const baselineCycles = await tx.perfCycle.findMany({
       where: { name: CYCLE_NAME },
+      select: { id: true },
+    });
+    const baselineCycleIds = baselineCycles.map((cycle) => cycle.id);
+    if (baselineCycleIds.length > 0) {
+      // 通知事件保留来源的 RESTRICT 外键；开发基线重建时必须先删除其发送记录和事件。
+      await tx.perfNotification.deleteMany({
+        where: { sourceEvent: { cycleId: { in: baselineCycleIds } } },
+      });
+      await tx.perfNotificationEvent.deleteMany({
+        where: { cycleId: { in: baselineCycleIds } },
+      });
+      // 新版回答按字段 → 维度显式清理；随后周期级联删除统一提交，避免快照 Restrict 阻塞基线重建。
+      await tx.perfEvaluationFieldAnswer.deleteMany({
+        where: {
+          dimensionAnswer: {
+            submission: { cycleId: { in: baselineCycleIds } },
+          },
+        },
+      });
+      await tx.perfEvaluationDimensionAnswer.deleteMany({
+        where: { submission: { cycleId: { in: baselineCycleIds } } },
+      });
+      // 阶段结果是可复算派生数据，但为保护计算证据使用 RESTRICT 外键，基线重建需显式清理。
+      await tx.perfStageResult.deleteMany({
+        where: { cycleId: { in: baselineCycleIds } },
+      });
+    }
+    const removedCycles = await tx.perfCycle.deleteMany({
+      where: { id: { in: baselineCycleIds } },
     });
 
     await tx.$executeRawUnsafe(
@@ -147,7 +178,7 @@ async function cleanupBaseline(prisma: PrismaClient) {
       });
       const formTemplateIds = formTemplates.map((template) => template.id);
       if (formTemplateIds.length > 0) {
-        // 删除版本会级联删除子表单/维度/评估项（onDelete: Cascade）。
+        // 删除版本会级联删除子表单、维度与字段（onDelete: Cascade）。
         await tx.perfFormTemplateVersion.deleteMany({
           where: { templateId: { in: formTemplateIds } },
         });
@@ -205,36 +236,7 @@ async function seedFormTemplates(
           createdByOpenId: SYSTEM_OPERATOR,
           updatedByOpenId: SYSTEM_OPERATOR,
           subforms: {
-            create: template.subforms.map((subform) => ({
-              type: subform.type,
-              title: subform.title,
-              description: subform.description,
-              sortOrder: subform.sortOrder,
-              dimensions: {
-                create: subform.dimensions.map((dimension) => ({
-                  kind: dimension.kind,
-                  audience: dimension.audience,
-                  name: dimension.name,
-                  description: dimension.description,
-                  weight: dimension.weight,
-                  isCore: dimension.isCore,
-                  sortOrder: dimension.sortOrder,
-                  items: {
-                    create: dimension.items.map((item) => ({
-                      type: item.type,
-                      title: item.title,
-                      description: item.description,
-                      placeholder: item.placeholder,
-                      required: item.required,
-                      sortOrder: item.sortOrder,
-                      config: item.config
-                        ? (item.config as Prisma.InputJsonValue)
-                        : undefined,
-                    })),
-                  },
-                })),
-              },
-            })),
+            create: [...toPerformanceSubformCreateData(template.subforms)],
           },
         },
       });
@@ -264,7 +266,7 @@ async function seedFormTemplates(
 
 type FormVersionWithContent = Prisma.PerfFormTemplateVersionGetPayload<{
   include: {
-    subforms: { include: { dimensions: { include: { items: true } } } };
+    subforms: { include: { dimensions: { include: { fields: true } } } };
   };
 }>;
 
@@ -272,30 +274,7 @@ type FormVersionWithContent = Prisma.PerfFormTemplateVersionGetPayload<{
 function toSubformContracts(
   version: FormVersionWithContent,
 ): FormTemplateSubformContract[] {
-  return version.subforms.map((subform) => ({
-    type: subform.type,
-    title: subform.title,
-    description: subform.description,
-    sortOrder: subform.sortOrder,
-    dimensions: subform.dimensions.map((dimension) => ({
-      kind: dimension.kind,
-      audience: dimension.audience,
-      name: dimension.name,
-      description: dimension.description,
-      weight: dimension.weight?.toString() ?? null,
-      isCore: dimension.isCore,
-      sortOrder: dimension.sortOrder,
-      items: dimension.items.map((item) => ({
-        type: item.type,
-        title: item.title,
-        description: item.description,
-        placeholder: item.placeholder,
-        required: item.required,
-        sortOrder: item.sortOrder,
-        config: item.config as FormItemConfig | null,
-      })),
-    })),
-  }));
+  return toPerformanceSubformContracts(version.subforms);
 }
 
 /**
@@ -314,7 +293,7 @@ async function seedConfigTemplate(
         include: {
           dimensions: {
             orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-            include: { items: { orderBy: { sortOrder: 'asc' } } },
+            include: { fields: { orderBy: { sortOrder: 'asc' } } },
           },
         },
       },
@@ -361,12 +340,7 @@ async function seedConfigTemplate(
         status: 'DRAFT',
         name: CONFIG_TEMPLATE_NAME,
         description: defaults.description,
-        selfStageMode: defaults.stageModes.SELF,
-        peerStageMode: defaults.stageModes.PEER,
-        managerStageMode: defaults.stageModes.MANAGER,
-        aiStageMode: defaults.stageModes.AI,
         ratings: inputJson(defaults.ratings),
-        constraintProfiles: inputJson(defaults.constraintProfiles),
         orgOwnerWeight: defaults.reviewerRelationWeights.ORG_OWNER,
         projectOwnerWeight: defaults.reviewerRelationWeights.PROJECT_OWNER,
         peerWeight: defaults.reviewerRelationWeights.PEER,
@@ -403,41 +377,51 @@ async function seedConfigTemplate(
 
 /**
  * 把已发布表单版本转换为周期表单快照 content（复刻 CycleSetupService.toFormSnapshotContent），
- * 保持稳定 key 生成规则一致，评估项结果据 key 定位。
+ * 保持稳定 key 生成规则一致，维度/字段作答据 key 定位。
  */
 function toFormSnapshotContent(version: FormVersionWithContent) {
+  const subforms = toPerformanceSubformContracts(version.subforms);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name: version.name,
     description: version.description,
     jobLevelPrefix: version.jobLevelPrefix,
-    subforms: version.subforms.map((subform) => ({
-      key: `subform:${subform.type}`,
-      type: subform.type,
-      title: subform.title,
-      description: subform.description,
-      sortOrder: subform.sortOrder,
-      dimensions: subform.dimensions.map((dimension) => ({
-        key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
-        kind: dimension.kind,
-        audience: dimension.audience,
-        name: dimension.name,
-        description: dimension.description,
-        weight: dimension.weight?.toString() ?? null,
-        isCore: dimension.isCore,
-        sortOrder: dimension.sortOrder,
-        items: dimension.items.map((item) => ({
-          key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
-          type: item.type,
-          title: item.title,
-          description: item.description,
-          placeholder: item.placeholder,
-          required: item.required,
-          sortOrder: item.sortOrder,
-          config: item.config as FormItemConfig | null,
+    subforms: subforms
+      .filter((subform) => FORM_SUBFORM_TYPES.includes(subform.type))
+      .map((subform) => ({
+        key: `subform:${subform.type}`,
+        type: subform.type,
+        title: subform.title,
+        description: subform.description,
+        sortOrder: subform.sortOrder,
+        dimensions: subform.dimensions.map((dimension) => ({
+          sourceDimensionId: dimension.id,
+          key: dimension.key,
+          type: dimension.type,
+          audience: dimension.audience,
+          name: dimension.name,
+          description: dimension.description,
+          scoringMethod: dimension.scoringMethod ?? null,
+          weight:
+            dimension.type === 'SCORING' && dimension.weight != null
+              ? dimension.weight.toString()
+              : null,
+          isCore: dimension.isCore,
+          sortOrder: dimension.sortOrder,
+          fields: dimension.fields.map((field) => ({
+            sourceFieldId: field.id,
+            key: field.key,
+            type: field.type,
+            title: field.title,
+            description: field.description,
+            placeholder: field.placeholder,
+            requiredRule: field.requiredRule,
+            requiredLevels: [...field.requiredLevels],
+            sortOrder: field.sortOrder,
+            config: field.config ?? null,
+          })),
         })),
       })),
-    })),
   };
 }
 
@@ -462,7 +446,7 @@ async function seedDraftCycle(
                 include: {
                   dimensions: {
                     orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-                    include: { items: { orderBy: { sortOrder: 'asc' } } },
+                    include: { fields: { orderBy: { sortOrder: 'asc' } } },
                   },
                 },
               },
@@ -514,6 +498,18 @@ async function seedDraftCycle(
   return cycleId;
 }
 
+/**
+ * 可复用的生产 seed 核心：连接生命周期由调用方管理，便于在隔离 PostgreSQL 中验收。
+ */
+export async function seedBaselineData(prisma: PrismaClient) {
+  await cleanupBaseline(prisma);
+  const formVersionByPrefix = await seedFormTemplates(prisma);
+  const configVersionId = await seedConfigTemplate(prisma, formVersionByPrefix);
+  const cycleId = await seedDraftCycle(prisma, configVersionId);
+  console.log('基线数据初始化完成。');
+  return { formVersionByPrefix, configVersionId, cycleId };
+}
+
 async function main() {
   const config = loadAppConfig();
   const prisma = new PrismaClient({
@@ -521,17 +517,10 @@ async function main() {
   });
 
   try {
-    await cleanupBaseline(prisma);
-    const formVersionByPrefix = await seedFormTemplates(prisma);
-    const configVersionId = await seedConfigTemplate(
-      prisma,
-      formVersionByPrefix,
-    );
-    await seedDraftCycle(prisma, configVersionId);
-    console.log('基线数据初始化完成。');
+    await seedBaselineData(prisma);
   } finally {
     await prisma.$disconnect();
   }
 }
 
-void main();
+if (require.main === module) void main();

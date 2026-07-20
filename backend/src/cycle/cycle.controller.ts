@@ -103,7 +103,7 @@ export class CycleController {
   }
 
   @Put(':id/config-snapshot')
-  @ApiOperation({ summary: '调整周期自己的评级、约束与关系权重快照' })
+  @ApiOperation({ summary: '调整周期自己的评级区间与 360°关系权重快照' })
   updateConfigSnapshot(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,

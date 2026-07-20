@@ -7,15 +7,7 @@ import type {
   PerfJobLevelPrefix
 } from '@/lib/perf-api'
 
-export type ConfigTemplateSection =
-  | 'basic'
-  | 'ratings'
-  | 'constraints'
-  | 'relations'
-  | 'bindings'
-  | 'schedule'
-  | 'preview'
-  | 'history'
+export type ConfigTemplateSection = 'basic' | 'ratings' | 'relations' | 'bindings' | 'schedule' | 'preview' | 'history'
 
 export const getConfigTemplateActions = (status: PerfConfigTemplateVersionStatus, isAdmin: boolean) => {
   const canEdit = isAdmin && status === 'DRAFT'
@@ -89,14 +81,11 @@ export const replaceFormBindingForPrefix = ({
   return nextId ? [...retained, nextId] : retained
 }
 
-/** 归一化 subforms 用于发布校验展示；计算预览必须优先读取保留数据库 ID 的展开版本。 */
+/** 新版归一化 subforms 同时保留数据库 ID；原始旧表结构仅作兼容兜底。 */
 export const resolveBindingSubforms = (binding?: Pick<PerfConfigFormBinding, 'formTemplateVersion' | 'subforms'>) =>
-  binding?.formTemplateVersion?.subforms ?? binding?.subforms
+  binding?.subforms ?? binding?.formTemplateVersion?.subforms
 
-type ReminderFrequencyType =
-  | 'ONCE_AT_DEADLINE'
-  | 'DAILY_AFTER_DEADLINE'
-  | 'EVERY_N_DAYS_AFTER_DEADLINE'
+type ReminderFrequencyType = 'ONCE_AT_DEADLINE' | 'DAILY_AFTER_DEADLINE' | 'EVERY_N_DAYS_AFTER_DEADLINE'
 
 /** 非每 N 天模式不允许携带 intervalDays，切换时必须重新构造受控联合类型。 */
 export const buildReminderFrequency = (type: ReminderFrequencyType, intervalDays?: number) =>
@@ -106,10 +95,7 @@ export const buildReminderFrequency = (type: ReminderFrequencyType, intervalDays
 
 /** 合并发布与生命周期问题；空发布问题数组不能遮蔽归档等不可用原因。 */
 export const mergeConfigTemplateIssues = (
-  value: Pick<
-    PerfConfigTemplateVersionSummary,
-    'publicationIssues' | 'publishIssues' | 'unavailableReasons'
-  >
+  value: Pick<PerfConfigTemplateVersionSummary, 'publicationIssues' | 'publishIssues' | 'unavailableReasons'>
 ) => {
   const issues = [
     ...(value.publicationIssues ?? []),
@@ -127,8 +113,7 @@ export const mergeConfigTemplateIssues = (
 /** 后端问题路径映射到编辑器 Tab，点击问题即可跳到可修正的位置。 */
 export const issueSectionForPath = (path?: string): ConfigTemplateSection => {
   if (!path) return 'basic'
-  if (path.startsWith('ratings') || path.startsWith('stageModes')) return 'ratings'
-  if (path.startsWith('constraintProfiles')) return 'constraints'
+  if (path.startsWith('ratings')) return 'ratings'
   if (path.startsWith('reviewerRelationWeights')) return 'relations'
   if (path.startsWith('formTemplateVersionIds') || path.startsWith('formBindings')) return 'bindings'
   if (path.startsWith('schedulePreset') || path.startsWith('notificationRules')) return 'schedule'

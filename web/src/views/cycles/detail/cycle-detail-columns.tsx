@@ -67,16 +67,6 @@ export const participantColumns: ColumnDef<ParticipantRow>[] = [
       )
   },
   {
-    id: 'promotion',
-    header: '晋升评估',
-    cell: ({ row }) =>
-      row.original.isPromotionEnabled ? (
-        <Badge className='bg-purple-500/10 text-purple-600 dark:text-purple-400'>已启用</Badge>
-      ) : (
-        <span className='text-muted-foreground'>-</span>
-      )
-  },
-  {
     id: 'selfSubmission',
     header: '自评',
     cell: ({ row }) => {

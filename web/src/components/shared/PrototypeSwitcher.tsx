@@ -3,7 +3,7 @@
 /**
  * PROTOTYPE — 浮底变体切换条。仅用于 throwaway UI 原型，生产构建不渲染。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -25,17 +25,13 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
   const currentKey = searchParams?.get(paramKey) ?? variants[0]?.key
+
   const currentIndex = Math.max(
     0,
     variants.findIndex(item => item.key === currentKey)
   )
+
   const current = variants[currentIndex] ?? variants[0]
 
   const go = useCallback(
@@ -52,7 +48,7 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
   )
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production' || variants.length === 0 || !mounted) return
+    if (process.env.NODE_ENV === 'production' || variants.length === 0) return
 
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null
@@ -74,9 +70,9 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
     window.addEventListener('keydown', onKeyDown)
 
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [currentIndex, go, mounted, variants.length])
+  }, [currentIndex, go, variants.length])
 
-  if (!mounted || process.env.NODE_ENV === 'production' || variants.length === 0 || !current) return null
+  if (process.env.NODE_ENV === 'production' || variants.length === 0 || !current) return null
 
   return (
     <div
@@ -110,6 +106,7 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
 
 export function usePrototypeVariant(variants: PrototypeVariantMeta[], paramKey = 'variant') {
   const searchParams = useSearchParams()
+
   // 单测无 Next 路由时 searchParams 可能为 null，回退到首个变体
   const key = searchParams?.get(paramKey) ?? variants[0]?.key
 

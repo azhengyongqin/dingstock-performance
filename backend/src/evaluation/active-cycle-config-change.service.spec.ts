@@ -19,7 +19,6 @@ jest.mock('../generated/prisma/enums', () => ({
   },
   PerfReviewStatus: { DRAFT: 'DRAFT', SUBMITTED: 'SUBMITTED' },
   PerfAssignmentStatus: { SUBMITTED: 'SUBMITTED' },
-  PerfFormItemType: { RATING: 'RATING', SCORE: 'SCORE' },
   PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
 }));
 jest.mock('../shared/database/prisma.service', () => ({
@@ -32,6 +31,9 @@ jest.mock('./manager-stage-result.service', () => ({
 jest.mock('./peer-stage-result.service', () => ({
   PeerStageResultService: class {},
 }));
+jest.mock('./evaluation-submission.service', () => ({
+  EvaluationSubmissionService: class {},
+}));
 
 const ratings = [
   {
@@ -40,7 +42,6 @@ const ratings = [
     minScore: '90',
     maxScore: '100',
     mappingScore: '95',
-    commentRequired: true,
   },
   {
     symbol: 'A',
@@ -48,7 +49,6 @@ const ratings = [
     minScore: '80',
     maxScore: '90',
     mappingScore: '85',
-    commentRequired: false,
   },
   {
     symbol: 'B',
@@ -56,7 +56,6 @@ const ratings = [
     minScore: '60',
     maxScore: '80',
     mappingScore: '70',
-    commentRequired: false,
   },
   {
     symbol: 'C',
@@ -64,41 +63,12 @@ const ratings = [
     minScore: '0',
     maxScore: '60',
     mappingScore: '50',
-    commentRequired: true,
   },
 ];
 
-const constraintProfiles = {
-  WEIGHTED_RATING: [
-    {
-      id: 'core-c',
-      type: 'CORE_RATING_FORCE',
-      enabled: true,
-      triggerRating: 'C',
-      targetLevel: 'C',
-    },
-  ],
-  WEIGHTED_SCORE: [
-    {
-      id: 'core-low',
-      type: 'CORE_SCORE_FORCE',
-      enabled: true,
-      threshold: '60',
-      targetLevel: 'C',
-    },
-  ],
-};
-
 const configInput = {
   dimensionOverrides: [],
-  stageModes: {
-    SELF: 'DIRECT_RATING',
-    PEER: 'WEIGHTED_RATING',
-    MANAGER: 'WEIGHTED_SCORE',
-    AI: 'DIRECT_RATING',
-  },
   ratings,
-  constraintProfiles,
   reviewerRelationWeights: {
     ORG_OWNER: '30',
     PROJECT_OWNER: '30',
@@ -108,10 +78,27 @@ const configInput = {
 };
 
 const formContent = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   name: 'D 表单',
   jobLevelPrefix: 'D',
   subforms: [
+    {
+      key: 'subform:SELF',
+      type: 'SELF',
+      title: '员工自评',
+      dimensions: [
+        {
+          key: 'dimension:self',
+          type: 'SCORING',
+          audience: 'EMPLOYEE',
+          name: '自评等级',
+          scoringMethod: 'RATING',
+          weight: '100',
+          isCore: true,
+          fields: [],
+        },
+      ],
+    },
     {
       key: 'subform:MANAGER',
       type: 'MANAGER',
@@ -119,12 +106,13 @@ const formContent = {
       dimensions: [
         {
           key: 'dimension:delivery',
-          kind: 'REGULAR',
+          type: 'SCORING',
           audience: 'LEADER',
           name: '核心业绩',
+          scoringMethod: 'SCORE',
           weight: '100',
           isCore: true,
-          items: [{ key: 'item:score', type: 'SCORE' }],
+          fields: [],
         },
       ],
     },
@@ -143,12 +131,7 @@ function cycleFixture() {
       cycleId: 8,
       version: 2,
       sourceConfigTemplateVersionId: 11,
-      selfStageMode: 'DIRECT_RATING',
-      peerStageMode: 'WEIGHTED_RATING',
-      managerStageMode: 'WEIGHTED_SCORE',
-      aiStageMode: 'DIRECT_RATING',
       ratings,
-      constraintProfiles,
       orgOwnerWeight: { toString: () => '30' },
       projectOwnerWeight: { toString: () => '30' },
       peerWeight: { toString: () => '25' },
@@ -184,35 +167,59 @@ function cycleFixture() {
             status: 'SUBMITTED',
             reviewerOpenId: 'ou_leader',
             reviewerAssignment: null,
-            items: [
+            dimensionAnswers: [
               {
+                subformKey: 'subform:MANAGER',
                 dimensionKey: 'dimension:delivery',
-                itemKey: 'item:score',
+                scoringMethod: 'SCORE',
                 rawLevel: null,
                 rawScore: { toString: () => '70' },
-                itemType: 'SCORE',
+                calculationScore: { toString: () => '70' },
+                derivedLevel: 'B',
+                fields: [],
               },
             ],
           },
           {
             id: 62,
             stage: 'SELF',
-            status: 'DRAFT',
+            status: 'SUBMITTED',
             reviewerOpenId: 'ou_employee',
             reviewerAssignment: null,
-            items: [
+            dimensionAnswers: [
               {
-                dimensionKey: 'dimension:delivery',
-                itemKey: 'item:self-rating',
+                subformKey: 'subform:SELF',
+                dimensionKey: 'dimension:self',
+                scoringMethod: 'RATING',
                 rawLevel: 'A',
                 rawScore: null,
-                itemType: 'RATING',
                 calculationScore: { toString: () => '85' },
+                derivedLevel: 'A',
+                fields: [],
               },
             ],
           },
         ],
         stageResults: [
+          {
+            id: 70,
+            cycleConfigVersionId: 31,
+            stage: 'SELF',
+            status: 'READY',
+            compositeScore: { toString: () => '85' },
+            stageLevel: 'A',
+            constraintReasons: [],
+            dimensions: [
+              {
+                dimensionKey: 'dimension:self',
+                name: '自评等级',
+                weight: { toString: () => '100' },
+                isCore: true,
+                score: { toString: () => '85' },
+                level: 'A',
+              },
+            ],
+          },
           {
             id: 71,
             cycleConfigVersionId: 31,
@@ -220,7 +227,17 @@ function cycleFixture() {
             status: 'READY',
             compositeScore: { toString: () => '70' },
             stageLevel: 'B',
-            constraintReasons: [],
+            constraintReasons: [
+              {
+                id: 'core-b-cap',
+                type: 'CORE_B_CAP',
+                dimensionIds: ['dimension:delivery'],
+                parameters: { targetLevel: 'B' },
+                beforeLevel: 'B',
+                afterLevel: 'B',
+                changed: false,
+              },
+            ],
             dimensions: [
               {
                 dimensionKey: 'dimension:delivery',
@@ -254,7 +271,10 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     perfCycleConfigVersion: { create: jest.fn() },
     perfParticipant: { updateMany: jest.fn(), update: jest.fn() },
     perfEvaluationSubmission: { updateMany: jest.fn() },
-    perfEvaluationItemResult: { updateMany: jest.fn() },
+    perfEvaluationDimensionAnswer: {
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
     perfStageResult: {
       findMany: jest.fn(),
       create: jest.fn(),
@@ -273,6 +293,7 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
   };
   const peer = { recalculate: jest.fn() };
   const manager = { recalculate: jest.fn() };
+  const self = { recalculateSelf: jest.fn() };
   let service: ActiveCycleConfigChangeService;
 
   beforeEach(() => {
@@ -284,12 +305,14 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       version: 3,
       formSnapshots: [{ id: 42, jobLevelPrefix: 'D' }],
     });
+    tx.perfEvaluationDimensionAnswer.findMany.mockResolvedValue([]);
     rbac.isAdmin.mockResolvedValue(false);
     rbac.getOrgScope.mockResolvedValue(['od_scope']);
     manager.recalculate.mockResolvedValue({ stageLevel: 'B' });
     service = new ActiveCycleConfigChangeService(
       prisma as never,
       rbac as never,
+      self as never,
       peer as never,
       manager as never,
     );
@@ -310,16 +333,18 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
 
     expect(preview.summary).toEqual({
       affectedParticipantCount: 1,
-      affectedStageResultCount: 1,
+      affectedStageResultCount: 2,
       changedStageResultCount: 1,
       calibratedParticipantCount: 1,
       publishedParticipantCount: 1,
       confirmedParticipantCount: 1,
       automaticRecalibrationParticipantCount: 0,
-      affectedCalculationItemCount: 1,
-      changedCalculationItemCount: 0,
+      affectedCalculationDimensionCount: 1,
+      changedCalculationDimensionCount: 0,
     });
-    expect(preview.stageChanges[0]).toMatchObject({
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'MANAGER'),
+    ).toMatchObject({
       participantId: 51,
       employeeOpenId: 'ou_employee',
       stage: 'MANAGER',
@@ -377,7 +402,9 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       expectedConfigVersionId: 31,
     } as never);
 
-    expect(preview.stageChanges[0]).toMatchObject({
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'MANAGER'),
+    ).toMatchObject({
       before: { compositeScore: '70', stageLevel: 'B' },
       after: { compositeScore: '70.00', stageLevel: 'B' },
       changed: false,
@@ -451,14 +478,22 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     } as never);
 
     expect(preview.summary).toMatchObject({
-      affectedCalculationItemCount: 1,
-      changedCalculationItemCount: 1,
+      affectedCalculationDimensionCount: 1,
+      changedCalculationDimensionCount: 1,
     });
-    expect(preview.calculationItemChanges[0]).toMatchObject({
+    expect(preview.calculationDimensionChanges[0]).toMatchObject({
       stage: 'SELF',
-      status: 'DRAFT',
+      status: 'SUBMITTED',
+      dimensionKey: 'dimension:self',
       before: '85',
       after: '88',
+      changed: true,
+    });
+    expect(
+      preview.stageChanges.find((change) => change.stage === 'SELF'),
+    ).toMatchObject({
+      before: { compositeScore: '85', stageLevel: 'A' },
+      after: { compositeScore: '88.00', stageLevel: 'A' },
       changed: true,
     });
   });
@@ -494,13 +529,20 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
       data: { currentConfigVersionId: 32 },
     });
     expect(manager.recalculate).toHaveBeenCalledWith(51, tx);
-    expect(tx.perfEvaluationItemResult.updateMany).toHaveBeenCalledTimes(4);
-    expect(tx.perfEvaluationItemResult.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        submission: { participantId: { in: [51] } },
-        itemType: 'RATING',
+    expect(self.recalculateSelf).toHaveBeenCalledWith(51, tx);
+    expect(tx.perfEvaluationDimensionAnswer.findMany).toHaveBeenCalledWith({
+      where: {
+        submission: {
+          participantId: { in: [51] },
+          status: { in: ['DRAFT', 'SUBMITTED'] },
+        },
+      },
+      select: expect.objectContaining({
+        id: true,
+        scoringMethod: true,
+        rawLevel: true,
+        rawScore: true,
       }),
-      data: expect.any(Object),
     });
     expect(tx.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -511,6 +553,73 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
     expect(tx).not.toHaveProperty('perfCalibration');
     expect(tx).not.toHaveProperty('perfResultVersion');
     expect(result).toMatchObject({ configVersionId: 32, version: 3 });
+  });
+
+  it('只按当前评级口径重派生草稿和已提交答案，空原值保持空且历史答案不在查询范围', async () => {
+    tx.perfEvaluationDimensionAnswer.findMany.mockResolvedValue([
+      {
+        id: 101,
+        scoringMethod: 'RATING',
+        rawLevel: 'A',
+        rawScore: null,
+      },
+      {
+        id: 102,
+        scoringMethod: 'SCORE',
+        rawLevel: null,
+        rawScore: { toString: () => '70' },
+      },
+      {
+        id: 103,
+        scoringMethod: 'RATING',
+        rawLevel: null,
+        rawScore: null,
+      },
+      {
+        id: 104,
+        scoringMethod: 'SCORE',
+        rawLevel: null,
+        rawScore: null,
+      },
+    ]);
+    const changedRatings = configInput.ratings.map((rating) =>
+      rating.symbol === 'A'
+        ? { ...rating, minScore: '70' }
+        : rating.symbol === 'B'
+          ? { ...rating, maxScore: '70', mappingScore: '65' }
+          : rating,
+    );
+    const preview = await service.preview('ou_hr', 8, {
+      ...configInput,
+      ratings: changedRatings,
+      expectedConfigVersionId: 31,
+    } as never);
+
+    await service.apply('ou_hr', 8, {
+      ...configInput,
+      ratings: changedRatings,
+      expectedConfigVersionId: 31,
+      impactRevision: preview.impactRevision,
+      reason: '调整评级区间',
+      confirmed: true,
+    } as never);
+
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 101 },
+      data: { calculationScore: '85', derivedLevel: 'A' },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 102 },
+      data: { calculationScore: '70', derivedLevel: 'A' },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 103 },
+      data: { calculationScore: null, derivedLevel: null },
+    });
+    expect(tx.perfEvaluationDimensionAnswer.update).toHaveBeenCalledWith({
+      where: { id: 104 },
+      data: { calculationScore: null, derivedLevel: null },
+    });
   });
 
   it('任一阶段重算失败时向事务抛错且不写审计成功记录', async () => {
@@ -529,6 +638,25 @@ describe('ActiveCycleConfigChangeService 公开契约', () => {
         confirmed: true,
       } as never),
     ).rejects.toThrow('阶段重算失败');
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it('自评重算失败时中止配置切换事务且不写成功审计', async () => {
+    const preview = await service.preview('ou_hr', 8, {
+      ...configInput,
+      expectedConfigVersionId: 31,
+    } as never);
+    self.recalculateSelf.mockRejectedValueOnce(new Error('自评重算失败'));
+
+    await expect(
+      service.apply('ou_hr', 8, {
+        ...configInput,
+        expectedConfigVersionId: 31,
+        impactRevision: preview.impactRevision,
+        reason: '修正规则',
+        confirmed: true,
+      } as never),
+    ).rejects.toThrow('自评重算失败');
     expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
 });

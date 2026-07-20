@@ -11,21 +11,13 @@ const baseSnapshot = {
   version: 1,
   sourceConfigTemplateVersionId: 30,
   source: { id: 30, templateId: 3, name: '标准配置', version: 2 },
-  stageModes: {
-    SELF: 'DIRECT_RATING',
-    PEER: 'WEIGHTED_RATING',
-    MANAGER: 'WEIGHTED_SCORE',
-    AI: 'DIRECT_RATING'
-  },
   ratings: ['S', 'A', 'B', 'C'].map((symbol, index) => ({
     symbol,
     name: symbol,
     minScore: String([90, 80, 60, 0][index]),
     maxScore: String([100, 90, 80, 60][index]),
-    mappingScore: String([95, 85, 70, 50][index]),
-    commentRequired: false
+    mappingScore: String([95, 85, 70, 50][index])
   })),
-  constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
   reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' },
   notificationRules: { stages: [] },
   allowStageOverlap: false,

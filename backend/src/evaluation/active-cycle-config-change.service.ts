@@ -6,13 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import {
-  PerfCycleStatus,
-  PerfFormItemType,
-  PerfReviewStatus,
-} from '../generated/prisma/enums';
+import { PerfCycleStatus, PerfReviewStatus } from '../generated/prisma/enums';
 import type { ConfigTemplateVersionContract } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
+import { mapScoreToPerformanceLevel } from '../calculation/stage-result-calculator';
 import { toCycleConfigSnapshotData } from '../cycle/cycle-config-snapshot-data';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -28,6 +25,7 @@ import {
 import type { FormSnapshotContent } from './evaluation.service-types';
 import { ManagerStageResultService } from './manager-stage-result.service';
 import { PeerStageResultService } from './peer-stage-result.service';
+import { EvaluationSubmissionService } from './evaluation-submission.service';
 
 export type ApplyActiveConfigInput = ActiveConfigInput & {
   reason: string;
@@ -44,6 +42,7 @@ export class ActiveCycleConfigChangeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rbacService: RbacService,
+    private readonly evaluationSubmissionService: EvaluationSubmissionService,
     private readonly peerStageResultService: PeerStageResultService,
     private readonly managerStageResultService: ManagerStageResultService,
   ) {}
@@ -105,12 +104,7 @@ export class ActiveCycleConfigChangeService {
             sourceConfigTemplateVersionId:
               current.sourceConfigTemplateVersionId,
             ...toCycleConfigSnapshotData({
-              selfStageMode: input.stageModes.SELF,
-              peerStageMode: input.stageModes.PEER,
-              managerStageMode: input.stageModes.MANAGER,
-              aiStageMode: input.stageModes.AI,
               ratings: input.ratings,
-              constraintProfiles: input.constraintProfiles,
               orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
               projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
               peerWeight: input.reviewerRelationWeights.PEER,
@@ -216,15 +210,50 @@ export class ActiveCycleConfigChangeService {
       });
       participantIds.push(participant.id);
     }
-    // 原始评级不变；映射分属于新配置口径，必须在阶段重算前同步重放。
-    for (const rating of input.ratings) {
-      await tx.perfEvaluationItemResult.updateMany({
-        where: {
-          submission: { participantId: { in: participantIds } },
-          itemType: PerfFormItemType.RATING,
-          rawLevel: rating.symbol,
+    const ratingBySymbol = new Map(
+      input.ratings.map((rating) => [rating.symbol, rating]),
+    );
+    const answers = await tx.perfEvaluationDimensionAnswer.findMany({
+      where: {
+        submission: {
+          participantId: { in: participantIds },
+          // INVALIDATED 是历史事实，配置切换不得回写其数据血缘。
+          status: {
+            in: [PerfReviewStatus.DRAFT, PerfReviewStatus.SUBMITTED],
+          },
         },
-        data: { calculationScore: rating.mappingScore },
+      },
+      select: {
+        id: true,
+        scoringMethod: true,
+        rawLevel: true,
+        rawScore: true,
+      },
+    });
+    for (const answer of answers) {
+      const calculationScore =
+        answer.scoringMethod === 'RATING'
+          ? answer.rawLevel
+            ? String(ratingBySymbol.get(answer.rawLevel)?.mappingScore ?? '')
+            : null
+          : (answer.rawScore?.toString() ?? null);
+      if (
+        answer.scoringMethod === 'RATING' &&
+        answer.rawLevel &&
+        !calculationScore
+      ) {
+        throw new ConflictException(
+          `维度作答 #${answer.id} 的原始评级不在新评级配置中`,
+        );
+      }
+      await tx.perfEvaluationDimensionAnswer.update({
+        where: { id: answer.id },
+        data: {
+          calculationScore,
+          derivedLevel: calculationScore
+            ? mapScoreToPerformanceLevel(calculationScore, [...input.ratings])
+            : null,
+        },
       });
     }
   }
@@ -242,9 +271,14 @@ export class ActiveCycleConfigChangeService {
         ImpactStage,
       ];
       const participantId = Number(participantIdText);
-      if (stage === 'PEER') {
+      if (stage === 'SELF') {
+        await this.evaluationSubmissionService.recalculateSelf(
+          participantId,
+          tx,
+        );
+      } else if (stage === 'PEER') {
         await this.peerStageResultService.recalculate(participantId, tx);
-      } else {
+      } else if (stage === 'MANAGER') {
         await this.managerStageResultService.recalculate(participantId, tx);
       }
     }
@@ -328,12 +362,7 @@ export class ActiveCycleConfigChangeService {
       cycle.currentConfigVersion!,
       input,
     );
-    const relevantPrefixes = [
-      'stageModes',
-      'ratings',
-      'constraintProfiles',
-      'reviewerRelationWeights',
-    ];
+    const relevantPrefixes = ['ratings', 'reviewerRelationWeights'];
     const dimensionIssueCodes = new Set([
       'CORE_DIMENSION_COUNT_INVALID',
       'DIMENSION_WEIGHT_INVALID',
@@ -364,9 +393,7 @@ export class ActiveCycleConfigChangeService {
   ): ConfigTemplateVersionContract {
     return {
       name: '周期配置',
-      stageModes: input.stageModes,
       ratings: input.ratings,
-      constraintProfiles: input.constraintProfiles,
       reviewerRelationWeights: input.reviewerRelationWeights,
       formBindings: current.formSnapshots.map((snapshot) => {
         const content = applyDimensionOverrides(

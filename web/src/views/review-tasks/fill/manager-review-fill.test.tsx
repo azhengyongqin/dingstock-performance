@@ -44,17 +44,17 @@ vi.mock('@/lib/perf-api', async importOriginal => {
 })
 
 const context = {
-  participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
+  participant: { id: 7, cycleId: 1 },
   cycle: {
     id: 1,
     name: '2026 上半年绩效',
     status: 'ACTIVE',
     currentConfigVersion: {
       ratings: [
-        { symbol: 'S', name: '卓越' },
-        { symbol: 'A', name: '优秀' },
-        { symbol: 'B', name: '良好' },
-        { symbol: 'C', name: '待改进' }
+        { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95' },
+        { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85' },
+        { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70' },
+        { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50' }
       ]
     }
   },
@@ -69,6 +69,35 @@ const context = {
   task: { id: 21, startAt: null, openedAt: '2026-07-15T00:00:00.000Z' },
   form: {
     formSnapshotId: 88,
+    selfSubforms: [
+      {
+        key: 'subform:SELF',
+        type: 'SELF',
+        title: '员工自评',
+        sortOrder: 0,
+        dimensions: [
+          {
+            key: 'dimension:self:summary',
+            type: 'SCORING',
+            audience: 'EMPLOYEE',
+            name: '自评等级',
+            scoringMethod: 'RATING',
+            weight: '100',
+            isCore: true,
+            sortOrder: 0,
+            fields: [
+              {
+                key: 'field:self:summary',
+                type: 'MARKDOWN',
+                title: '自评总结',
+                requiredRule: 'OPTIONAL',
+                sortOrder: 0
+              }
+            ]
+          }
+        ]
+      }
+    ],
     subforms: [
       {
         key: 'subform:MANAGER',
@@ -78,47 +107,48 @@ const context = {
         dimensions: [
           {
             key: 'dimension:performance',
+            type: 'SCORING',
             audience: 'LEADER',
             name: '核心业绩',
-            weight: '100',
+            scoringMethod: 'SCORE',
+            weight: '60',
             isCore: true,
             sortOrder: 0,
-            items: [
+            fields: [
               {
-                key: 'item:performance:score',
-                type: 'SCORE',
-                title: '业绩分数',
-                required: true,
+                key: 'field:performance:comment',
+                type: 'LONG_TEXT',
+                title: '业绩说明',
+                requiredRule: 'CONDITIONAL',
+                requiredLevels: ['S', 'C'],
                 sortOrder: 0
               }
             ]
-          }
-        ]
-      },
-      {
-        key: 'subform:PROMOTION',
-        type: 'PROMOTION',
-        title: '晋升评估',
-        sortOrder: 2,
-        dimensions: [
+          },
           {
-            key: 'dimension:promotion:leader',
+            key: 'dimension:values',
+            type: 'SCORING',
             audience: 'LEADER',
-            name: 'Leader 晋升结论',
-            sortOrder: 0,
-            items: [
+            name: '价值观',
+            scoringMethod: 'RATING',
+            weight: '40',
+            isCore: false,
+            sortOrder: 1,
+            fields: []
+          },
+          {
+            key: 'dimension:summary',
+            type: 'NON_SCORING',
+            audience: 'LEADER',
+            name: '综合建议',
+            sortOrder: 2,
+            fields: [
               {
-                key: 'item:promotion:conclusion',
-                type: 'SINGLE_SELECT',
-                title: '晋升建议',
-                required: true,
-                sortOrder: 0,
-                config: {
-                  options: [
-                    { value: '建议晋升', label: '建议晋升' },
-                    { value: '暂缓晋升', label: '暂缓晋升' }
-                  ]
-                }
+                key: 'field:summary:text',
+                type: 'LONG_TEXT',
+                title: '综合建议',
+                requiredRule: 'ALWAYS',
+                sortOrder: 0
               }
             ]
           }
@@ -131,11 +161,19 @@ const context = {
   state: 'DRAFT',
   selfEvaluation: {
     id: 90,
-    items: [{ id: 1, itemKey: 'item:self:summary', itemType: 'MARKDOWN', value: '## 完成核心项目' }]
+    dimensionAnswers: [
+      {
+        id: 1,
+        submissionId: 90,
+        subformKey: 'subform:SELF',
+        dimensionKey: 'dimension:self:summary',
+        scoringMethod: null,
+        fields: [{ id: 2, fieldKey: 'field:self:summary', fieldType: 'MARKDOWN', value: '## 完成核心项目' }]
+      }
+    ]
   },
   peerResult: {
     status: 'READY',
-    mode: 'WEIGHTED_RATING',
     reviewerCount: 2,
     compositeScore: '85.00',
     initialLevel: 'A',
@@ -184,21 +222,11 @@ const context = {
               rawLevel: 'A',
               rawScore: null,
               mappedLevel: 'A',
-              items: [
+              fields: [
                 {
-                  itemKey: 'item:collaboration:rating',
-                  title: '协作表现',
-                  type: 'RATING',
-                  rawLevel: 'A',
-                  rawScore: null,
-                  value: null
-                },
-                {
-                  itemKey: 'item:collaboration:comment',
+                  fieldKey: 'field:collaboration:comment',
                   title: '协作评语',
                   type: 'LONG_TEXT',
-                  rawLevel: null,
-                  rawScore: null,
                   value: '沟通及时，能够主动补位。'
                 }
               ]
@@ -209,7 +237,7 @@ const context = {
               rawLevel: 'S',
               rawScore: null,
               mappedLevel: 'S',
-              items: []
+              fields: []
             }
           ]
         },
@@ -231,7 +259,7 @@ const context = {
               rawLevel: 'B',
               rawScore: null,
               mappedLevel: 'B',
-              items: []
+              fields: []
             },
             {
               id: 'dimension:responsibility',
@@ -239,7 +267,7 @@ const context = {
               rawLevel: 'A',
               rawScore: null,
               mappedLevel: 'A',
-              items: []
+              fields: []
             }
           ]
         }
@@ -276,7 +304,7 @@ describe('ManagerReviewFill 关键流程', () => {
     triggerParticipantOkrSync.mockResolvedValue({ ok: true, status: 'success' })
   })
 
-  it('展示自评和 360°参考，用 Leader 晋升子表单提交，并只展示系统计算等级', async () => {
+  it('展示新版混合计分维度和字段，并提交维度回答且不呈现评估项', async () => {
     render(<ManagerReviewFill participantId={7} />)
 
     expect(await screen.findByText('集团 / 产品中心')).toBeInTheDocument()
@@ -285,30 +313,39 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByRole('tab', { name: '360°评估' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: '员工自评' }))
     expect(screen.getByRole('heading', { name: '完成核心项目', level: 2 })).toBeInTheDocument()
-    expect(screen.getByText('晋升评估（Leader 填写）')).toBeInTheDocument()
+    expect(screen.getByText('占比 60%')).toBeInTheDocument()
+    expect(screen.getByRole('radiogroup', { name: '价值观' })).toBeInTheDocument()
+    expect(screen.queryByText('评估项')).not.toBeInTheDocument()
     expect(screen.queryByText(/初步绩效评级/)).not.toBeInTheDocument()
     await waitFor(() => expect(triggerParticipantOkrSync).toHaveBeenCalledWith(7))
 
-    fireEvent.change(screen.getByLabelText('业绩分数'), { target: { value: '88' } })
-    fireEvent.click(screen.getByRole('combobox', { name: '晋升建议' }))
-    fireEvent.click(screen.getByRole('option', { name: '建议晋升' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '核心业绩' }), { target: { value: '95' } })
+    expect(screen.getByText('选择 S 时必填')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: '业绩说明' }), { target: { value: '超额达成' } })
+    fireEvent.click(screen.getByRole('radio', { name: /A · 优秀/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: '综合建议' }), { target: { value: '建议承担更复杂项目' } })
     fireEvent.click(screen.getByRole('button', { name: '提交上级评估' }))
 
     await waitFor(() =>
       expect(submitManagerEvaluation).toHaveBeenCalledWith({
         participantId: 7,
-        items: [
+        dimensions: [
           {
             subformKey: 'subform:MANAGER',
             dimensionKey: 'dimension:performance',
-            itemKey: 'item:performance:score',
-            rawScore: 88
+            rawScore: 95,
+            fields: [{ fieldKey: 'field:performance:comment', value: '超额达成' }]
           },
           {
-            subformKey: 'subform:PROMOTION',
-            dimensionKey: 'dimension:promotion:leader',
-            itemKey: 'item:promotion:conclusion',
-            value: '建议晋升'
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:values',
+            rawLevel: 'A',
+            fields: []
+          },
+          {
+            subformKey: 'subform:MANAGER',
+            dimensionKey: 'dimension:summary',
+            fields: [{ fieldKey: 'field:summary:text', value: '建议承担更复杂项目' }]
           }
         ]
       })
@@ -341,15 +378,39 @@ describe('ManagerReviewFill 关键流程', () => {
     expect(screen.getByRole('heading', { name: '协作沟通' })).toBeInTheDocument()
   })
 
+  it('历史绩效展示后端收敛后的晋升文本摘要', async () => {
+    getManagerEvaluationContext.mockResolvedValue({
+      ...context,
+      history: [
+        {
+          finalLevel: 'A',
+          promotionResult: '晋升陈述：历史可见内容',
+          participant: { cycle: { id: 2, name: '2025 下半年绩效' } }
+        },
+        {
+          finalLevel: 'B',
+          promotionResult: null,
+          participant: { cycle: { id: 3, name: '2025 上半年绩效' } }
+        }
+      ]
+    })
+    render(<ManagerReviewFill participantId={7} />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '更多' }))
+
+    expect(screen.getByText('晋升陈述：历史可见内容')).toBeInTheDocument()
+    expect(screen.getByText('2025 上半年绩效')).toBeInTheDocument()
+  })
+
   it('从团队看板进入时，返回入口和提交成功跳转都回到团队看板', async () => {
     useSearchParams.mockReturnValue(new URLSearchParams('from=team-review'))
     render(<ManagerReviewFill participantId={7} />)
 
     expect(await screen.findByRole('button', { name: /团队看板/ })).toHaveAttribute('href', '/team-review')
 
-    fireEvent.change(screen.getByLabelText('业绩分数'), { target: { value: '88' } })
-    fireEvent.click(screen.getByRole('combobox', { name: '晋升建议' }))
-    fireEvent.click(screen.getByRole('option', { name: '建议晋升' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '核心业绩' }), { target: { value: '88' } })
+    fireEvent.click(screen.getByRole('radio', { name: /A · 优秀/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: '综合建议' }), { target: { value: '继续保持' } })
     fireEvent.click(screen.getByRole('button', { name: '提交上级评估' }))
 
     await waitFor(() => expect(routerPush).toHaveBeenCalledWith('/team-review'))

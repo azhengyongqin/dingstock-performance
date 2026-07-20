@@ -29,6 +29,12 @@ import { Markdown } from 'tiptap-markdown'
 
 type ExtensionOptions = {
   placeholder: string
+
+  /** 关闭时不注册块拖拽手柄扩展 */
+  dragHandle?: boolean
+
+  /** 粘贴 / 复制时按 Markdown 源码转换（tiptap-markdown clipboard） */
+  pasteMarkdown?: boolean
 }
 
 type MarkdownSerializerState = {
@@ -74,7 +80,11 @@ const serializeImage = (state: MarkdownSerializerState, node: ImageNode) => {
 }
 
 /** 从 Novel 源码 extensions.ts 移植完整扩展集合，并用 HTML 回退承载增强格式。 */
-export const createDefaultExtensions = ({ placeholder }: ExtensionOptions) => {
+export const createDefaultExtensions = ({
+  placeholder,
+  dragHandle = true,
+  pasteMarkdown = true
+}: ExtensionOptions) => {
   const lowlight = createLowlight(common)
 
   // Novel 源码同时注册两个名为 image 的扩展会互相覆盖；合并后同时保留上传占位与缩放属性。
@@ -106,7 +116,8 @@ export const createDefaultExtensions = ({ placeholder }: ExtensionOptions) => {
 
   return [
     StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
+      // 支持粘贴常见 #### / ##### 模板标题，避免降级成普通段落。
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
       codeBlock: false,
       horizontalRule: false,
       dropcursor: { color: 'var(--primary)', width: 2 },
@@ -145,7 +156,7 @@ export const createDefaultExtensions = ({ placeholder }: ExtensionOptions) => {
     TextStyle,
     Color,
     CustomKeymap,
-    GlobalDragHandle,
+    ...(dragHandle ? [GlobalDragHandle] : []),
     Table.configure({ resizable: false }),
     TableRow,
     TableHeader,
@@ -162,8 +173,10 @@ export const createDefaultExtensions = ({ placeholder }: ExtensionOptions) => {
       bulletListMarker: '-',
       linkify: false,
       breaks: false,
-      transformPastedText: false,
-      transformCopiedText: false
+
+      // 纯 text/plain 粘贴时解析为富文本；复制时输出 Markdown，便于跨工具往返。
+      transformPastedText: pasteMarkdown,
+      transformCopiedText: pasteMarkdown
     })
   ]
 }

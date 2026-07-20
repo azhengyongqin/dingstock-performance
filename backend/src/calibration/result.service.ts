@@ -7,7 +7,7 @@ import {
 import { AuditService } from '../audit/audit.service';
 import type {
   FormSnapshotContent,
-  FormSnapshotItem,
+  FormSnapshotField,
 } from '../evaluation/evaluation.service-types';
 import type { Prisma } from '../generated/prisma/client';
 import {
@@ -21,30 +21,26 @@ import {
 import { NotificationEventService } from '../notification/notification-event.service';
 import { PrismaService } from '../shared/database/prisma.service';
 
-type SnapshotAnswer = {
-  subformKey: string;
-  dimensionKey: string;
-  itemKey: string;
-  itemType: string;
-  rawLevel: PerfRatingSymbol | null;
-  rawScore: { toString(): string } | number | string | null;
-  value: Prisma.JsonValue | null;
-};
-
 type SnapshotSubmission = {
   stage: PerfEvaluationTaskType;
-  items: SnapshotAnswer[];
+  dimensionAnswers: Array<{
+    subformKey: string;
+    dimensionKey: string;
+    fields: Array<{
+      fieldKey: string;
+      fieldType: string;
+      value: Prisma.JsonValue;
+    }>;
+  }>;
 };
 
-type VisibleAnswer = {
+type VisibleFieldAnswer = {
   subformKey: string;
   dimensionKey: string;
-  itemKey: string;
+  fieldKey: string;
   title: string;
   type: string;
-  rawLevel: PerfRatingSymbol | null;
-  rawScore: string | null;
-  value: Prisma.JsonValue | null;
+  value: Prisma.JsonValue;
 };
 
 type ResultSnapshot = {
@@ -58,10 +54,11 @@ type ResultSnapshot = {
       score: string;
       level: PerfRatingSymbol;
     }>;
-    comments: VisibleAnswer[];
+    fields: VisibleFieldAnswer[];
   };
-  self: { level: PerfRatingSymbol | null; items: VisibleAnswer[] };
-  promotion: { visible: true; items: VisibleAnswer[] } | null;
+  self: { level: PerfRatingSymbol | null; fields: VisibleFieldAnswer[] };
+  /** 新发布固定为空；旧结果版本中的员工可见晋升投影按原值只读返回。 */
+  promotion: Prisma.JsonValue | null;
 };
 
 /**
@@ -523,7 +520,12 @@ export class ResultService {
             },
             status: PerfReviewStatus.SUBMITTED,
           },
-          include: { items: { orderBy: { id: 'asc' } } },
+          include: {
+            dimensionAnswers: {
+              orderBy: { id: 'asc' },
+              include: { fields: { orderBy: { id: 'asc' } } },
+            },
+          },
         },
         formSnapshot: { select: { content: true } },
       },
@@ -568,90 +570,41 @@ export class ResultService {
           score: dimension.score.toString(),
           level: dimension.level,
         })),
-        comments: this.visibleAnswers(
-          (managerSubmission?.items ?? []).filter(
-            (item) =>
-              !item.subformKey.includes('PROMOTION') &&
-              item.itemType !== 'RATING' &&
-              item.itemType !== 'SCORE',
-          ),
+        fields: this.visibleFieldAnswers(
+          managerSubmission?.dimensionAnswers ?? [],
           content,
         ),
       },
       self: {
-        level:
-          selfStage?.stageLevel ??
-          selfSubmission?.items.find(
-            (item) => item.itemType === 'RATING' && item.rawLevel,
-          )?.rawLevel ??
-          null,
-        items: this.visibleAnswers(
-          (selfSubmission?.items ?? []).filter(
-            (item) => !item.subformKey.includes('PROMOTION'),
-          ),
+        level: selfStage?.stageLevel ?? null,
+        fields: this.visibleFieldAnswers(
+          selfSubmission?.dimensionAnswers ?? [],
           content,
         ),
       },
-      promotion: this.buildVisiblePromotion(
-        participant.isPromotionEnabled,
-        [selfSubmission, managerSubmission],
-        content,
-      ),
+      // 晋升已退出新绩效结果发布链，旧内容由独立的只读边界承载。
+      promotion: null,
     };
   }
 
-  /**
-   * 员工填写的晋升材料默认可回看；Leader 结论仅在表单项明确配置
-   * `employeeVisible: true` 时进入发布快照，避免把内部判断意外下发。
-   */
-  private buildVisiblePromotion(
-    enabled: boolean,
-    submissions: Array<SnapshotSubmission | undefined>,
+  /** 发布快照只投影新版字段作答，字段身份与所属维度均可追溯。 */
+  private visibleFieldAnswers(
+    dimensions: SnapshotSubmission['dimensionAnswers'],
     content: FormSnapshotContent | null,
-  ): ResultSnapshot['promotion'] {
-    if (!enabled) return null;
-    const items = submissions
-      .flatMap((submission) => submission?.items ?? [])
-      .filter((answer) => answer.subformKey.includes('PROMOTION'))
-      .filter((answer) => this.isPromotionAnswerVisible(answer, content));
-    if (items.length === 0) return null;
-    return { visible: true, items: this.visibleAnswers(items, content) };
-  }
-
-  private isPromotionAnswerVisible(
-    answer: SnapshotAnswer,
-    content: FormSnapshotContent | null,
-  ) {
-    const dimension = content?.subforms
-      .flatMap((subform) => subform.dimensions)
-      .find((item) => item.key === answer.dimensionKey);
-    if (dimension?.audience === 'EMPLOYEE') return true;
-    const item = dimension?.items.find(
-      (candidate) => candidate.key === answer.itemKey,
+  ): VisibleFieldAnswer[] {
+    return dimensions.flatMap((dimension) =>
+      dimension.fields.map((answer) => {
+        const metadata = this.findField(content, answer.fieldKey);
+        return {
+          subformKey: dimension.subformKey,
+          dimensionKey: dimension.dimensionKey,
+          fieldKey: answer.fieldKey,
+          title: metadata?.title ?? answer.fieldKey,
+          type: answer.fieldType,
+          value: answer.value,
+        };
+      }),
     );
-    const config = this.jsonObject(
-      item?.config as Prisma.JsonValue | undefined,
-    );
-    return config.employeeVisible === true;
-  }
-
-  private visibleAnswers(
-    items: SnapshotAnswer[],
-    content: FormSnapshotContent | null,
-  ): VisibleAnswer[] {
-    return items.map((answer) => {
-      const metadata = this.findItem(content, answer.itemKey);
-      return {
-        subformKey: answer.subformKey,
-        dimensionKey: answer.dimensionKey,
-        itemKey: answer.itemKey,
-        title: metadata?.title ?? answer.itemKey,
-        type: answer.itemType,
-        rawLevel: answer.rawLevel,
-        rawScore: answer.rawScore?.toString() ?? null,
-        value: answer.value,
-      };
-    });
   }
 
   private sanitizeResultSnapshot(value: Prisma.JsonValue): ResultSnapshot {
@@ -659,7 +612,6 @@ export class ResultService {
     const cycle = this.jsonObject(root.cycle);
     const manager = this.jsonObject(root.manager);
     const self = this.jsonObject(root.self);
-    const promotion = this.jsonObject(root.promotion);
     return {
       cycle: {
         id: typeof cycle.id === 'number' ? cycle.id : 0,
@@ -683,35 +635,28 @@ export class ResultService {
               ];
             })
           : [],
-        comments: this.sanitizeVisibleAnswers(manager.comments),
+        fields: this.sanitizeVisibleFields(manager.fields),
       },
       self: {
         level: this.ratingOrNull(self.level),
-        items: this.sanitizeVisibleAnswers(self.items),
+        fields: this.sanitizeVisibleFields(self.fields),
       },
-      promotion:
-        promotion.visible === true
-          ? {
-              visible: true,
-              items: this.sanitizeVisibleAnswers(promotion.items),
-            }
-          : null,
+      // 旧结果版本一经发布不可变；历史晋升投影属于当时员工可见内容，不能在查询时抹除。
+      promotion: root.promotion ?? null,
     };
   }
 
-  private sanitizeVisibleAnswers(value: Prisma.JsonValue | undefined) {
+  private sanitizeVisibleFields(value: Prisma.JsonValue | undefined) {
     if (!Array.isArray(value)) return [];
     return value.map((item) => {
       const answer = this.jsonObject(item);
       return {
         subformKey: this.stringOrEmpty(answer.subformKey),
         dimensionKey: this.stringOrEmpty(answer.dimensionKey),
-        itemKey: this.stringOrEmpty(answer.itemKey),
+        fieldKey: this.stringOrEmpty(answer.fieldKey),
         title: this.stringOrEmpty(answer.title),
         type: this.stringOrEmpty(answer.type),
-        rawLevel: this.ratingOrNull(answer.rawLevel),
-        rawScore: this.stringOrNull(answer.rawScore),
-        value: answer.value ?? null,
+        value: answer.value ?? '',
       };
     });
   }
@@ -739,14 +684,14 @@ export class ResultService {
       : null;
   }
 
-  private findItem(
+  private findField(
     content: FormSnapshotContent | null,
-    itemKey: string,
-  ): FormSnapshotItem | undefined {
+    fieldKey: string,
+  ): FormSnapshotField | undefined {
     return content?.subforms
       .flatMap((subform) => subform.dimensions)
-      .flatMap((dimension) => dimension.items)
-      .find((item) => item.key === itemKey);
+      .flatMap((dimension) => dimension.fields ?? [])
+      .find((field) => field.key === fieldKey);
   }
 
   private employeeExplanation(

@@ -5,12 +5,14 @@ import Link from 'next/link'
 
 // Third-party Imports
 import type { ColumnDef } from '@tanstack/react-table'
+import { ClipboardPenIcon, EyeIcon, UserPlusIcon } from 'lucide-react'
 
 // Component Imports
 import { UserAvatar } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // Util Imports
 import type { LarkUserBrief, PerfParticipantStatus, PerfReviewStatus } from '@/lib/perf-api'
@@ -21,7 +23,6 @@ export type MemberProgressRow = {
   participantId: number
   employee: LarkUserBrief | null
   status: PerfParticipantStatus
-  isPromotionEnabled: boolean
   selfSubmissionStatus: PerfReviewStatus | null
   reviewProgress: { submitted: number; total: number }
   managerEvaluationState: 'NOT_STARTED' | 'DRAFT' | 'EFFECTIVE' | 'PENDING_RESUBMIT'
@@ -158,32 +159,49 @@ export const memberProgressColumns: ColumnDef<MemberProgressRow>[] = [
     meta: { headClassName: 'text-right', cellClassName: 'text-right' },
     cell: ({ row }) => {
       const { participantId, managerEvaluationState } = row.original
+      const isEffective = managerEvaluationState === 'EFFECTIVE'
 
-      const actionLabel =
-        managerEvaluationState === 'EFFECTIVE'
-          ? '查看评估'
-          : managerEvaluationState === 'DRAFT' || managerEvaluationState === 'PENDING_RESUBMIT'
-            ? '继续评估'
-            : '去评估'
+      const actionLabel = isEffective
+        ? '查看评估'
+        : managerEvaluationState === 'DRAFT' || managerEvaluationState === 'PENDING_RESUBMIT'
+          ? '继续评估'
+          : '去评估'
 
       return (
         <div className='flex justify-end gap-1'>
-          <Button
-            variant='ghost'
-            size='sm'
-            render={<Link href={`/review-tasks/assign?participant_id=${participantId}`} />}
-            nativeButton={false}
-          >
-            评审人指派
-          </Button>
-          <Button
-            variant={managerEvaluationState === 'EFFECTIVE' ? 'ghost' : 'default'}
-            size='sm'
-            render={<Link href={managerReviewHref(participantId)} />}
-            nativeButton={false}
-          >
-            {actionLabel}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label='评审人指派'
+                  render={<Link href={`/review-tasks/assign?participant_id=${participantId}`} />}
+                  nativeButton={false}
+                />
+              }
+            >
+              <UserPlusIcon className='size-4' />
+            </TooltipTrigger>
+            <TooltipContent>评审人指派</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant={isEffective ? 'ghost' : 'default'}
+                  size='icon-sm'
+                  aria-label={actionLabel}
+                  render={<Link href={managerReviewHref(participantId)} />}
+                  nativeButton={false}
+                />
+              }
+            >
+              {isEffective ? <EyeIcon className='size-4' /> : <ClipboardPenIcon className='size-4' />}
+            </TooltipTrigger>
+            <TooltipContent>{actionLabel}</TooltipContent>
+          </Tooltip>
         </div>
       )
     }

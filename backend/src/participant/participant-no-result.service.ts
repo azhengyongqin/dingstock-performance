@@ -12,7 +12,6 @@ import {
   PerfParticipantStatus,
   PerfReviewStatus,
   PerfRole,
-  PerfStageResultMode,
   PerfStageResultStatus,
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
@@ -233,7 +232,6 @@ export class ParticipantNoResultService {
             cycleConfigVersionId: participant.cycle.currentConfigVersionId,
             stage: PerfEvaluationTaskType.SELF,
             status: PerfStageResultStatus.NO_DATA,
-            mode: PerfStageResultMode.DIRECT_RATING,
             reviewerCount: 0,
             compositeScore: null,
             initialLevel: null,
@@ -247,7 +245,6 @@ export class ParticipantNoResultService {
           },
           update: {
             status: PerfStageResultStatus.NO_DATA,
-            mode: PerfStageResultMode.DIRECT_RATING,
             reviewerCount: 0,
             compositeScore: null,
             initialLevel: null,

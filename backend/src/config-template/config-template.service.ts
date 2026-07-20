@@ -5,10 +5,8 @@ import {
 } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import type {
-  FormItemConfig,
-  FormTemplateSubformContract,
-} from '../form-template/form-template.contract';
+import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import { toPerformanceSubformContracts } from '../form-template/form-template.persistence';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import {
@@ -16,15 +14,17 @@ import {
   type CalculationPreviewDimensionInput,
 } from './calculation-preview';
 import type {
-  ConfigConstraintProfiles,
   ConfigRatingDefinition,
-  ConfigStageModes,
   ConfigTemplateVersionContract,
   NotificationRules,
   ReviewerRelationWeight,
   SchedulePreset,
 } from './config-template.contract';
 import { buildDefaultConfigTemplate } from './default-config-template';
+import {
+  omitPersistedConfigInternals,
+  toPublicRatings,
+} from './config-template.public';
 import { validateConfigTemplatePublication } from './publication-validator';
 
 export type CreateConfigTemplateInput = {
@@ -70,7 +70,13 @@ export type ConfigTemplatePreviewInput = {
   dimensions?: Array<{
     dimensionId: number;
     relations: Array<{
-      type: 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT' | 'LEADER';
+      type:
+        | 'ORG_OWNER'
+        | 'PROJECT_OWNER'
+        | 'PEER'
+        | 'CROSS_DEPT'
+        | 'LEADER'
+        | 'DIRECT';
       rawValues: string[];
     }>;
   }>;
@@ -337,12 +343,7 @@ export class ConfigTemplateService {
             name: copySource.name,
             description: copySource.description,
             sourceVersionId: copySource.id,
-            selfStageMode: copySource.selfStageMode,
-            peerStageMode: copySource.peerStageMode,
-            managerStageMode: copySource.managerStageMode,
-            aiStageMode: copySource.aiStageMode,
-            ratings: this.inputJson(copySource.ratings),
-            constraintProfiles: this.inputJson(copySource.constraintProfiles),
+            ratings: this.inputJson(toPublicRatings(copySource.ratings)),
             orgOwnerWeight: copySource.orgOwnerWeight,
             projectOwnerWeight: copySource.projectOwnerWeight,
             peerWeight: copySource.peerWeight,
@@ -428,12 +429,14 @@ export class ConfigTemplateService {
     );
 
     const authoritativeDimensions: CalculationPreviewDimensionInput[] = [];
-    if (binding && ['PEER', 'MANAGER'].includes(input.stage)) {
+    if (binding && ['SELF', 'PEER', 'MANAGER'].includes(input.stage)) {
       const subform = binding.formTemplateVersion.subforms.find(
         (candidate) => candidate.type === input.stage,
       );
+      const isScoringDimension = (dimension: { type?: string }) =>
+        dimension.type === 'SCORING';
       const regularDimensions = (subform?.dimensions ?? []).filter(
-        (dimension) => dimension.kind === 'REGULAR',
+        isScoringDimension,
       );
       const dimensionsById = new Map(
         regularDimensions.map((dimension) => [dimension.id, dimension]),
@@ -464,7 +467,7 @@ export class ConfigTemplateService {
       }
       for (const requested of requestedDimensions) {
         const dimension = dimensionsById.get(requested.dimensionId);
-        if (!dimension || dimension.kind !== 'REGULAR') {
+        if (!dimension || !isScoringDimension(dimension)) {
           return {
             status: 'UNAVAILABLE' as const,
             issues: [
@@ -479,6 +482,7 @@ export class ConfigTemplateService {
         authoritativeDimensions.push({
           id: String(dimension.id),
           name: dimension.name,
+          scoringMethod: dimension.scoringMethod as 'RATING' | 'SCORE',
           weight: dimension.weight?.toString() ?? '0',
           isCore: dimension.isCore,
           relations: requested.relations.map((relation) => ({
@@ -542,13 +546,13 @@ export class ConfigTemplateService {
               },
             ]
           : [];
+    // 对外只投影最终配置契约，避免 Prisma 关系和内部审计字段泄漏到管理端。
+    const publicVersion = omitPersistedConfigInternals(version);
     return {
-      ...version,
+      ...publicVersion,
       systemKey: version.template?.systemKey ?? null,
       source: version.sourceVersion ?? null,
-      stageModes: contract.stageModes,
       ratings: contract.ratings,
-      constraintProfiles: contract.constraintProfiles,
       reviewerRelationWeights: contract.reviewerRelationWeights,
       schedulePreset: contract.schedulePreset,
       notificationRules: contract.notificationRules,
@@ -579,15 +583,7 @@ export class ConfigTemplateService {
     return {
       name: version.name,
       description: version.description,
-      stageModes: {
-        SELF: version.selfStageMode,
-        PEER: version.peerStageMode,
-        MANAGER: version.managerStageMode,
-        AI: version.aiStageMode,
-      } as ConfigStageModes,
-      ratings: version.ratings as unknown as ConfigRatingDefinition[],
-      constraintProfiles:
-        version.constraintProfiles as unknown as ConfigConstraintProfiles,
+      ratings: toPublicRatings(version.ratings),
       reviewerRelationWeights: {
         ORG_OWNER: version.orgOwnerWeight.toString(),
         PROJECT_OWNER: version.projectOwnerWeight.toString(),
@@ -613,48 +609,18 @@ export class ConfigTemplateService {
   private toFormSubformContracts(
     subforms: ConfigVersionRecord['formBindings'][number]['formTemplateVersion']['subforms'],
   ): FormTemplateSubformContract[] {
-    return subforms.map((subform) => ({
-      type: subform.type,
-      title: subform.title,
-      description: subform.description,
-      sortOrder: subform.sortOrder,
-      dimensions: subform.dimensions.map((dimension) => ({
-        kind: dimension.kind,
-        audience: dimension.audience,
-        name: dimension.name,
-        description: dimension.description,
-        weight: dimension.weight?.toString() ?? null,
-        isCore: dimension.isCore,
-        sortOrder: dimension.sortOrder,
-        items: dimension.items.map((item) => ({
-          type: item.type,
-          title: item.title,
-          description: item.description,
-          placeholder: item.placeholder,
-          required: item.required,
-          sortOrder: item.sortOrder,
-          config: item.config as FormItemConfig | null,
-        })),
-      })),
-    }));
+    return toPerformanceSubformContracts(subforms);
   }
 
   private toPersistedContent(input: {
-    stageModes: ConfigStageModes;
     ratings: readonly ConfigRatingDefinition[];
-    constraintProfiles: ConfigConstraintProfiles;
     reviewerRelationWeights: ReviewerRelationWeight;
     schedulePreset: SchedulePreset;
     notificationRules:
       NotificationRules | ReplaceConfigTemplateDraftInput['notificationRules'];
   }) {
     return {
-      selfStageMode: input.stageModes.SELF,
-      peerStageMode: input.stageModes.PEER,
-      managerStageMode: input.stageModes.MANAGER,
-      aiStageMode: input.stageModes.AI,
-      ratings: this.inputJson(input.ratings),
-      constraintProfiles: this.inputJson(input.constraintProfiles),
+      ratings: this.inputJson(toPublicRatings(input.ratings)),
       orgOwnerWeight: input.reviewerRelationWeights.ORG_OWNER,
       projectOwnerWeight: input.reviewerRelationWeights.PROJECT_OWNER,
       peerWeight: input.reviewerRelationWeights.PEER,
@@ -689,7 +655,7 @@ export class ConfigTemplateService {
                       { sortOrder: 'asc' as const },
                     ],
                     include: {
-                      items: { orderBy: { sortOrder: 'asc' as const } },
+                      fields: { orderBy: { sortOrder: 'asc' as const } },
                     },
                   },
                 },

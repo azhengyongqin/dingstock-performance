@@ -54,6 +54,7 @@ export const RatingScoreBar = ({ ratings, disabled = false, onChange }: RatingSc
               minScore: Number(rating.minScore),
               maxScore: Number(rating.maxScore)
             })
+
             const width = Math.max(0, Number(rating.maxScore) - Number(rating.minScore))
 
             return (

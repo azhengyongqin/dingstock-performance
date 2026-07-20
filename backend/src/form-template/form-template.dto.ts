@@ -20,11 +20,24 @@ import {
 } from 'class-validator';
 import {
   PerfFormAudience,
-  PerfFormDimensionKind,
-  PerfFormItemType,
-  PerfFormSubformType,
+  PerfFormFieldRequiredRule,
+  PerfFormFieldType,
+  PerfFormScoringMethod,
+  PerfRatingSymbol,
   PerfJobLevelPrefix,
 } from '../generated/prisma/enums';
+
+const PERFORMANCE_SUBFORMS = ['SELF', 'PEER', 'MANAGER'] as const;
+const DIMENSION_TYPES = ['SCORING', 'NON_SCORING'] as const;
+const FIELD_TYPES = [
+  'SHORT_TEXT',
+  'LONG_TEXT',
+  'MARKDOWN',
+  'SINGLE_SELECT',
+  'MULTI_SELECT',
+  'ATTACHMENT',
+  'LINK',
+] as const;
 
 export class CreateFormTemplateDto {
   @IsString()
@@ -51,7 +64,7 @@ export class AnalyzeFormTemplatePrefixCoverageDto {
   versionIds!: number[];
 }
 
-class FormItemOptionDto {
+class FormFieldOptionDto {
   @IsString()
   @MinLength(1)
   @MaxLength(100)
@@ -63,11 +76,7 @@ class FormItemOptionDto {
   label!: string;
 }
 
-class FormItemConfigDto {
-  @IsOptional()
-  @IsBoolean()
-  employeeVisible?: boolean;
-
+class FormFieldConfigDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -88,8 +97,8 @@ class FormItemConfigDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
-  @Type(() => FormItemOptionDto)
-  options?: FormItemOptionDto[];
+  @Type(() => FormFieldOptionDto)
+  options?: FormFieldOptionDto[];
 
   @IsOptional()
   @Type(() => Number)
@@ -126,12 +135,18 @@ class FormItemConfigDto {
   allowedProtocols?: string[];
 }
 
-class FormTemplateItemDto {
-  @IsEnum(PerfFormItemType)
-  type!: PerfFormItemType;
-
+class FormTemplateFieldDto {
+  /** 新字段可省略 key，由服务端创建一次；已有字段必须回传原 key。 */
+  @IsOptional()
   @IsString()
   @MinLength(1)
+  @MaxLength(200)
+  key?: string;
+
+  @IsIn(FIELD_TYPES)
+  type!: PerfFormFieldType;
+
+  @IsString()
   @MaxLength(300)
   title!: string;
 
@@ -145,8 +160,13 @@ class FormTemplateItemDto {
   @MaxLength(2_000)
   placeholder?: string | null;
 
-  @IsBoolean()
-  required!: boolean;
+  @IsEnum(PerfFormFieldRequiredRule)
+  requiredRule!: PerfFormFieldRequiredRule;
+
+  @IsArray()
+  @ArrayUnique()
+  @IsEnum(PerfRatingSymbol, { each: true })
+  requiredLevels!: PerfRatingSymbol[];
 
   @Type(() => Number)
   @IsInt()
@@ -156,19 +176,24 @@ class FormTemplateItemDto {
   @IsOptional()
   @IsObject()
   @ValidateNested()
-  @Type(() => FormItemConfigDto)
-  config?: FormItemConfigDto | null;
+  @Type(() => FormFieldConfigDto)
+  config?: FormFieldConfigDto | null;
 }
 
 class FormTemplateDimensionDto {
-  @IsEnum(PerfFormDimensionKind)
-  kind!: PerfFormDimensionKind;
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  @MaxLength(200)
+  key?: string;
+
+  @IsIn(DIMENSION_TYPES)
+  type!: (typeof DIMENSION_TYPES)[number];
 
   @IsEnum(PerfFormAudience)
   audience!: PerfFormAudience;
 
   @IsString()
-  @MinLength(1)
   @MaxLength(300)
   name!: string;
 
@@ -176,6 +201,10 @@ class FormTemplateDimensionDto {
   @IsString()
   @MaxLength(2_000)
   description?: string | null;
+
+  @IsOptional()
+  @IsEnum(PerfFormScoringMethod)
+  scoringMethod?: PerfFormScoringMethod | null;
 
   @IsOptional()
   @Type(() => Number)
@@ -193,15 +222,15 @@ class FormTemplateDimensionDto {
   sortOrder!: number;
 
   @IsArray()
-  @ArrayUnique((item: FormTemplateItemDto) => item.sortOrder)
+  @ArrayUnique((field: FormTemplateFieldDto) => field.sortOrder)
   @ValidateNested({ each: true })
-  @Type(() => FormTemplateItemDto)
-  items!: FormTemplateItemDto[];
+  @Type(() => FormTemplateFieldDto)
+  fields!: FormTemplateFieldDto[];
 }
 
 class FormTemplateSubformDto {
-  @IsEnum(PerfFormSubformType)
-  type!: PerfFormSubformType;
+  @IsIn(PERFORMANCE_SUBFORMS)
+  type!: (typeof PERFORMANCE_SUBFORMS)[number];
 
   @IsString()
   @MinLength(1)
@@ -226,8 +255,8 @@ class FormTemplateSubformDto {
 
 export class ReplaceFormTemplateDraftDto extends CreateFormTemplateDto {
   @IsArray()
-  @ArrayMinSize(4)
-  @ArrayMaxSize(4)
+  @ArrayMinSize(3)
+  @ArrayMaxSize(3)
   @ArrayUnique((subform: FormTemplateSubformDto) => subform.type)
   @ValidateNested({ each: true })
   @Type(() => FormTemplateSubformDto)

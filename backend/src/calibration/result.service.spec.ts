@@ -60,7 +60,6 @@ describe('ResultService 不可变结果版本', () => {
     id: 7,
     cycleId: 1,
     employeeOpenId: 'ou_employee',
-    isPromotionEnabled: true,
     status: 'CALIBRATED',
     cycle: {
       id: 1,
@@ -111,47 +110,33 @@ describe('ResultService 不可变结果版本', () => {
     evaluationSubmissions: [
       {
         stage: 'SELF',
-        items: [
+        dimensionAnswers: [
           {
             subformKey: 'subform:SELF',
             dimensionKey: 'self:summary',
-            itemKey: 'self:summary:text',
-            itemType: 'LONG_TEXT',
-            rawLevel: null,
-            rawScore: null,
-            value: '完成重点项目交付',
-          },
-          {
-            subformKey: 'subform:PROMOTION',
-            dimensionKey: 'promotion:self',
-            itemKey: 'promotion:self:text',
-            itemType: 'LONG_TEXT',
-            rawLevel: null,
-            rawScore: null,
-            value: '晋升自述',
+            fields: [
+              {
+                fieldKey: 'self:summary:text',
+                fieldType: 'MARKDOWN',
+                value: '新版字段：完成重点项目交付',
+              },
+            ],
           },
         ],
       },
       {
         stage: 'MANAGER',
-        items: [
+        dimensionAnswers: [
           {
             subformKey: 'subform:MANAGER',
             dimensionKey: 'manager:comment',
-            itemKey: 'manager:comment:text',
-            itemType: 'LONG_TEXT',
-            rawLevel: null,
-            rawScore: null,
-            value: 'Leader 公开评语',
-          },
-          {
-            subformKey: 'subform:PROMOTION',
-            dimensionKey: 'promotion:leader',
-            itemKey: 'promotion:leader:conclusion',
-            itemType: 'SINGLE_SELECT',
-            rawLevel: null,
-            rawScore: null,
-            value: '推荐晋升',
+            fields: [
+              {
+                fieldKey: 'manager:comment:text',
+                fieldType: 'LONG_TEXT',
+                value: 'Leader 公开评语',
+              },
+            ],
           },
         ],
       },
@@ -167,11 +152,12 @@ describe('ResultService 不可变结果版本', () => {
                 key: 'self:summary',
                 audience: 'EMPLOYEE',
                 name: '工作总结',
-                items: [
+                fields: [
                   {
                     key: 'self:summary:text',
                     title: '本期工作总结',
-                    type: 'LONG_TEXT',
+                    type: 'MARKDOWN',
+                    requiredRule: 'ALWAYS',
                   },
                 ],
               },
@@ -185,20 +171,16 @@ describe('ResultService 不可变结果版本', () => {
                 key: 'manager:comment',
                 audience: 'LEADER',
                 name: '综合评语',
-                items: [
+                fields: [
                   {
                     key: 'manager:comment:text',
                     title: 'Leader 评语',
                     type: 'LONG_TEXT',
+                    requiredRule: 'OPTIONAL',
                   },
                 ],
               },
             ],
-          },
-          {
-            key: 'subform:PROMOTION',
-            type: 'PROMOTION',
-            dimensions: [],
           },
         ],
       },
@@ -246,11 +228,23 @@ describe('ResultService 不可变结果版本', () => {
             dimensions: [
               expect.objectContaining({ name: '核心业绩', score: '92.00' }),
             ],
-            comments: [expect.objectContaining({ value: 'Leader 公开评语' })],
+            fields: [
+              expect.objectContaining({
+                fieldKey: 'manager:comment:text',
+                value: 'Leader 公开评语',
+              }),
+            ],
           }),
           self: expect.objectContaining({
             level: 'A',
-            items: [expect.objectContaining({ value: '完成重点项目交付' })],
+            fields: [
+              expect.objectContaining({
+                fieldKey: 'self:summary:text',
+                title: '本期工作总结',
+                type: 'MARKDOWN',
+                value: '新版字段：完成重点项目交付',
+              }),
+            ],
           }),
           promotion: null,
         }),
@@ -265,65 +259,17 @@ describe('ResultService 不可变结果版本', () => {
       tx,
     );
     expect(JSON.stringify(tx.perfResultVersion.create.mock.calls)).not.toMatch(
-      /内部敏感校准|PEER|aiReport|reviewerOpenId|relationAggregates|晋升自述|推荐晋升/,
+      /内部敏感校准|PEER|aiReport|reviewerOpenId|relationAggregates|itemKey|itemType|"items"/,
     );
   });
 
-  it('仅在表单项显式配置 employeeVisible 时向员工发布 Leader 晋升结论', async () => {
-    tx.perfParticipant.findUnique.mockResolvedValue({
-      ...participant,
-      formSnapshot: {
-        content: {
-          subforms: [
-            ...participant.formSnapshot.content.subforms.slice(0, 2),
-            {
-              key: 'subform:PROMOTION',
-              type: 'PROMOTION',
-              dimensions: [
-                {
-                  key: 'promotion:self',
-                  audience: 'EMPLOYEE',
-                  name: '员工晋升材料',
-                  items: [
-                    {
-                      key: 'promotion:self:text',
-                      title: '晋升自述',
-                      type: 'LONG_TEXT',
-                    },
-                  ],
-                },
-                {
-                  key: 'promotion:leader',
-                  audience: 'LEADER',
-                  name: 'Leader 晋升结论',
-                  items: [
-                    {
-                      key: 'promotion:leader:conclusion',
-                      title: '晋升结论',
-                      type: 'SINGLE_SELECT',
-                      config: { employeeVisible: true },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
-    });
-
+  it('新结果版本不再从旧晋升评估项拼接内容', async () => {
     await service.publishCycle('ou_hr', 1, [7]);
 
     expect(tx.perfResultVersion.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         resultSnapshot: expect.objectContaining({
-          promotion: {
-            visible: true,
-            items: [
-              expect.objectContaining({ value: '晋升自述' }),
-              expect.objectContaining({ value: '推荐晋升' }),
-            ],
-          },
+          promotion: null,
         }),
       }),
     });
@@ -563,9 +509,12 @@ describe('ResultService 不可变结果版本', () => {
           finalLevel: 'A',
           employeeExplanation: '持续交付高质量结果',
           resultSnapshot: {
-            manager: { dimensions: [], comments: [] },
-            self: { items: [] },
-            promotion: null,
+            manager: { dimensions: [], fields: [] },
+            self: { fields: [] },
+            promotion: {
+              visible: true,
+              items: [{ title: '晋升陈述', value: '历史员工可见内容' }],
+            },
             peer: { reviewerOpenId: 'ou_secret_reviewer' },
             aiReport: { referenceLevel: 'S' },
             calibrationNote: '内部敏感讨论',
@@ -597,6 +546,14 @@ describe('ResultService 不可变结果版本', () => {
         finalLevel: 'A',
         previousFinalLevel: 'B',
         confirmedAt: null,
+        resultSnapshot: {
+          manager: { dimensions: [], fields: [] },
+          self: { fields: [] },
+          promotion: {
+            visible: true,
+            items: [{ title: '晋升陈述', value: '历史员工可见内容' }],
+          },
+        },
       },
     });
     expect(prisma.perfParticipant.findFirst).toHaveBeenCalledWith(

@@ -2,26 +2,16 @@
 
 import { useState } from 'react'
 
-import type {
-  PerfConfigTemplateVersion,
-  PerfFormTemplateVersionSummary
-} from '@/lib/perf-api'
+import type { PerfConfigTemplateVersion, PerfFormTemplateVersionSummary } from '@/lib/perf-api'
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { ConfigRatingsEditor } from './config-ratings-editor'
 import type { ConfigTemplateSection } from './config-template-utils'
-import {
-  BindingsSection,
-  ConstraintsSection,
-  RelationsSection,
-  ScheduleSection,
-  StageModesSection
-} from './config-rule-sections'
+import { BindingsSection, RelationsSection, ScheduleSection } from './config-rule-sections'
 
 export const CONFIG_EDITOR_SECTIONS: Array<{ value: ConfigTemplateSection; label: string }> = [
-  { value: 'ratings', label: '评级与模式' },
-  { value: 'constraints', label: '等级约束' },
+  { value: 'ratings', label: '评级区间' },
   { value: 'relations', label: '关系权重' },
   { value: 'bindings', label: '表单绑定' },
   { value: 'schedule', label: '日程通知' }
@@ -35,6 +25,7 @@ type Props = {
   section?: ConfigTemplateSection
   onSectionChange?: (section: ConfigTemplateSection) => void
   visibleSections?: ConfigTemplateSection[]
+
   /** 由外层导航接管时隐藏内层 Tabs，只渲染当前 section 内容 */
   hideSectionTabs?: boolean
 }
@@ -48,29 +39,19 @@ type SectionBodyProps = {
 }
 
 /** 规则配置某一子区块正文（无导航）。 */
-export const ConfigTemplateEditorSection = ({
-  section,
-  value,
-  candidates,
-  editable,
-  onChange
-}: SectionBodyProps) => {
+export const ConfigTemplateEditorSection = ({ section, value, candidates, editable, onChange }: SectionBodyProps) => {
   const sectionProps = { value, candidates, editable, onChange }
 
   if (section === 'ratings') {
     return (
-      <div className='flex flex-col gap-6'>
-        <StageModesSection {...sectionProps} />
-        <ConfigRatingsEditor
-          ratings={value.ratings}
-          editable={editable}
-          onChange={ratings => onChange({ ...value, ratings })}
-        />
-      </div>
+      <ConfigRatingsEditor
+        ratings={value.ratings}
+        editable={editable}
+        onChange={ratings => onChange({ ...value, ratings })}
+      />
     )
   }
 
-  if (section === 'constraints') return <ConstraintsSection {...sectionProps} />
   if (section === 'relations') return <RelationsSection {...sectionProps} />
   if (section === 'bindings') return <BindingsSection {...sectionProps} />
   if (section === 'schedule') return <ScheduleSection {...sectionProps} />
@@ -91,6 +72,7 @@ const ConfigTemplateEditor = ({
 }: Props) => {
   const [internalSection, setInternalSection] = useState<ConfigTemplateSection>(section)
   const requestedSection = onSectionChange ? section : internalSection
+
   const activeSection = visibleSections.includes(requestedSection)
     ? requestedSection
     : (visibleSections[0] ?? 'ratings')
@@ -122,9 +104,6 @@ const ConfigTemplateEditor = ({
 
       <TabsContent value='ratings' className='flex flex-col gap-6'>
         <ConfigTemplateEditorSection section='ratings' {...sectionProps} />
-      </TabsContent>
-      <TabsContent value='constraints'>
-        <ConfigTemplateEditorSection section='constraints' {...sectionProps} />
       </TabsContent>
       <TabsContent value='relations'>
         <ConfigTemplateEditorSection section='relations' {...sectionProps} />

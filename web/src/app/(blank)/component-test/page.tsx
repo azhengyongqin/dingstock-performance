@@ -23,7 +23,6 @@ import { toast } from 'sonner'
 
 import Header from '@/components/layout/Header'
 import { LarkMemberPickerDialog, MemberPill, type LarkPickerMember } from '@/components/shared/lark'
-import { MarkdownEditor } from '@/components/shared/markdown'
 import {
   DatePicker,
   DateRangePicker,
@@ -53,6 +52,7 @@ import type {
   PerfCycleSetupParticipant,
   PerfEvalFormSubform,
   PerfFormTemplateVersion,
+  PerfLegacyPromotionArchive,
   PerfManagerEvaluationContext,
   PerfPeerEvaluationContext,
   PerfParticipantPrefixCheck
@@ -64,17 +64,22 @@ import ActiveConfigImpactDialog from '@/views/cycles/edit/active-config-impact-d
 import OkrReferencePreview from '@/views/component-test/okr-reference-preview'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
-import { buildSubmitPayload } from '@/views/self-review/evaluation-form-types'
+import { buildDimensionSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
 import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
 import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
 import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
 import OrgMemberMultiSelectPreview from './org-member-multi-select-preview'
-import FormTemplateEditor from '@/views/settings/form-templates/form-template-editor'
+import MarkdownPreview from './markdown-preview'
+import FormTemplateEditor, { FormTemplateEditorSection } from '@/views/settings/form-templates/form-template-editor'
+import FormTemplatePreview from '@/views/settings/form-templates/form-template-preview'
+import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-template-utils'
+
 import ConfigTemplateEditor from '@/views/settings/templates/config-template-editor'
 import ManagerReviewFill from '@/views/review-tasks/fill/manager-review-fill'
 import PeerReviewFill from '@/views/review-tasks/fill/peer-review-fill'
+import { LegacyPromotionArchiveDetails } from '@/views/settings/legacy-promotion-archives'
 
 type ComponentKey =
   | 'date-time'
@@ -98,6 +103,7 @@ type ComponentKey =
   | 'scrollable-tabs-list'
   | 'peer-review-analysis'
   | 'evaluation-reference-section'
+  | 'legacy-promotion-archive'
 
 type ComponentMenuItem = {
   key: ComponentKey
@@ -164,7 +170,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'form-template',
     title: '评估表单设计器',
-    description: '四类子表单 / 维度 / 评估项',
+    description: '三类绩效子表单 / 计分维度 / 表单字段',
     icon: FileStackIcon
   },
   {
@@ -200,7 +206,7 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
   {
     key: 'evaluation-form',
     title: '动态评估表单',
-    description: '9 种评估项类型 / 必填校验 / 禁用态',
+    description: '7 种表单字段类型 / 必填校验 / 禁用态',
     icon: ListChecksIcon
   },
   {
@@ -232,6 +238,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '评估参考板块',
     description: '等级行两端对齐 / 浅灰内容底',
     icon: ListChecksIcon
+  },
+  {
+    key: 'legacy-promotion-archive',
+    title: '旧晋升归档详情',
+    description: '安全投影 / 只读文本 / 附件链接',
+    icon: HistoryIcon
   }
 ]
 
@@ -442,39 +454,6 @@ const FormControlsPreview = () => {
   )
 }
 
-/** 共享 Markdown 能力示例：左侧富文本编辑，右侧实时验证持久化字符串的只读渲染结果。 */
-const MarkdownPreview = () => {
-  const [content, setContent] = useState(
-    '## 本周期总结\n\n完成了 **关键目标**，并沉淀以下成果：\n\n- 交付绩效评审流程\n- 优化跨团队协作\n\n> 下一周期继续提升交付效率。'
-  )
-
-  return (
-    <div className='grid gap-4 xl:grid-cols-2'>
-      <Card>
-        <CardHeader>
-          <CardTitle>Novel 源码编辑态</CardTitle>
-          <CardDescription>
-            支持 Ask AI、完整斜杠菜单、文本格式/颜色/公式、媒体嵌入、块拖拽和图片选择/粘贴/拖入/缩放。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <MarkdownEditor ariaLabel='Markdown 示例编辑器' value={content} onChange={setContent} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>总结只读态</CardTitle>
-          <CardDescription>使用纯 Markdown 渲染组件，不显示工具栏或可编辑区域。</CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-4'>
-          <MarkdownEditor ariaLabel='Markdown 只读示例' value={content} onChange={() => {}} disabled />
-          <pre className='bg-muted max-h-48 overflow-auto rounded-md p-3 text-xs whitespace-pre-wrap'>{content}</pre>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
 const FeedbackPreview = () => (
   <div className='grid gap-4 xl:grid-cols-2'>
     <Card>
@@ -612,26 +591,103 @@ const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
   sourceVersionId: null,
   updatedAt: '2026-07-14T12:00:00.000Z',
   subforms: [
-    { type: 'SELF', title: '员工自评', sortOrder: 0, dimensions: [] },
+    {
+      type: 'SELF',
+      title: '员工自评',
+      sortOrder: 0,
+      dimensions: [
+        {
+          key: 'component-test:self:result',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'EMPLOYEE',
+          name: '目标达成',
+          description: '在维度上直接输入 0～100 分。',
+          weight: 100,
+          isCore: true,
+          sortOrder: 0,
+          fields: [
+            {
+              key: 'component-test:self:result:comment',
+              type: 'MARKDOWN',
+              title: '关键成果说明',
+              requiredRule: 'CONDITIONAL',
+              requiredLevels: ['S', 'C'],
+              sortOrder: 0
+            }
+          ]
+        },
+        {
+          key: 'component-test:self:guide',
+          type: 'NON_SCORING',
+          scoringMethod: null,
+          audience: 'EMPLOYEE',
+          name: '填写说明',
+          description: '非计分维度不展示评分、占比与核心选项。',
+          weight: null,
+          isCore: false,
+          sortOrder: 1,
+          fields: []
+        }
+      ]
+    },
     {
       type: 'PEER',
       title: '360°评估',
       sortOrder: 1,
       dimensions: [
         {
-          kind: 'REGULAR',
+          key: 'component-test:peer:contribution',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
           audience: 'REVIEWER',
           name: '工作贡献与责任担当',
           description: '仅评价同级协作中能够观察到的行为。',
           weight: 35,
           isCore: true,
           sortOrder: 0,
-          items: [{ type: 'RATING', title: '请选择该维度评级', required: true, sortOrder: 0 }]
+          fields: [
+            {
+              key: 'component-test:peer:contribution:comment',
+              type: 'LONG_TEXT',
+              title: '补充评价',
+              requiredRule: 'CONDITIONAL',
+              requiredLevels: ['S', 'C'],
+              sortOrder: 0
+            }
+          ]
+        },
+        {
+          key: 'component-test:peer:collaboration',
+          type: 'SCORING',
+          scoringMethod: 'SCORE',
+          audience: 'REVIEWER',
+          name: '协作效率',
+          weight: 65,
+          isCore: false,
+          sortOrder: 1,
+          fields: []
         }
       ]
     },
-    { type: 'MANAGER', title: '上级评估', sortOrder: 2, dimensions: [] },
-    { type: 'PROMOTION', title: '晋升评估', sortOrder: 3, dimensions: [] }
+    {
+      type: 'MANAGER',
+      title: '上级评估',
+      sortOrder: 2,
+      dimensions: [
+        {
+          key: 'component-test:manager:result',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
+          audience: 'LEADER',
+          name: '综合绩效',
+          weight: 100,
+          isCore: true,
+          sortOrder: 0,
+          fields: []
+        }
+      ]
+    }
   ]
 }
 
@@ -639,15 +695,43 @@ const FORM_TEMPLATE_PREVIEW_VALUE: PerfFormTemplateVersion = {
 const FormTemplateEditorPreview = () => {
   const [draft, setDraft] = useState(FORM_TEMPLATE_PREVIEW_VALUE)
 
+  const errorMarkers = collectFormIssueMarkers([
+    {
+      code: 'DIMENSION_WEIGHT_INVALID',
+      path: 'subforms.SELF.dimensions[0].weight',
+      message: '员工自评计分维度占比必须大于 0%'
+    },
+    {
+      code: 'FIELD_CONDITIONAL_RULE_INVALID',
+      path: 'subforms.SELF.dimensions[0].fields[0].requiredLevels',
+      message: '条件必填至少选择一个等级'
+    }
+  ]).get('SELF')
+
   return (
     <div className='flex flex-col gap-4'>
       <Card>
         <CardHeader>
           <CardTitle>草稿编辑态</CardTitle>
-          <CardDescription>验证四个 Tab、维度排序、核心标记与受控评估项编辑。</CardDescription>
+          <CardDescription>验证三个绩效 Tab、维度直接计分、核心标记与表单字段编辑。</CardDescription>
         </CardHeader>
         <CardContent>
           <FormTemplateEditor value={draft} editable onChange={setDraft} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>发布校验错误态</CardTitle>
+          <CardDescription>验证导航到维度属性与字段规则后，错误卡片和具体控件能清晰标红。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplateEditorSection
+            subformType='SELF'
+            value={draft}
+            editable
+            issueMarkers={errorMarkers}
+            onChange={setDraft}
+          />
         </CardContent>
       </Card>
       <Card>
@@ -657,6 +741,15 @@ const FormTemplateEditorPreview = () => {
         </CardHeader>
         <CardContent>
           <FormTemplateEditor value={{ ...draft, status: 'PUBLISHED' }} editable={false} onChange={() => {}} />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>填写结构预览</CardTitle>
+          <CardDescription>同时覆盖分数计分、评级计分、非计分维度与条件必填字段。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <FormTemplatePreview value={draft} />
         </CardContent>
       </Card>
     </div>
@@ -671,25 +764,12 @@ const CONFIG_TEMPLATE_PREVIEW_VALUE: PerfConfigTemplateVersion = {
   version: 1,
   status: 'DRAFT',
   updatedAt: '2026-07-14T12:00:00.000Z',
-  stageModes: { SELF: 'DIRECT_RATING', PEER: 'WEIGHTED_RATING', MANAGER: 'WEIGHTED_SCORE', AI: 'DIRECT_RATING' },
   ratings: [
-    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
-    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
-    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
-    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95' },
+    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85' },
+    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70' },
+    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50' }
   ],
-  constraintProfiles: {
-    WEIGHTED_RATING: [
-      { id: 'rating-core-force', type: 'CORE_RATING_FORCE', enabled: true, triggerRating: 'C', targetLevel: 'C' },
-      { id: 'rating-core-cap', type: 'CORE_RATING_CAP', enabled: true, triggerRating: 'B', targetLevel: 'B' },
-      { id: 'rating-any-cap', type: 'ANY_RATING_CAP', enabled: true, triggerRating: 'C', targetLevel: 'B' }
-    ],
-    WEIGHTED_SCORE: [
-      { id: 'score-core-force', type: 'CORE_SCORE_FORCE', enabled: true, threshold: '60', targetLevel: 'C' },
-      { id: 'score-core-cap', type: 'CORE_SCORE_CAP', enabled: true, threshold: '80', targetLevel: 'B' },
-      { id: 'score-any-cap', type: 'ANY_SCORE_CAP', enabled: true, threshold: '60', targetLevel: 'B' }
-    ]
-  },
   reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' },
   formTemplateVersionIds: [9001],
   schedulePreset: {
@@ -724,7 +804,7 @@ const ConfigTemplateEditorPreview = () => {
       <Card>
         <CardHeader>
           <CardTitle>配置模板草稿态</CardTitle>
-          <CardDescription>验证固定 S/A/B/C、阶段模式、约束、关系权重、表单绑定与日程通知。</CardDescription>
+          <CardDescription>验证固定 S/A/B/C、统一约束、关系权重、表单绑定与日程通知。</CardDescription>
         </CardHeader>
         <CardContent>
           <ConfigTemplateEditor value={draft} candidates={[FORM_TEMPLATE_PREVIEW_VALUE]} editable onChange={setDraft} />
@@ -757,7 +837,6 @@ const CYCLE_SETUP_PARTICIPANTS: PerfCycleSetupParticipant[] = [
     departmentIdSnapshot: null,
     jobLevelCodeSnapshot: 'D5',
     jobLevelPrefixSnapshot: 'D',
-    isPromotionEnabled: false,
     status: 'ACTIVE',
     employee: { open_id: 'ou_cycle_preview', name: '周期示例员工' },
     leader: null,
@@ -845,7 +924,6 @@ const CycleSetupPreview = () => {
         onAddMember={() => {}}
         onAddDepartment={() => {}}
         onRemoveMember={() => {}}
-        onTogglePromotion={() => {}}
         onPlanChange={setPlan}
         onSavePlan={async () => true}
         onRunChecks={() => {}}
@@ -947,9 +1025,7 @@ const SNAPSHOT_PROVENANCE_PREVIEW_VALUE: PerfCycleConfigSnapshot = {
     name: CONFIG_TEMPLATE_PREVIEW_VALUE.name,
     version: CONFIG_TEMPLATE_PREVIEW_VALUE.version
   },
-  stageModes: CONFIG_TEMPLATE_PREVIEW_VALUE.stageModes,
   ratings: CONFIG_TEMPLATE_PREVIEW_VALUE.ratings,
-  constraintProfiles: CONFIG_TEMPLATE_PREVIEW_VALUE.constraintProfiles,
   reviewerRelationWeights: CONFIG_TEMPLATE_PREVIEW_VALUE.reviewerRelationWeights,
   notificationRules: CONFIG_TEMPLATE_PREVIEW_VALUE.notificationRules,
   allowStageOverlap: CONFIG_TEMPLATE_PREVIEW_VALUE.schedulePreset.allowStageOverlap,
@@ -982,8 +1058,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '大幅超出预期，可作为标杆案例',
     minScore: '90',
     maxScore: '100',
-    mappingScore: '95',
-    commentRequired: true
+    mappingScore: '95'
   },
   {
     symbol: 'A',
@@ -991,8 +1066,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '完全达成目标，多项亮点',
     minScore: '80',
     maxScore: '90',
-    mappingScore: '85',
-    commentRequired: false
+    mappingScore: '85'
   },
   {
     symbol: 'B',
@@ -1000,8 +1074,7 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '基本达成目标，符合预期',
     minScore: '60',
     maxScore: '80',
-    mappingScore: '70',
-    commentRequired: false
+    mappingScore: '70'
   },
   {
     symbol: 'C',
@@ -1009,12 +1082,11 @@ const EVALUATION_FORM_RATINGS: PerfConfigTemplateRating[] = [
     description: '未达成目标，需重点关注',
     minScore: '0',
     maxScore: '60',
-    mappingScore: '50',
-    commentRequired: true
+    mappingScore: '50'
   }
 ]
 
-/** Ticket 06 业务组件示例：覆盖全部 9 种评估项类型 + 必填/禁用态，固定 mock 子表单数据，不访问后端 */
+/** 新版员工自评示例：维度直接评分，非计分字段只负责补充说明。 */
 const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
   {
     key: 'subform:SELF',
@@ -1023,38 +1095,57 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
     sortOrder: 0,
     dimensions: [
       {
-        key: 'dimension:SELF:EMPLOYEE:0',
+        key: 'dimension:self:result',
+        type: 'SCORING',
+        scoringMethod: 'RATING',
         audience: 'EMPLOYEE',
-        name: '综合评估',
-        description: '按维度逐项完成自评',
+        name: '结果贡献',
+        description: '评级直接属于维度；选择 S 时复盘总结变为必填。',
+        weight: '60',
         isCore: true,
         sortOrder: 0,
-        items: [
-          { key: 'item:rating', type: 'RATING', title: '本周期综合评级', required: true, sortOrder: 0 },
+        fields: [
           {
-            key: 'item:score',
-            type: 'SCORE',
-            title: '目标完成度',
-            description: '按 OKR 完成百分比填写',
-            required: false,
-            sortOrder: 1
-          },
-          {
-            key: 'item:short',
+            key: 'field:self:summary',
             type: 'SHORT_TEXT',
             title: '一句话总结',
-            required: true,
-            sortOrder: 2,
+            requiredRule: 'ALWAYS',
+            sortOrder: 0,
             config: { maxLength: 30 }
           },
-          { key: 'item:long', type: 'LONG_TEXT', title: '详细说明', required: false, sortOrder: 3 },
-          { key: 'item:markdown', type: 'MARKDOWN', title: '复盘总结', required: true, sortOrder: 4 },
           {
-            key: 'item:single',
+            key: 'field:self:reflection',
+            type: 'MARKDOWN',
+            title: '标杆复盘总结',
+            requiredRule: 'CONDITIONAL',
+            requiredLevels: ['S'],
+            sortOrder: 1
+          }
+        ]
+      },
+      {
+        key: 'dimension:self:execution',
+        type: 'SCORING',
+        scoringMethod: 'SCORE',
+        audience: 'EMPLOYEE',
+        name: '目标执行',
+        description: '支持输入 0～100、最多两位小数。',
+        weight: '40',
+        sortOrder: 1,
+        fields: [
+          {
+            key: 'field:self:details',
+            type: 'LONG_TEXT',
+            title: '详细说明',
+            requiredRule: 'OPTIONAL',
+            sortOrder: 0
+          },
+          {
+            key: 'field:self:intention',
             type: 'SINGLE_SELECT',
-            title: '是否有晋升意愿',
-            required: true,
-            sortOrder: 5,
+            title: '下周期挑战意愿',
+            requiredRule: 'ALWAYS',
+            sortOrder: 1,
             config: {
               options: [
                 { value: 'YES', label: '是' },
@@ -1063,12 +1154,12 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
             }
           },
           {
-            key: 'item:multi',
+            key: 'field:self:collaboration',
             type: 'MULTI_SELECT',
             title: '本周期协作方式',
             description: '至少选择 1 项，最多选择 2 项',
-            required: true,
-            sortOrder: 6,
+            requiredRule: 'ALWAYS',
+            sortOrder: 2,
             config: {
               options: [
                 { value: 'A', label: '跨团队协作' },
@@ -1078,33 +1169,33 @@ const EVALUATION_FORM_SUBFORMS: PerfEvalFormSubform[] = [
               minSelections: 1,
               maxSelections: 2
             }
-          },
+          }
+        ]
+      },
+      {
+        key: 'dimension:self:evidence',
+        type: 'NON_SCORING',
+        scoringMethod: null,
+        audience: 'EMPLOYEE',
+        name: '补充材料',
+        description: '非计分维度只展示字段，不参与结果计算。',
+        sortOrder: 2,
+        fields: [
           {
-            key: 'item:attachment',
+            key: 'field:self:attachment',
             type: 'ATTACHMENT',
             title: '证明材料',
-            required: false,
-            sortOrder: 7,
+            requiredRule: 'OPTIONAL',
+            sortOrder: 0,
             config: { maxFiles: 3 }
           },
-          { key: 'item:link', type: 'LINK', title: '参考链接', required: false, sortOrder: 8 }
-        ]
-      }
-    ]
-  },
-  {
-    key: 'subform:PROMOTION',
-    type: 'PROMOTION',
-    title: '晋升评估',
-    sortOrder: 1,
-    dimensions: [
-      {
-        key: 'dimension:PROMOTION:EMPLOYEE:0',
-        audience: 'EMPLOYEE',
-        name: '突出贡献',
-        sortOrder: 0,
-        items: [
-          { key: 'item:promotion-text', type: 'MARKDOWN', title: '突出工作产出结果', required: true, sortOrder: 0 }
+          {
+            key: 'field:self:link',
+            type: 'LINK',
+            title: '参考链接',
+            requiredRule: 'OPTIONAL',
+            sortOrder: 1
+          }
         ]
       }
     ]
@@ -1120,10 +1211,13 @@ const EvaluationFormEditablePreview = () => {
     <div className='flex flex-col gap-4'>
       <Card>
         <CardContent className='flex items-center justify-between gap-3'>
-          <CardDescription>
-            点击「校验」触发与自评页提交前一致的必填/格式校验，观察错误如何内联展示在对应评估项下方。
-          </CardDescription>
-          <Button type='button' onClick={() => setErrors(buildSubmitPayload(EVALUATION_FORM_SUBFORMS, answers).errors)}>
+          <CardDescription>点击「校验」触发与自评页提交前一致的维度评分、字段必填与格式校验。</CardDescription>
+          <Button
+            type='button'
+            onClick={() =>
+              setErrors(buildDimensionSubmitPayload(EVALUATION_FORM_SUBFORMS, answers, EVALUATION_FORM_RATINGS).errors)
+            }
+          >
             校验
           </Button>
         </CardContent>
@@ -1153,14 +1247,20 @@ const EvaluationFormEditablePreview = () => {
 const EvaluationFormDisabledPreview = () => (
   <EvaluationForm
     subforms={EVALUATION_FORM_SUBFORMS}
-    answers={{ 'item:rating': { rawLevel: 'A' }, 'item:multi': { value: ['A', 'B'] } }}
+    answers={{
+      'dimension:self:result': { rawLevel: 'A' },
+      'dimension:self:execution': { rawScoreText: '88.50' },
+      'field:self:summary': { value: '稳定交付核心目标' },
+      'field:self:intention': { value: 'YES' },
+      'field:self:collaboration': { value: ['A', 'B'] }
+    }}
     ratings={EVALUATION_FORM_RATINGS}
     disabled
     onAnswerChange={() => {}}
   />
 )
 
-/** Ticket 07 业务组件示例：PEER 仅展示 REVIEWER 可观察行为维度，不包含 SELF/PROMOTION 内容。 */
+/** 360° 示例只展示 REVIEWER 可观察行为维度，不混入其他阶段内容。 */
 const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
   {
     key: 'subform:PEER',
@@ -1170,14 +1270,15 @@ const PEER_EVALUATION_SUBFORMS: PerfEvalFormSubform[] = [
     dimensions: [
       {
         key: 'dimension:PEER:REVIEWER:0',
+        type: 'SCORING',
+        scoringMethod: 'RATING',
         audience: 'REVIEWER',
         name: '协作与责任担当',
         description: '只评价在协作中能够直接观察到的行为。',
         isCore: true,
         sortOrder: 0,
-        items: [
-          { key: 'item:peer-rating', type: 'RATING', title: '协作表现评级', required: true, sortOrder: 0 },
-          { key: 'item:peer-comment', type: 'LONG_TEXT', title: '具体行为事例', required: true, sortOrder: 1 }
+        fields: [
+          { key: 'field:peer-comment', type: 'LONG_TEXT', title: '具体行为事例', requiredRule: 'ALWAYS', sortOrder: 0 }
         ]
       }
     ]
@@ -1209,15 +1310,15 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     reviewerOpenId: 'ou_preview_reviewer',
     status: 'SUBMITTED',
     submittedAt: '2026-07-15T09:00:00.000Z',
-    items: [
+    dimensionAnswers: [
       {
         id: 1,
         submissionId: 100,
         subformKey: 'subform:PEER',
         dimensionKey: 'dimension:PEER:REVIEWER:0',
-        itemKey: 'item:peer-rating',
-        itemType: 'RATING',
-        rawLevel: 'A'
+        scoringMethod: 'RATING',
+        rawLevel: 'A',
+        fields: []
       }
     ]
   },
@@ -1230,15 +1331,21 @@ const PEER_REVIEW_PREVIEW_CONTEXT = {
     stage: 'SELF',
     reviewerOpenId: 'ou_preview_employee',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 901,
         submissionId: 90,
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-        itemKey: 'item:self-summary',
-        itemType: 'MARKDOWN',
-        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+        scoringMethod: null,
+        fields: [
+          {
+            id: 902,
+            fieldKey: 'field:self-summary',
+            fieldType: 'MARKDOWN',
+            value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+          }
+        ]
       }
     ]
   }
@@ -1248,9 +1355,9 @@ const PeerEvaluationFormPreview = () => (
   <PeerReviewFill assignmentId={11} previewContext={PEER_REVIEW_PREVIEW_CONTEXT} />
 )
 
-/** Ticket 09 业务组件示例：MANAGER 动态表单 + Leader 晋升区段 + 系统权威等级预览。 */
+/** 上级评估业务组件示例：混合计分维度、条件必填字段与系统权威等级预览。 */
 const MANAGER_REVIEW_PREVIEW_CONTEXT = {
-  participant: { id: 7, cycleId: 1, isPromotionEnabled: true },
+  participant: { id: 7, cycleId: 1 },
   cycle: {
     id: 1,
     name: '2026 上半年绩效',
@@ -1277,42 +1384,48 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
         dimensions: [
           {
             key: 'dimension:MANAGER:LEADER:0',
+            type: 'SCORING',
             audience: 'LEADER',
             name: '核心业绩',
-            weight: '100',
+            scoringMethod: 'SCORE',
+            weight: '60',
             isCore: true,
             sortOrder: 0,
-            items: [
-              { key: 'item:manager-score', type: 'SCORE', title: '业绩分数', required: true, sortOrder: 0 },
-              { key: 'item:manager-comment', type: 'LONG_TEXT', title: '业绩评语', required: true, sortOrder: 1 }
-            ]
-          }
-        ]
-      },
-      {
-        key: 'subform:PROMOTION',
-        type: 'PROMOTION',
-        title: '晋升评估',
-        sortOrder: 1,
-        dimensions: [
-          {
-            key: 'dimension:PROMOTION:LEADER:0',
-            audience: 'LEADER',
-            name: 'Leader 晋升结论',
-            sortOrder: 0,
-            items: [
+            fields: [
               {
-                key: 'item:promotion-conclusion',
-                type: 'SINGLE_SELECT',
-                title: '晋升建议',
-                required: true,
-                sortOrder: 0,
-                config: {
-                  options: [
-                    { value: 'PROMOTE', label: '建议晋升' },
-                    { value: 'DEFER', label: '暂缓晋升' }
-                  ]
-                }
+                key: 'field:manager-comment',
+                type: 'LONG_TEXT',
+                title: '业绩说明',
+                requiredRule: 'CONDITIONAL',
+                requiredLevels: ['S', 'C'],
+                sortOrder: 0
+              }
+            ]
+          },
+          {
+            key: 'dimension:MANAGER:LEADER:1',
+            type: 'SCORING',
+            audience: 'LEADER',
+            name: '价值观',
+            scoringMethod: 'RATING',
+            weight: '40',
+            isCore: false,
+            sortOrder: 1,
+            fields: []
+          },
+          {
+            key: 'dimension:MANAGER:LEADER:2',
+            type: 'NON_SCORING',
+            audience: 'LEADER',
+            name: '综合建议',
+            sortOrder: 2,
+            fields: [
+              {
+                key: 'field:manager-summary',
+                type: 'MARKDOWN',
+                title: '综合建议',
+                requiredRule: 'ALWAYS',
+                sortOrder: 0
               }
             ]
           }
@@ -1330,15 +1443,21 @@ const MANAGER_REVIEW_PREVIEW_CONTEXT = {
     stage: 'SELF',
     reviewerOpenId: 'ou_preview_employee',
     status: 'SUBMITTED',
-    items: [
+    dimensionAnswers: [
       {
         id: 901,
         submissionId: 90,
         subformKey: 'subform:SELF',
         dimensionKey: 'dimension:SELF:EMPLOYEE:0',
-        itemKey: 'item:self-summary',
-        itemType: 'MARKDOWN',
-        value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+        scoringMethod: null,
+        fields: [
+          {
+            id: 902,
+            fieldKey: 'field:self-summary',
+            fieldType: 'MARKDOWN',
+            value: '按期完成核心项目，并沉淀了跨团队协作方案。'
+          }
+        ]
       }
     ]
   },
@@ -1379,9 +1498,7 @@ const EvaluationFormPreview = () => (
     <Card>
       <CardHeader>
         <CardTitle>可编辑态</CardTitle>
-        <CardDescription>
-          覆盖 RATING/SCORE/SHORT_TEXT/LONG_TEXT/MARKDOWN/SINGLE_SELECT/MULTI_SELECT/ATTACHMENT/LINK 九种类型
-        </CardDescription>
+        <CardDescription>覆盖维度级 RATING/SCORE、非计分维度、七类表单字段与条件必填规则</CardDescription>
       </CardHeader>
       <CardContent>
         <EvaluationFormEditablePreview />
@@ -1431,8 +1548,8 @@ const ACTIVE_CONFIG_IMPACT_SAMPLE: ActivePerfCycleConfigImpact = {
     publishedParticipantCount: 4,
     confirmedParticipantCount: 3,
     automaticRecalibrationParticipantCount: 0,
-    affectedCalculationItemCount: 1,
-    changedCalculationItemCount: 1
+    affectedCalculationDimensionCount: 1,
+    changedCalculationDimensionCount: 1
   },
   stageChanges: [
     {
@@ -1455,14 +1572,14 @@ const ACTIVE_CONFIG_IMPACT_SAMPLE: ActivePerfCycleConfigImpact = {
       finalResultProtected: true
     }
   ],
-  calculationItemChanges: [
+  calculationDimensionChanges: [
     {
       participantId: 51,
       employeeOpenId: 'ou_employee_demo',
       submissionId: 62,
       stage: 'SELF',
       status: 'DRAFT',
-      itemKey: 'item:self-rating',
+      dimensionKey: 'dimension:self-rating',
       before: '85',
       after: '88',
       changed: true
@@ -1496,6 +1613,46 @@ const ActiveConfigImpactPreview = () => {
   )
 }
 
+const LEGACY_PROMOTION_ARCHIVE_PREVIEW: PerfLegacyPromotionArchive = {
+  id: 9801,
+  cycle: { id: 98, name: '2025 下半年绩效' },
+  participant: {
+    id: 981,
+    employee: { openId: 'ou_archive_preview', name: '归档示例员工', avatarUrl: null }
+  },
+  source: { type: 'EVALUATION_ITEM_RESULT', recordId: 991, createdAt: '2026-01-10T02:00:00.000Z' },
+  payload: {
+    kind: 'EVALUATION_ANSWER',
+    stage: 'SELF',
+    status: 'SUBMITTED',
+    submittedAt: '2026-01-10T02:00:00.000Z',
+    dimensionKey: 'legacy-promotion',
+    fieldKey: 'promotion-statement',
+    fieldType: 'LONG_TEXT',
+    rating: null,
+    score: null,
+    calculationScore: null,
+    entries: [
+      { kind: 'TEXT', label: '晋升陈述', content: '承担核心项目并形成可复用方法论。' },
+      { kind: 'LINK', label: '证明材料', url: 'https://example.com/legacy-evidence' }
+    ]
+  },
+  archivedAt: '2026-07-20T12:00:00.000Z'
+}
+
+/** 只用白名单条目展示历史内容，验证长文本与安全外链的只读状态。 */
+const LegacyPromotionArchivePreview = () => (
+  <Card>
+    <CardHeader>
+      <CardTitle>旧晋升答案安全投影</CardTitle>
+      <CardDescription>组件不接受原始 JSON；Markdown 按纯文本呈现，外链需由用户明确点击。</CardDescription>
+    </CardHeader>
+    <CardContent>
+      <LegacyPromotionArchiveDetails archive={LEGACY_PROMOTION_ARCHIVE_PREVIEW} />
+    </CardContent>
+  </Card>
+)
+
 const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }) => {
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
@@ -1517,6 +1674,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'scrollable-tabs-list') return <ScrollableTabsListPreview />
   if (activeComponent === 'peer-review-analysis') return <PeerReviewAnalysisPreview />
   if (activeComponent === 'evaluation-reference-section') return <EvaluationReferenceSectionPreview />
+  if (activeComponent === 'legacy-promotion-archive') return <LegacyPromotionArchivePreview />
 
   return <DateTimePreview />
 }
@@ -1525,9 +1683,8 @@ const ComponentTestPage = () => {
   const [activeComponent, setActiveComponent] = useState<ComponentKey>('date-time')
   const activeItem = COMPONENT_MENU.find(item => item.key === activeComponent) ?? COMPONENT_MENU[0]
 
+  // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
   return (
-
-    // 视口内固定高度：侧栏菜单与右侧预览各自滚动，避免菜单项被裁切后无法触及
     <div className='bg-muted/30 flex h-dvh flex-col overflow-hidden'>
       <Header />
       <main className='min-h-0 flex-1 overflow-hidden px-4 py-6 sm:px-6'>

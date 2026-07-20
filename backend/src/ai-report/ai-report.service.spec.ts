@@ -42,15 +42,24 @@ const submitted = (id: number, stage: string, value: unknown) => ({
   status: 'SUBMITTED',
   submittedAt: new Date(`2026-07-15T0${id}:00:00.000Z`),
   updatedAt: new Date(`2026-07-15T0${id}:00:00.000Z`),
-  items: [
+  dimensionAnswers: [
     {
       id: id * 10,
-      itemKey: `item:${stage}`,
-      itemType: 'LONG_TEXT',
+      subformKey: `subform:${stage}`,
+      dimensionKey: `dimension:${stage}`,
+      scoringMethod: 'RATING',
       rawLevel: null,
       rawScore: null,
       calculationScore: null,
-      value,
+      derivedLevel: null,
+      fields: [
+        {
+          id: id * 100,
+          fieldKey: `field:${stage}`,
+          fieldType: 'LONG_TEXT',
+          value,
+        },
+      ],
     },
   ],
 });
@@ -136,6 +145,12 @@ describe('AiReportService 独立异步参考', () => {
     expect(prisma.perfEvaluationSubmission.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({ status: 'SUBMITTED' }),
+        include: {
+          dimensionAnswers: {
+            include: { fields: { orderBy: { id: 'asc' } } },
+            orderBy: { id: 'asc' },
+          },
+        },
       }),
     );
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
@@ -154,12 +169,24 @@ describe('AiReportService 独立异步参考', () => {
         inputRevision: expect.stringMatching(/^[a-f0-9]{64}$/),
         inputSnapshot: expect.objectContaining({
           submissions: expect.arrayContaining([
-            expect.objectContaining({ id: 1, stage: 'SELF' }),
+            expect.objectContaining({
+              id: 1,
+              stage: 'SELF',
+              dimensionAnswers: [
+                expect.objectContaining({
+                  dimensionKey: 'dimension:SELF',
+                  fields: [expect.objectContaining({ fieldKey: 'field:SELF' })],
+                }),
+              ],
+            }),
             expect.objectContaining({ id: 3, stage: 'MANAGER' }),
           ]),
         }),
       }),
     });
+    expect(JSON.stringify(prisma.perfAiReport.create.mock.calls)).not.toMatch(
+      /itemKey|itemType|"items"/,
+    );
     expect(report).toEqual(
       expect.objectContaining({ id: 9, status: 'PENDING' }),
     );

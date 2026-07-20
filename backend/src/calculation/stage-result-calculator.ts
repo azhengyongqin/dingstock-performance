@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 
 export type DecimalInput = string | number;
-export type StageResultMode = 'WEIGHTED_RATING' | 'WEIGHTED_SCORE';
+export type DimensionScoringMethod = 'RATING' | 'SCORE';
 export type PerformanceLevel = 'S' | 'A' | 'B' | 'C';
 export type StageRelationType =
   'DIRECT' | 'LEADER' | 'ORG_OWNER' | 'PROJECT_OWNER' | 'PEER' | 'CROSS_DEPT';
@@ -11,7 +11,6 @@ export type StageCalculationErrorCode =
   | 'INVALID_SCORE'
   | 'INVALID_RATING_SCALE'
   | 'INVALID_RATING_INPUT'
-  | 'INVALID_CONSTRAINT_RULE'
   | 'INVALID_STAGE_STRUCTURE';
 
 export class StageCalculationError extends Error {
@@ -52,22 +51,6 @@ export type StageDimensionInput = {
   relations: StageRelationInput[];
 };
 
-export type RatingConstraintRule = {
-  id: string;
-  type: 'CORE_RATING_FORCE' | 'CORE_RATING_CAP' | 'ANY_RATING_CAP';
-  triggerRating: PerformanceLevel;
-  targetLevel: PerformanceLevel;
-};
-
-export type ScoreConstraintRule = {
-  id: string;
-  type: 'CORE_SCORE_FORCE' | 'CORE_SCORE_CAP' | 'ANY_SCORE_CAP';
-  threshold: DecimalInput;
-  targetLevel: PerformanceLevel;
-};
-
-export type StageConstraintRule = RatingConstraintRule | ScoreConstraintRule;
-
 export type ConfirmedRedLine = {
   findingId: string;
   category: string;
@@ -76,11 +59,9 @@ export type ConfirmedRedLine = {
 
 export type MatchedConstraint = {
   id: string;
-  type: StageConstraintRule['type'] | 'CONFIRMED_RED_LINE';
+  type: 'CONFIRMED_RED_LINE';
   dimensionIds: string[];
   parameters: {
-    triggerRating?: PerformanceLevel;
-    threshold?: string;
     category?: string;
     reason?: string;
     targetLevel: PerformanceLevel;
@@ -91,10 +72,9 @@ export type MatchedConstraint = {
 };
 
 export type StageResultInput = {
-  mode: StageResultMode;
+  scoringMethod: DimensionScoringMethod;
   ratings: RatingScaleEntry[];
   dimensions: StageDimensionInput[];
-  constraints: StageConstraintRule[];
   confirmedRedLine: ConfirmedRedLine | null;
 };
 
@@ -128,7 +108,6 @@ export type StageDimensionResult = {
 };
 
 export type StageResult = {
-  mode: StageResultMode;
   unroundedCompositeScore: string;
   compositeScore: string;
   initialLevel: PerformanceLevel;
@@ -151,7 +130,6 @@ const ExactDecimal = Decimal.clone({
 export function calculateStageResult(input: StageResultInput): StageResult {
   validateRatingScale(input.ratings);
   validateStageStructure(input.dimensions);
-  validateConstraintRules(input.mode, input.constraints);
   const ratingMap = new Map(
     input.ratings.map((rating) => [rating.symbol, rating]),
   );
@@ -164,7 +142,7 @@ export function calculateStageResult(input: StageResultInput): StageResult {
           score: Decimal;
           ratingMapping?: NonNullable<StageItemResult['ratingMapping']>;
         } =
-          input.mode === 'WEIGHTED_RATING'
+          input.scoringMethod === 'RATING'
             ? ratingScoreOf(rawValue, ratingMap)
             : { score: scoreOf(rawValue) };
 
@@ -234,19 +212,12 @@ export function calculateStageResult(input: StageResultInput): StageResult {
     ExactDecimal.ROUND_HALF_UP,
   );
   const initialLevel = levelForScore(compositeScore, input.ratings);
-  const constraintResult = applyConstraints(
-    input.mode,
-    initialLevel,
-    dimensions,
-    input.constraints,
-  );
   const finalResult = applyConfirmedRedLine(
-    constraintResult,
+    { finalLevel: initialLevel, matchedConstraints: [] },
     input.confirmedRedLine,
   );
 
   return {
-    mode: input.mode,
     unroundedCompositeScore: unroundedCompositeScore.toString(),
     compositeScore: compositeScore.toFixed(2),
     initialLevel,
@@ -349,7 +320,7 @@ function validateStageStructure(dimensions: StageDimensionInput[]): void {
     if (dimension.relations.some((relation) => relation.items.length === 0)) {
       throw new StageCalculationError(
         'INVALID_STAGE_STRUCTURE',
-        `维度 ${dimension.name} 的有效关系必须至少包含一个评估项结果`,
+        `维度 ${dimension.name} 的有效关系必须至少包含一个计分输入`,
       );
     }
   }
@@ -368,80 +339,6 @@ function validatedWeight(value: DecimalInput, owner: string): Decimal {
     );
   }
   return weight;
-}
-
-function validateConstraintRules(
-  mode: StageResultMode,
-  constraints: StageConstraintRule[],
-): void {
-  const supportedByMode: Record<StageResultMode, Set<string>> = {
-    WEIGHTED_RATING: new Set([
-      'CORE_RATING_FORCE',
-      'CORE_RATING_CAP',
-      'ANY_RATING_CAP',
-    ]),
-    WEIGHTED_SCORE: new Set([
-      'CORE_SCORE_FORCE',
-      'CORE_SCORE_CAP',
-      'ANY_SCORE_CAP',
-    ]),
-  };
-  const knownLevels = new Set<unknown>(['S', 'A', 'B', 'C']);
-  const ids = new Set<string>();
-
-  for (const constraint of constraints) {
-    const type = String(constraint.type);
-    if (!supportedByMode[mode].has(type)) {
-      throw new StageCalculationError(
-        'INVALID_CONSTRAINT_RULE',
-        `不支持约束类型 ${type}`,
-      );
-    }
-    if (!constraint.id || ids.has(constraint.id)) {
-      throw new StageCalculationError(
-        'INVALID_CONSTRAINT_RULE',
-        '约束 id 必须非空且不能重复',
-      );
-    }
-    ids.add(constraint.id);
-    if (!knownLevels.has(constraint.targetLevel)) {
-      throw new StageCalculationError(
-        'INVALID_CONSTRAINT_RULE',
-        `约束 ${constraint.id} 的目标等级必须是 S、A、B、C`,
-      );
-    }
-
-    if ('triggerRating' in constraint) {
-      if (!knownLevels.has(constraint.triggerRating)) {
-        throw new StageCalculationError(
-          'INVALID_CONSTRAINT_RULE',
-          `约束 ${constraint.id} 的触发评级必须是 S、A、B、C`,
-        );
-      }
-      continue;
-    }
-
-    let threshold: Decimal;
-    try {
-      threshold = new ExactDecimal(constraint.threshold);
-    } catch {
-      throw invalidConstraintThreshold(constraint.id);
-    }
-    if (
-      threshold.lessThan(0) ||
-      threshold.greaterThan(100) ||
-      threshold.decimalPlaces() > 2
-    ) {
-      throw invalidConstraintThreshold(constraint.id);
-    }
-  }
-}
-
-function invalidConstraintThreshold(id: string): StageCalculationError {
-  return new StageCalculationError(
-    'INVALID_CONSTRAINT_RULE',
-    `约束 ${id} 的阈值必须在 0～100 之间且最多保留两位小数`,
-  );
 }
 
 function applyConfirmedRedLine(
@@ -476,71 +373,6 @@ function applyConfirmedRedLine(
       },
     ],
   };
-}
-
-function applyConstraints(
-  mode: StageResultMode,
-  initialLevel: PerformanceLevel,
-  dimensions: StageDimensionResult[],
-  constraints: StageConstraintRule[],
-): {
-  finalLevel: PerformanceLevel;
-  matchedConstraints: MatchedConstraint[];
-} {
-  let finalLevel = initialLevel;
-  const matchedConstraints: MatchedConstraint[] = [];
-
-  for (const constraint of constraints) {
-    const isRatingConstraint = 'triggerRating' in constraint;
-    if (
-      (mode === 'WEIGHTED_RATING' && !isRatingConstraint) ||
-      (mode === 'WEIGHTED_SCORE' && isRatingConstraint)
-    ) {
-      continue;
-    }
-    const candidates = constraint.type.startsWith('CORE_')
-      ? dimensions.filter((dimension) => dimension.isCore)
-      : dimensions;
-    const matchedDimensions = isRatingConstraint
-      ? candidates.filter(
-          (dimension) => dimension.level === constraint.triggerRating,
-        )
-      : candidates.filter((dimension) =>
-          new ExactDecimal(dimension.score).lessThan(constraint.threshold),
-        );
-    if (matchedDimensions.length === 0) continue;
-
-    const beforeLevel = finalLevel;
-    // 等级约束只能收紧结果，不能把原本更低的等级向上抬升。
-    finalLevel = lowerLevel(finalLevel, constraint.targetLevel);
-    matchedConstraints.push({
-      id: constraint.id,
-      type: constraint.type,
-      dimensionIds: matchedDimensions.map((dimension) => dimension.id),
-      parameters: isRatingConstraint
-        ? {
-            triggerRating: constraint.triggerRating,
-            targetLevel: constraint.targetLevel,
-          }
-        : {
-            threshold: new ExactDecimal(constraint.threshold).toString(),
-            targetLevel: constraint.targetLevel,
-          },
-      beforeLevel,
-      afterLevel: finalLevel,
-      changed: beforeLevel !== finalLevel,
-    });
-  }
-
-  return { finalLevel, matchedConstraints };
-}
-
-function lowerLevel(
-  current: PerformanceLevel,
-  target: PerformanceLevel,
-): PerformanceLevel {
-  const rank: Record<PerformanceLevel, number> = { S: 4, A: 3, B: 2, C: 1 };
-  return rank[current] <= rank[target] ? current : target;
 }
 
 function validateRatingScale(ratings: RatingScaleEntry[]): void {

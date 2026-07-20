@@ -28,6 +28,7 @@ export const EVALUATION_LEVEL_NAME: Record<PerfPerformanceLevel, string> = {
 type EvaluationLevelRowProps = {
   title: string
   level: PerfPerformanceLevel
+
   /** 默认用 EVALUATION_LEVEL_NAME */
   levelLabel?: string
   className?: string

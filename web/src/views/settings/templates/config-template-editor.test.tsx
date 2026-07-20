@@ -13,14 +13,12 @@ const version: PerfConfigTemplateVersion = {
   version: 1,
   status: 'DRAFT',
   updatedAt: '2026-07-14T10:00:00.000Z',
-  stageModes: { SELF: 'DIRECT_RATING', PEER: 'WEIGHTED_RATING', MANAGER: 'WEIGHTED_SCORE', AI: 'DIRECT_RATING' },
   ratings: [
-    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95', commentRequired: true },
-    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85', commentRequired: false },
-    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70', commentRequired: false },
-    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50', commentRequired: true }
+    { symbol: 'S', name: '卓越', minScore: '90', maxScore: '100', mappingScore: '95' },
+    { symbol: 'A', name: '优秀', minScore: '80', maxScore: '90', mappingScore: '85' },
+    { symbol: 'B', name: '良好', minScore: '60', maxScore: '80', mappingScore: '70' },
+    { symbol: 'C', name: '待改进', minScore: '0', maxScore: '60', mappingScore: '50' }
   ],
-  constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
   reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' },
   formTemplateVersionIds: [],
   schedulePreset: {
@@ -61,32 +59,29 @@ const openFormBindingSelect = async (user: ReturnType<typeof userEvent.setup>) =
 }
 
 describe('ConfigTemplateEditor', () => {
-  it('允许周期高级配置只暴露复杂计算规则，不把表单绑定和日程变成默认入口', () => {
+  it('允许周期高级配置只暴露评级区间与关系权重，不把表单绑定和日程变成默认入口', () => {
     render(
       <ConfigTemplateEditor
         value={version}
         candidates={candidates}
         editable
-        visibleSections={['ratings', 'constraints', 'relations']}
+        visibleSections={['ratings', 'relations']}
         onChange={vi.fn()}
       />
     )
 
-    expect(screen.getByRole('tab', { name: '评级与模式' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '等级约束' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '评级区间' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '关系权重' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: '表单绑定' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: '日程通知' })).not.toBeInTheDocument()
   })
 
-  it('固定展示 SELF/AI 直接评级，只允许切换 PEER/MANAGER 模式', () => {
+  it('不再展示管理员可配置的阶段模式与约束档位', () => {
     render(<ConfigTemplateEditor value={version} candidates={candidates} editable onChange={vi.fn()} />)
 
-    expect(screen.getByText('员工自评（固定）')).toBeInTheDocument()
-    expect(screen.getByText('AI 评估（固定）')).toBeInTheDocument()
-    expect(screen.getAllByDisplayValue('直接评级')).toHaveLength(2)
-    expect(screen.getByLabelText('360°阶段模式')).toBeEnabled()
-    expect(screen.getByLabelText('上级评估阶段模式')).toBeEnabled()
+    expect(screen.queryByText('阶段结果模式')).not.toBeInTheDocument()
+    expect(screen.queryByText('等级约束')).not.toBeInTheDocument()
+    expect(screen.getByText('S/A/B/C 评级')).toBeInTheDocument()
   })
 
   it('D/M 绑定槽仅展示匹配前缀的已发布表单', async () => {

@@ -13,8 +13,10 @@ import { Tabs, TabsContent, TabsTrigger } from '@/components/ui/tabs'
 import {
   avatarUrlOf,
   type PerfDetailedEmployeeProfile,
+  type PerfEvalFormSubform,
+  type PerfEvaluationDimensionAnswer,
+  type PerfHistoricalPromotionResult,
   type ParticipantOkrSnapshot,
-  type PerfEvaluationItemResult,
   type PerfManagerStageResult,
   type PerfPeerStageResult
 } from '@/lib/perf-api'
@@ -26,12 +28,13 @@ export type ManagerReferencePanelProps = {
   participantId: number
   okrPreviewData?: ParticipantOkrSnapshot
   employee: PerfDetailedEmployeeProfile | null
-  selfItems: PerfEvaluationItemResult[]
+  selfDimensionAnswers: PerfEvaluationDimensionAnswer[]
+  selfSubforms?: PerfEvalFormSubform[]
   peerResult: PerfPeerStageResult | null
   managerResult: PerfManagerStageResult | null
   history: Array<{
     finalLevel: string
-    promotionResult?: string | null
+    promotionResult: PerfHistoricalPromotionResult
     participant: { cycle: { id: number; name: string } }
   }>
   collapsed: boolean
@@ -42,7 +45,8 @@ const ManagerReferencePanel = ({
   employee,
   participantId,
   okrPreviewData,
-  selfItems,
+  selfDimensionAnswers,
+  selfSubforms,
   peerResult,
   managerResult,
   history,
@@ -98,7 +102,8 @@ const ManagerReferencePanel = ({
 
           <TabsContent value='self' className='px-4 py-4'>
             <SelfReviewReferenceContent
-              selfItems={selfItems}
+              selfDimensionAnswers={selfDimensionAnswers}
+              selfSubforms={selfSubforms}
               notice='员工材料仅供参考，不参与上级阶段二次加权。'
             />
           </TabsContent>

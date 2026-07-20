@@ -51,6 +51,7 @@ export type MemberPillProps = {
   name?: string | null
   avatarUrl?: string | null
   className?: string
+
   /** 无 openId 时的占位文案 */
   emptyText?: string
 }
@@ -66,28 +67,13 @@ export const MemberPill = ({
   className,
   emptyText = '-'
 }: MemberPillProps) => {
-  const [resolved, setResolved] = useState<{ openId: string; name: string; avatarUrl?: string } | null>(
-    () => {
-      if (!openId) return null
-      if (name?.trim()) return { openId, name: name.trim(), avatarUrl: avatarUrl ?? undefined }
-      const cached = briefCache.get(openId)
-
-      return cached ? { openId, ...cached } : null
-    }
-  )
+  const [resolved, setResolved] = useState<{ openId: string; name: string; avatarUrl?: string } | null>(null)
+  const provided = openId && name?.trim() ? { openId, name: name.trim(), avatarUrl: avatarUrl ?? undefined } : null
+  const cached = openId ? briefCache.get(openId) : undefined
+  const current = provided ?? (cached && openId ? { openId, ...cached } : null) ?? (resolved?.openId === openId ? resolved : null)
 
   useEffect(() => {
-    if (!openId) {
-      setResolved(null)
-
-      return
-    }
-
-    if (name?.trim()) {
-      setResolved({ openId, name: name.trim(), avatarUrl: avatarUrl ?? undefined })
-
-      return
-    }
+    if (!openId || name?.trim() || briefCache.has(openId)) return
 
     let cancelled = false
 
@@ -104,7 +90,7 @@ export const MemberPill = ({
     return <span className={cn('text-muted-foreground text-sm', className)}>{emptyText}</span>
   }
 
-  const displayName = resolved?.name ?? '…'
+  const displayName = current?.name ?? '…'
 
   return (
     <span
@@ -115,8 +101,8 @@ export const MemberPill = ({
     >
       <UserAvatar
         openId={openId}
-        name={resolved?.name}
-        avatarUrl={resolved?.avatarUrl ?? avatarUrl}
+        name={current?.name}
+        avatarUrl={current?.avatarUrl ?? avatarUrl}
         size='sm'
       />
       <span className='truncate text-sm'>{displayName}</span>

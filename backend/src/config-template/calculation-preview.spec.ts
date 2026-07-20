@@ -38,20 +38,20 @@ function validConfig(): ConfigTemplateVersionContract {
 }
 
 describe('previewConfigCalculation', () => {
-  it.each(['SELF', 'AI'] as const)('%s 直接评级不虚构综合分', (stage) => {
+  it('AI 直接评级但不暴露阶段模式', () => {
     const result = previewConfigCalculation({
       config: validConfig(),
-      stage,
+      stage: 'AI',
       jobLevelPrefix: 'D',
       directLevel: 'A',
     });
 
     expect(result).toMatchObject({
       status: 'READY',
-      stage,
-      mode: 'DIRECT_RATING',
-      result: { type: 'DIRECT_RATING', level: 'A' },
+      stage: 'AI',
+      result: { type: 'AI_DIRECT_RATING', level: 'A' },
     });
+    expect(result).not.toHaveProperty('mode');
   });
 
   it('PEER 注入配置关系权重并由统一引擎归一化有效关系', () => {
@@ -63,6 +63,7 @@ describe('previewConfigCalculation', () => {
         {
           id: 'delivery',
           name: '工作贡献与责任担当',
+          scoringMethod: 'RATING',
           weight: '100',
           isCore: true,
           relations: [
@@ -75,7 +76,6 @@ describe('previewConfigCalculation', () => {
 
     expect(result).toMatchObject({
       status: 'READY',
-      mode: 'WEIGHTED_RATING',
       result: {
         compositeScore: '74.55',
         initialLevel: 'B',
@@ -100,6 +100,7 @@ describe('previewConfigCalculation', () => {
         {
           id: 'delivery',
           name: '核心业绩',
+          scoringMethod: 'SCORE',
           weight: '100',
           isCore: true,
           relations: [{ relation: 'LEADER', rawValues: ['59.99'] }],
@@ -109,7 +110,6 @@ describe('previewConfigCalculation', () => {
 
     expect(result).toMatchObject({
       status: 'READY',
-      mode: 'WEIGHTED_SCORE',
       result: {
         compositeScore: '59.99',
         initialLevel: 'C',
@@ -147,9 +147,36 @@ describe('previewConfigCalculation', () => {
         {
           id: 'impact',
           name: '组织影响',
+          scoringMethod: 'RATING',
           weight: '100',
           isCore: true,
           relations: [{ relation: 'LEADER', rawValues: ['A'] }],
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      status: 'UNAVAILABLE',
+      issues: [expect.objectContaining({ code: 'PREVIEW_RELATION_INVALID' })],
+    });
+  });
+
+  it.each([
+    ['SELF', 'LEADER'],
+    ['MANAGER', 'DIRECT'],
+  ] as const)('%s 预览拒绝角色语义错误的 %s 关系', (stage, relation) => {
+    const result = previewConfigCalculation({
+      config: validConfig(),
+      stage,
+      jobLevelPrefix: 'D',
+      dimensions: [
+        {
+          id: 'delivery',
+          name: '核心业绩',
+          scoringMethod: 'RATING',
+          weight: '100',
+          isCore: true,
+          relations: [{ relation, rawValues: ['A'] }],
         },
       ],
     });
@@ -169,6 +196,7 @@ describe('previewConfigCalculation', () => {
         {
           id: 'delivery',
           name: '核心业绩',
+          scoringMethod: 'SCORE',
           weight: '100',
           isCore: true,
           relations: [{ relation: 'LEADER', rawValues: ['80.001'] }],
@@ -182,5 +210,45 @@ describe('previewConfigCalculation', () => {
         expect.objectContaining({ code: 'PREVIEW_INVALID_SCORE_PRECISION' }),
       ],
     });
+  });
+
+  it('同一人工子表单可预览评级与分数混合计分', () => {
+    const result = previewConfigCalculation({
+      config: validConfig(),
+      stage: 'MANAGER',
+      jobLevelPrefix: 'D',
+      dimensions: [
+        {
+          id: 'rating',
+          name: '评级维度',
+          scoringMethod: 'RATING',
+          weight: '40',
+          isCore: true,
+          relations: [{ relation: 'LEADER', rawValues: ['A'] }],
+        },
+        {
+          id: 'score',
+          name: '分数维度',
+          scoringMethod: 'SCORE',
+          weight: '60',
+          isCore: false,
+          relations: [{ relation: 'LEADER', rawValues: ['95'] }],
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      status: 'READY',
+      result: {
+        compositeScore: '91.00',
+        initialLevel: 'S',
+        finalLevel: 'S',
+        dimensions: [
+          { scoringMethod: 'RATING', score: '85', level: 'A' },
+          { scoringMethod: 'SCORE', score: '95', level: 'S' },
+        ],
+      },
+    });
+    expect(result).not.toHaveProperty('mode');
   });
 });

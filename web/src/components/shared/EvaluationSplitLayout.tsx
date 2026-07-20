@@ -70,24 +70,29 @@ const EvaluationSplitLayout = ({ collapsed, left, right, className }: Evaluation
   // 左右：量容器宽度；上下：量容器高度（展开时参考区占一半）
   useEffect(() => {
     const el = containerRef.current
+
     if (!el) return
 
     const syncSize = () => {
       if (sideBySide) {
         setExpandedWidth(prev => {
           if (prev != null) return clampLeftWidth(prev, el.clientWidth)
+
           return clampLeftWidth(Math.floor(el.clientWidth * DEFAULT_LEFT_RATIO), el.clientWidth)
         })
+
         return
       }
 
       // 减去分隔线约 1px，上下对半
       const half = Math.max(COLLAPSED_SIZE_PX, Math.floor((el.clientHeight - 1) / 2))
+
       setExpandedHeight(half)
     }
 
     syncSize()
     const ro = new ResizeObserver(syncSize)
+
     ro.observe(el)
 
     return () => ro.disconnect()
@@ -104,14 +109,17 @@ const EvaluationSplitLayout = ({ collapsed, left, right, className }: Evaluation
     event.preventDefault()
 
     const containerWidth = containerRef.current?.clientWidth ?? 0
+
     if (containerWidth <= 0) return
 
     const startX = event.clientX
     const startWidth = leftWidthPx
+
     setDragging(true)
 
     const onMove = (moveEvent: PointerEvent) => {
       const next = clampLeftWidth(startWidth + (moveEvent.clientX - startX), containerWidth)
+
       setExpandedWidth(next)
     }
 
@@ -128,6 +136,7 @@ const EvaluationSplitLayout = ({ collapsed, left, right, className }: Evaluation
   }
 
   return (
+
     // 用 inset border 替代外扩 ring，避免父级 overflow 裁掉左右边框
     <Card
       className={cn(

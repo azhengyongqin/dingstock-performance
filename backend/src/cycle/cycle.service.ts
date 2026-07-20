@@ -8,6 +8,10 @@ import { PerfCycleStatus } from '../generated/prisma/enums';
 import { AuditService } from '../audit/audit.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
+import {
+  omitPersistedConfigInternals,
+  toPublicRatings,
+} from '../config-template/config-template.public';
 import type { UpdateCycleDto } from './cycle.dto';
 
 /** 切换后的周期服务只负责基础信息；配置、表单、计划和状态迁移由各自深模块负责。 */
@@ -53,7 +57,17 @@ export class CycleService {
       },
     });
     if (!cycle) throw new NotFoundException('绩效周期不存在');
-    return cycle;
+    const current = cycle.currentConfigVersion;
+    if (!current) return cycle;
+    const ratings = current.ratings;
+    const publicCurrent = omitPersistedConfigInternals(current);
+    return {
+      ...cycle,
+      currentConfigVersion: {
+        ...publicCurrent,
+        ratings: toPublicRatings(ratings),
+      },
+    };
   }
 
   async requireCycle(id: number) {

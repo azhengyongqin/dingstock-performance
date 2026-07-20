@@ -12,18 +12,19 @@ const summarizeDimensions = (
     (candidate) => candidate.type === subformType,
   )!;
   return subform.dimensions.map((dimension) => ({
+    key: dimension.key,
     name: dimension.name,
     weight: dimension.weight,
     isCore: dimension.isCore,
     audience: dimension.audience,
-    scoringType: dimension.items.find((item) =>
-      ['RATING', 'SCORE'].includes(item.type),
-    )?.type,
+    scoringMethod: dimension.scoringMethod,
+    commentRule: dimension.fields[0]?.requiredRule,
+    commentLevels: dimension.fields[0]?.requiredLevels,
   }));
 };
 
 describe('DEFAULT_FORM_TEMPLATES', () => {
-  it('提供可幂等识别且能够直接发布的 D/M v1 完整模板', () => {
+  it('提供可幂等识别且能够直接发布的 D/M v1 三子表单模板', () => {
     expect(
       DEFAULT_FORM_TEMPLATES.map((template) => ({
         systemKey: template.systemKey,
@@ -38,14 +39,14 @@ describe('DEFAULT_FORM_TEMPLATES', () => {
         version: 1,
         status: 'PUBLISHED',
         prefix: 'D',
-        subforms: ['SELF', 'PEER', 'MANAGER', 'PROMOTION'],
+        subforms: ['SELF', 'PEER', 'MANAGER'],
       },
       {
         systemKey: 'DEFAULT_M',
         version: 1,
         status: 'PUBLISHED',
         prefix: 'M',
-        subforms: ['SELF', 'PEER', 'MANAGER', 'PROMOTION'],
+        subforms: ['SELF', 'PEER', 'MANAGER'],
       },
     ]);
     expect(
@@ -53,117 +54,62 @@ describe('DEFAULT_FORM_TEMPLATES', () => {
     ).toEqual([]);
   });
 
-  it('使用锁定的 D/M 360°与上级评估维度、权重和计分类型', () => {
+  it('默认员工自评为占比 100% 的评级核心维度', () => {
+    for (const template of DEFAULT_FORM_TEMPLATES) {
+      const self = template.subforms.find(
+        (subform) => subform.type === 'SELF',
+      )!;
+      expect(self.dimensions[0]).toEqual(
+        expect.objectContaining({
+          key: 'self:performance',
+          type: 'SCORING',
+          scoringMethod: 'RATING',
+          weight: 100,
+          isCore: true,
+        }),
+      );
+    }
+  });
+
+  it('锁定 D/M 维度名称、占比、计分方式与 S/C 条件评价字段', () => {
     expect(summarizeDimensions('D', 'PEER')).toEqual([
-      {
+      expect.objectContaining({
         name: '工作贡献与责任担当',
         weight: 35,
         isCore: true,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
-      {
-        name: '协作沟通与价值观',
-        weight: 45,
-        isCore: false,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
-      {
-        name: '学习成长与潜力',
-        weight: 20,
-        isCore: false,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
+        scoringMethod: 'RATING',
+        commentRule: 'CONDITIONAL',
+        commentLevels: ['S', 'C'],
+      }),
+      expect.objectContaining({ name: '协作沟通与价值观', weight: 45 }),
+      expect.objectContaining({ name: '学习成长与潜力', weight: 20 }),
     ]);
     expect(summarizeDimensions('M', 'PEER')).toEqual([
-      {
-        name: '结果推动与责任担当',
-        weight: 40,
-        isCore: true,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
-      {
-        name: '协作沟通与组织影响',
-        weight: 35,
-        isCore: false,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
-      {
-        name: '领导力与价值观',
-        weight: 25,
-        isCore: false,
-        audience: 'REVIEWER',
-        scoringType: 'RATING',
-      },
+      expect.objectContaining({ name: '结果推动与责任担当', weight: 40 }),
+      expect.objectContaining({ name: '协作沟通与组织影响', weight: 35 }),
+      expect.objectContaining({ name: '领导力与价值观', weight: 25 }),
     ]);
     expect(summarizeDimensions('D', 'MANAGER')).toEqual([
-      {
+      expect.objectContaining({
         name: '核心业绩',
         weight: 70,
         isCore: true,
-        audience: 'LEADER',
-        scoringType: 'SCORE',
-      },
-      {
-        name: '价值观',
-        weight: 20,
-        isCore: false,
-        audience: 'LEADER',
-        scoringType: 'SCORE',
-      },
-      {
-        name: '职业素养与潜力',
-        weight: 10,
-        isCore: false,
-        audience: 'LEADER',
-        scoringType: 'SCORE',
-      },
+        scoringMethod: 'SCORE',
+      }),
+      expect.objectContaining({ name: '价值观', weight: 20 }),
+      expect.objectContaining({ name: '职业素养与潜力', weight: 10 }),
     ]);
     expect(summarizeDimensions('M', 'MANAGER')).toEqual([
-      {
-        name: '核心业绩',
-        weight: 50,
-        isCore: true,
-        audience: 'LEADER',
-        scoringType: 'SCORE',
-      },
-      {
-        name: '管理绩效',
-        weight: 50,
-        isCore: false,
-        audience: 'LEADER',
-        scoringType: 'SCORE',
-      },
+      expect.objectContaining({ name: '核心业绩', weight: 50 }),
+      expect.objectContaining({ name: '管理绩效', weight: 50 }),
     ]);
   });
 
-  it('晋升内容只提供员工与 Leader 区段并使用附件和 LINK 受控组件', () => {
-    for (const template of DEFAULT_FORM_TEMPLATES) {
-      const promotion = template.subforms.find(
-        (subform) => subform.type === 'PROMOTION',
-      )!;
-      expect(
-        promotion.dimensions.map((dimension) => ({
-          kind: dimension.kind,
-          audience: dimension.audience,
-          itemTypes: dimension.items.map((item) => item.type),
-        })),
-      ).toEqual([
-        {
-          kind: 'PROMOTION',
-          audience: 'EMPLOYEE',
-          itemTypes: ['MARKDOWN', 'MARKDOWN', 'ATTACHMENT', 'LINK'],
-        },
-        {
-          kind: 'PROMOTION',
-          audience: 'LEADER',
-          itemTypes: ['SINGLE_SELECT', 'LONG_TEXT'],
-        },
-      ]);
-    }
+  it('新版基线不创建晋升子表单', () => {
+    expect(
+      DEFAULT_FORM_TEMPLATES.flatMap((template) => template.subforms).some(
+        (subform) => String(subform.type) === 'PROMOTION',
+      ),
+    ).toBe(false);
   });
 });

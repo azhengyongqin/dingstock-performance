@@ -3,19 +3,18 @@
 // 动态评估表单：大标题/说明固定在上方，色块维度标题吸顶，其下表单项在独立滚动区内。
 // 字号阶梯 B：主标题 text-base；维度详情 text-xs。
 import { Badge } from '@/components/ui/badge'
+import { RatingSelector } from '@/components/shared/RatingSelector'
+import { ScoreSelector } from '@/components/shared/ScoreSelector'
+import { Field, FieldError } from '@/components/ui/field'
 import type { PerfConfigTemplateRating, PerfEvalFormSubform } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
 import EvaluationItemField from './evaluation-item-field'
-import type { EvaluationAnswers, EvaluationItemAnswer } from './evaluation-form-types'
-
-/** PROMOTION 标题按实际下发的受众标注，明确员工材料与 Leader 结论的填写边界。 */
-const subformTitle = (subform: PerfEvalFormSubform) => {
-  if (subform.type !== 'PROMOTION') return subform.title
-  const isLeaderSection = subform.dimensions.length > 0 && subform.dimensions.every(item => item.audience === 'LEADER')
-
-  return isLeaderSection ? '晋升评估（Leader 填写）' : '晋升评估（员工填写）'
-}
+import {
+  levelForDimensionAnswer,
+  type EvaluationAnswers,
+  type EvaluationItemAnswer
+} from './evaluation-form-types'
 
 export type EvaluationFormProps = {
   subforms: PerfEvalFormSubform[]
@@ -41,39 +40,95 @@ const DimensionBlock = ({
   errors?: Record<string, string>
   disabled?: boolean
   ratings?: PerfConfigTemplateRating[]
-}) => (
-  <section className='flex flex-col'>
-    {/* 实底吸顶：铺满滚动区横向，避免半透明/顶间距透出下层内容 */}
-    <div className='bg-card sticky top-0 z-10 -mx-5 px-5 pt-4 pb-3 sm:-mx-6 sm:px-6'>
-      <div className='space-y-1'>
-        {/* 色条与标题同一行 items-center，避免 mt/h 与 text-xs 行高错位 */}
-        <div className='flex items-center gap-2'>
-          <span className='bg-primary h-3.5 w-1 shrink-0 rounded-full' aria-hidden />
-          <div className='flex min-w-0 flex-wrap items-center gap-2'>
-            <h2 className='text-xs font-semibold'>{dimension.name}</h2>
-            {dimension.isCore && <Badge variant='secondary'>核心</Badge>}
+}) => {
+  const dimensionAnswer = answers[dimension.key]
+  const level = levelForDimensionAnswer(dimension, dimensionAnswer, ratings ?? [])
+  const fields = dimension.fields ?? []
+  // 计分控件（评级 / 0～100 分）与维度标题同一行两端对齐，与组件实验台一致
+  const isScoringDimension = dimension.type === 'SCORING'
+  const scoringError = errors?.[dimension.key]
+
+  return (
+    <section className='flex flex-col'>
+      {/* 实底吸顶：铺满滚动区横向，避免半透明/顶间距透出下层内容 */}
+      <div className='bg-card sticky top-0 z-10 -mx-5 px-5 pt-4 pb-3 sm:-mx-6 sm:px-6'>
+        <div className='space-y-1'>
+          {/* 色条与标题同一行 items-center，避免 mt/h 与 text-xs 行高错位 */}
+          <div
+            className={cn(
+              'flex items-center gap-2',
+              isScoringDimension && 'w-full justify-between gap-x-3'
+            )}
+          >
+            <div className='flex min-w-0 items-center gap-2'>
+              <span className='bg-primary h-3.5 w-1 shrink-0 rounded-full' aria-hidden />
+              <div className='flex min-w-0 flex-wrap items-center gap-2'>
+                <h2 className='text-xs font-semibold'>{dimension.name}</h2>
+                {dimension.weight != null && <Badge variant='outline'>占比 {dimension.weight}%</Badge>}
+                {dimension.isCore && <Badge variant='secondary'>核心</Badge>}
+              </div>
+            </div>
+            {isScoringDimension && (
+              <Field
+                data-invalid={!!scoringError}
+                className={cn(
+                  'gap-1',
+                  // 评级占满剩余行宽，子项 w-full 才能让间距随宽度伸缩；分数保持内容宽
+                  dimension.scoringMethod === 'RATING'
+                    ? 'min-w-0 max-w-full flex-1 *:w-full'
+                    : 'w-auto shrink-0 *:w-auto'
+                )}
+              >
+                {dimension.scoringMethod === 'RATING' ? (
+                  <RatingSelector
+                    aria-label={dimension.name}
+                    value={dimensionAnswer?.rawLevel ?? null}
+                    onChange={rawLevel => onAnswerChange(dimension.key, { rawLevel })}
+                    disabled={disabled}
+                    ratings={ratings}
+                  />
+                ) : (
+                  <ScoreSelector
+                    aria-label={dimension.name}
+                    value={dimensionAnswer?.rawScoreText ?? ''}
+                    onChange={rawScoreText => onAnswerChange(dimension.key, { rawScoreText })}
+                    disabled={disabled}
+                    ratings={ratings}
+                  />
+                )}
+                {scoringError && <FieldError>{scoringError}</FieldError>}
+              </Field>
+            )}
           </div>
+          {dimension.description && (
+            <p className='text-muted-foreground pl-3 text-sm'>{dimension.description}</p>
+          )}
         </div>
-        {dimension.description && (
-          <p className='text-muted-foreground pl-3 text-sm'>{dimension.description}</p>
-        )}
       </div>
-    </div>
-    <div className='flex flex-col gap-5 pb-8 pl-4'>
-      {dimension.items.map(item => (
-        <EvaluationItemField
-          key={item.key}
-          item={item}
-          answer={answers[item.key]}
-          onChange={answer => onAnswerChange(item.key, answer)}
-          disabled={disabled}
-          error={errors?.[item.key]}
-          ratings={ratings}
-        />
-      ))}
-    </div>
-  </section>
-)
+      <div className='flex flex-col gap-5 pb-8 pl-4'>
+        {fields.map(field => {
+          const conditionalRequired =
+            field.requiredRule === 'CONDITIONAL' && level != null && (field.requiredLevels ?? []).includes(level)
+
+          const required = field.requiredRule === 'ALWAYS' || conditionalRequired
+
+          return (
+            <div key={field.key} className='flex flex-col gap-1.5'>
+              {conditionalRequired && <span className='text-destructive text-xs'>选择 {level} 时必填</span>}
+              <EvaluationItemField
+                item={{ ...field, required }}
+                answer={answers[field.key]}
+                onChange={answer => onAnswerChange(field.key, answer)}
+                disabled={disabled}
+                error={errors?.[field.key]}
+              />
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
 
 const EvaluationForm = ({
   subforms,
@@ -91,7 +146,7 @@ const EvaluationForm = ({
     return (
       <div className={cn('flex h-full min-h-0 flex-col', className)}>
         <div className='shrink-0 px-5 pt-5 sm:px-6 sm:pt-6'>
-          <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
+          <h2 className='text-base font-semibold'>{subform.title}</h2>
           {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
         </div>
         {/* 顶 padding 放进吸顶条，避免 sticky top-0 上方留出透底空隙 */}
@@ -118,7 +173,7 @@ const EvaluationForm = ({
       {subforms.map(subform => (
         <div key={subform.key} className='flex flex-col'>
           <div className='bg-card sticky top-0 z-20 -mx-5 border-b px-5 pt-5 pb-3 sm:-mx-6 sm:px-6'>
-            <h2 className='text-base font-semibold'>{subformTitle(subform)}</h2>
+            <h2 className='text-base font-semibold'>{subform.title}</h2>
             {subform.description && <p className='text-muted-foreground mt-1 text-sm'>{subform.description}</p>}
           </div>
           {subform.dimensions.map(dimension => (

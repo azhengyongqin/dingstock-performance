@@ -166,7 +166,6 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
         id: 7,
         employeeOpenId: 'ou_employee',
         status: 'ACTIVE',
-        isPromotionEnabled: false,
         stageResults: [{ stageLevel: 'B' }],
         calibrations: [],
         redLineFindings: [
@@ -186,7 +185,6 @@ describe('CalibrationService 当前考核 Leader 对象级权限', () => {
           summary: 'AI 参考摘要',
           highlights: [],
           improvements: [],
-          promotionSummary: null,
           riskFlags: [],
           generatedAt: new Date('2026-07-15T08:00:00.000Z'),
         },

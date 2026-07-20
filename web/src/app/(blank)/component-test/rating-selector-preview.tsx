@@ -21,8 +21,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '工作结果、成长速度等方面有重大突破和创新',
     minScore: '90',
     maxScore: '100',
-    mappingScore: '95',
-    commentRequired: true
+    mappingScore: '95'
   },
   {
     symbol: 'A',
@@ -30,8 +29,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现超出预期',
     minScore: '80',
     maxScore: '90',
-    mappingScore: '85',
-    commentRequired: false
+    mappingScore: '85'
   },
   {
     symbol: 'B',
@@ -39,8 +37,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '整体表现符合预期',
     minScore: '60',
     maxScore: '80',
-    mappingScore: '70',
-    commentRequired: false
+    mappingScore: '70'
   },
   {
     symbol: 'C',
@@ -48,8 +45,7 @@ const SAMPLE_RATINGS: PerfConfigTemplateRating[] = [
     description: '绩效目标、工作态度或价值观表现不符合预期',
     minScore: '0',
     maxScore: '60',
-    mappingScore: '50',
-    commentRequired: true
+    mappingScore: '50'
   }
 ]
 
@@ -71,7 +67,7 @@ export default function RatingSelectorPreview() {
         <CardHeader>
           <CardTitle>RatingSelector</CardTitle>
           <CardDescription>
-            员工自评与 360° 环评的 RATING 评估项共用此组件；选中浅色，hover 白底介绍面板。
+            员工自评与 360° 环评的评级维度共用此组件；选中浅色，hover 白底介绍面板。
           </CardDescription>
         </CardHeader>
         <CardContent className='flex flex-col gap-3'>
@@ -134,12 +130,7 @@ export default function RatingSelectorPreview() {
                   *
                 </span>
               </FieldTitle>
-              <RatingSelector
-                aria-label='价值观评分'
-                value={values}
-                onChange={setValues}
-                ratings={SAMPLE_RATINGS}
-              />
+              <RatingSelector aria-label='价值观评分' value={values} onChange={setValues} ratings={SAMPLE_RATINGS} />
             </div>
           </Field>
         </CardContent>

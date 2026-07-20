@@ -65,10 +65,6 @@ export class HttpAiReportGenerator implements AiReportGenerator {
       summary: value.summary,
       highlights: this.optionalJson(value.highlights),
       improvements: this.optionalJson(value.improvements),
-      promotionSummary:
-        typeof value.promotionSummary === 'string'
-          ? value.promotionSummary
-          : null,
       riskFlags: this.optionalJson(value.riskFlags),
     };
   }

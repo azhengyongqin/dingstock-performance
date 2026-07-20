@@ -197,7 +197,6 @@ export class CalibrationDecisionService {
             summary: true,
             highlights: true,
             improvements: true,
-            promotionSummary: true,
             riskFlags: true,
             generatedAt: true,
           },
@@ -227,15 +226,23 @@ export class CalibrationDecisionService {
           reviewerAssignmentId: true,
           updatedAt: true,
           submittedAt: true,
-          items: {
+          dimensionAnswers: {
             select: {
+              subformKey: true,
               dimensionKey: true,
-              itemKey: true,
-              itemType: true,
+              scoringMethod: true,
               rawLevel: true,
               rawScore: true,
               calculationScore: true,
-              value: true,
+              derivedLevel: true,
+              fields: {
+                select: {
+                  fieldKey: true,
+                  fieldType: true,
+                  value: true,
+                },
+                orderBy: { id: 'asc' },
+              },
             },
             orderBy: { id: 'asc' },
           },
@@ -259,7 +266,6 @@ export class CalibrationDecisionService {
           id: true,
           stage: true,
           status: true,
-          mode: true,
           reviewerCount: true,
           compositeScore: true,
           initialLevel: true,

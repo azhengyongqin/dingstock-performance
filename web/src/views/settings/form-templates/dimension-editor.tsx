@@ -2,19 +2,18 @@
 
 import { useState, type SyntheticEvent } from 'react'
 
-import {
-  ArrowDownIcon,
-  ArrowUpIcon,
-  ChevronDownIcon,
-  PlusIcon,
-  Trash2Icon
-} from 'lucide-react'
+import { ArrowDownIcon, ArrowUpIcon, ChevronDownIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { toast } from 'sonner'
+
 import type {
-  PerfFormDimensionKind,
-  PerfFormItemConfig,
-  PerfFormItemType,
+  PerfFormDimensionType,
+  PerfFormFieldRequiredRule,
+  PerfFormFieldType,
+  PerfFormFieldConfig,
+  PerfFormScoringMethod,
   PerfFormTemplateDimension,
-  PerfFormTemplateItem
+  PerfFormTemplateField,
+  PerfPerformanceLevel
 } from '@/lib/perf-api'
 
 import { Badge } from '@/components/ui/badge'
@@ -28,104 +27,124 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-import { createDefaultItemConfig, FORM_ITEM_TYPES } from './form-template-constants'
+import { createDefaultFieldConfig, FORM_FIELD_TYPES, migrateFieldConfig } from './form-template-constants'
 import {
   createClientKey,
   formRowKey,
-  normalizeDimensionKind,
+  normalizeDimensionType,
   runReorderTransition,
   toViewTransitionName
 } from './form-template-utils'
 
-const DIMENSION_KINDS: { value: PerfFormDimensionKind; label: string }[] = [
-  { value: 'REGULAR', label: '常规计分' },
-  { value: 'TEXT', label: '非计分' }
+const DIMENSION_TYPES: { value: PerfFormDimensionType; label: string }[] = [
+  { value: 'SCORING', label: '计分维度' },
+  { value: 'NON_SCORING', label: '非计分维度' }
 ]
 
-const newItem = (sortOrder: number, kind: PerfFormDimensionKind): PerfFormTemplateItem => {
-  const type: PerfFormItemType = kind === 'REGULAR' ? 'RATING' : 'MARKDOWN'
+const SCORING_METHODS: { value: PerfFormScoringMethod; label: string }[] = [
+  { value: 'RATING', label: '评级' },
+  { value: 'SCORE', label: '0～100 分' }
+]
 
-  return {
-    type,
-    title: '',
-    required: true,
-    sortOrder,
-    config: createDefaultItemConfig(type),
-    clientKey: createClientKey()
-  } as PerfFormTemplateItem
-}
+const REQUIRED_RULES: { value: PerfFormFieldRequiredRule; label: string }[] = [
+  { value: 'OPTIONAL', label: '选填' },
+  { value: 'ALWAYS', label: '始终必填' },
+  { value: 'CONDITIONAL', label: '按等级必填' }
+]
 
-const normalizeOrder = (items: PerfFormTemplateItem[]) =>
-  items.map((item, index) => ({ ...item, sortOrder: index }))
+const RATING_LEVELS: PerfPerformanceLevel[] = ['S', 'A', 'B', 'C']
+
+const newField = (sortOrder: number): PerfFormTemplateField => ({
+  type: 'MARKDOWN',
+  title: '',
+  requiredRule: 'OPTIONAL',
+  requiredLevels: [],
+  sortOrder,
+  config: createDefaultFieldConfig('MARKDOWN'),
+  clientKey: createClientKey()
+})
+
+const normalizeOrder = (fields: PerfFormTemplateField[]) =>
+  fields.map((field, index) => ({ ...field, sortOrder: index }))
 
 const numericConfigValue = (value: string) => (value === '' ? undefined : Number(value))
 
 /** 阻止大纲行内控件点击冒泡到折叠触发区。 */
-const stopRowControl = (event: SyntheticEvent) => {
-  event.stopPropagation()
-}
+const stopRowControl = (event: SyntheticEvent) => event.stopPropagation()
 
 type DimensionEditorProps = {
   dimension: PerfFormTemplateDimension
   editable: boolean
-  weighted: boolean
   onChange: (next: PerfFormTemplateDimension) => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   canMoveUp: boolean
   canMoveDown: boolean
-  /** 首个维度默认展开，其余默认折叠 */
   defaultOpen?: boolean
+  invalid?: boolean
+  invalidProperties?: Set<string>
+  invalidFields?: Map<number, Set<string>>
 }
 
-/**
- * 单个维度：大纲行承载名称/类型/权重/核心等简编字段；
- * 展开区只放说明与评估项列表，评估项同理（标题/类型/必填在行内）。
- */
+/** 维度标题行承载全部计分配置；展开区只保留说明和表单字段。 */
 const DimensionEditor = ({
   dimension,
   editable,
-  weighted,
   onChange,
   onRemove,
   onMoveUp,
   onMoveDown,
   canMoveUp,
   canMoveDown,
-  defaultOpen = false
+  defaultOpen = false,
+  invalid = false,
+  invalidProperties,
+  invalidFields
 }: DimensionEditorProps) => {
   const [open, setOpen] = useState(defaultOpen)
-  const [openItems, setOpenItems] = useState<Record<string, boolean>>({})
+  const [openFields, setOpenFields] = useState<Record<string, boolean>>({})
+  const fieldsInvalid = invalidProperties?.has('fields') ?? false
 
-  const patchItem = (index: number, patch: Partial<PerfFormTemplateItem>) =>
+  const patchField = (index: number, patch: Partial<PerfFormTemplateField>) =>
     onChange({
       ...dimension,
-      items: dimension.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))
+      fields: dimension.fields.map((field, fieldIndex) => (fieldIndex === index ? { ...field, ...patch } : field))
     })
 
-  const patchItemConfig = (index: number, patch: PerfFormItemConfig) =>
-    patchItem(index, { config: { ...(dimension.items[index]?.config ?? {}), ...patch } })
+  const patchFieldConfig = (index: number, patch: PerfFormFieldConfig) =>
+    patchField(index, { config: { ...(dimension.fields[index]?.config ?? {}), ...patch } })
 
-  const moveItem = (index: number, offset: -1 | 1) => {
+  const moveField = (index: number, offset: -1 | 1) => {
     runReorderTransition(() => {
-      const next = [...dimension.items]
+      const next = [...dimension.fields]
       const target = index + offset
 
       if (target < 0 || target >= next.length) return
       ;[next[index], next[target]] = [next[target], next[index]]
-      onChange({ ...dimension, items: normalizeOrder(next) })
+      onChange({ ...dimension, fields: normalizeOrder(next) })
     })
   }
 
+  const changeDimensionType = (type: PerfFormDimensionType) => {
+    if (type !== dimension.type) toast.info('已清理与新维度类型不兼容的计分或条件必填配置')
+    onChange(normalizeDimensionType(dimension, type))
+  }
+
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className='overflow-hidden rounded-lg border'>
-      {/* 大纲行底色/边框对齐配置模板 ConfigRuleTable 表头 */}
-      <div className='bg-muted/40 flex flex-wrap items-center gap-2 border-b px-3 py-2'>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn('overflow-hidden rounded-lg border', invalid && 'border-destructive ring-destructive/20 ring-2')}
+    >
+      <div
+        className={cn(
+          'bg-muted/40 flex flex-wrap items-center gap-2 border-b px-3 py-2',
+          invalid && 'bg-destructive/5'
+        )}
+      >
         <CollapsibleTrigger className='text-muted-foreground hover:bg-muted flex size-8 shrink-0 items-center justify-center rounded-md'>
-          <ChevronDownIcon
-            className={cn('size-4 transition-transform', !open && '-rotate-90')}
-          />
+          <ChevronDownIcon className={cn('size-4 transition-transform', !open && '-rotate-90')} />
           <span className='sr-only'>{open ? '折叠维度' : '展开维度'}</span>
         </CollapsibleTrigger>
 
@@ -133,26 +152,45 @@ const DimensionEditor = ({
           value={dimension.name}
           disabled={!editable}
           placeholder='维度名称'
-          className='h-8 min-w-[8rem] flex-1 basis-40'
+          className='h-8 min-w-[8rem] flex-1 basis-36'
+          aria-invalid={invalid || undefined}
           onClick={stopRowControl}
           onChange={event => onChange({ ...dimension, name: event.target.value })}
         />
 
-        {dimension.kind !== 'PROMOTION' && (
+        <div className='w-32 shrink-0' onClick={stopRowControl}>
+          <Select
+            value={dimension.type}
+            items={DIMENSION_TYPES}
+            disabled={!editable}
+            onValueChange={value => changeDimensionType(value as PerfFormDimensionType)}
+          >
+            <SelectTrigger className='h-8 w-full' aria-invalid={invalidProperties?.has('type') || undefined}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DIMENSION_TYPES.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {dimension.type === 'SCORING' && (
           <div className='w-28 shrink-0' onClick={stopRowControl}>
             <Select
-              value={dimension.kind}
-              items={DIMENSION_KINDS}
+              value={dimension.scoringMethod ?? 'RATING'}
+              items={SCORING_METHODS}
               disabled={!editable}
-              onValueChange={value =>
-                onChange(normalizeDimensionKind(dimension, value as PerfFormDimensionKind))
-              }
+              onValueChange={value => onChange({ ...dimension, scoringMethod: value as PerfFormScoringMethod })}
             >
-              <SelectTrigger className='h-8 w-full'>
+              <SelectTrigger className='h-8 w-full' aria-invalid={invalidProperties?.has('scoringMethod') || undefined}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DIMENSION_KINDS.map(option => (
+                {SCORING_METHODS.map(option => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -162,15 +200,16 @@ const DimensionEditor = ({
           </div>
         )}
 
-        {dimension.kind === 'REGULAR' && weighted && (
+        {dimension.type === 'SCORING' && (
           <div className='flex w-24 shrink-0 items-center gap-1' onClick={stopRowControl}>
             <Input
               type='number'
-              min={0}
+              min={0.01}
               max={100}
               step='0.01'
-              aria-label='维度权重'
+              aria-label='维度占比'
               className='h-8'
+              aria-invalid={invalidProperties?.has('weight') || undefined}
               value={dimension.weight == null ? '' : String(dimension.weight)}
               disabled={!editable}
               onChange={event => onChange({ ...dimension, weight: event.target.value })}
@@ -179,11 +218,8 @@ const DimensionEditor = ({
           </div>
         )}
 
-        {dimension.kind === 'REGULAR' && weighted && (
-          <label
-            className='text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs'
-            onClick={stopRowControl}
-          >
+        {dimension.type === 'SCORING' && (
+          <label className='text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs' onClick={stopRowControl}>
             <Switch
               checked={dimension.isCore}
               disabled={!editable}
@@ -193,28 +229,16 @@ const DimensionEditor = ({
           </label>
         )}
 
-        <Badge variant='secondary' className='shrink-0 font-normal'>
-          {dimension.items.length} 项
+        <Badge variant={fieldsInvalid || invalid ? 'destructive' : 'secondary'} className='shrink-0 font-normal'>
+          {dimension.fields.length} 个字段
         </Badge>
 
         {editable && (
           <div className='ml-auto flex shrink-0 items-center gap-0.5' onClick={stopRowControl}>
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              disabled={!canMoveUp}
-              onClick={onMoveUp}
-              aria-label='上移维度'
-            >
+            <Button variant='ghost' size='icon-sm' disabled={!canMoveUp} onClick={onMoveUp} aria-label='上移维度'>
               <ArrowUpIcon />
             </Button>
-            <Button
-              variant='ghost'
-              size='icon-sm'
-              disabled={!canMoveDown}
-              onClick={onMoveDown}
-              aria-label='下移维度'
-            >
+            <Button variant='ghost' size='icon-sm' disabled={!canMoveDown} onClick={onMoveDown} aria-label='下移维度'>
               <ArrowDownIcon />
             </Button>
             <Button variant='ghost' size='icon-sm' onClick={onRemove} aria-label='删除维度'>
@@ -238,83 +262,99 @@ const DimensionEditor = ({
           </Field>
 
           <div className='flex items-center justify-between gap-3'>
-            <h4 className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-              评估项
-            </h4>
+            <h4 className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>表单字段</h4>
             {editable && (
               <Button
                 variant='outline'
                 size='sm'
                 onClick={() =>
-                  onChange({
-                    ...dimension,
-                    items: [...dimension.items, newItem(dimension.items.length, dimension.kind)]
-                  })
+                  onChange({ ...dimension, fields: [...dimension.fields, newField(dimension.fields.length)] })
                 }
               >
                 <PlusIcon />
-                添加评估项
+                添加表单字段
               </Button>
             )}
           </div>
 
-          {dimension.items.length === 0 && (
+          {dimension.fields.length === 0 && (
             <p className='text-muted-foreground rounded-md border border-dashed py-4 text-center text-sm'>
-              暂无评估项
+              暂无表单字段
             </p>
           )}
 
-          <ul className='divide-y rounded-md border'>
-            {dimension.items.map((item, index) => {
-              const itemKey = formRowKey(item, `item-${index}`)
-              const itemOpen = openItems[itemKey] ?? false
+          <ul className={cn('divide-y rounded-md border', fieldsInvalid && 'border-destructive')}>
+            {dimension.fields.map((field, index) => {
+              const fieldKey = formRowKey(field, `field-${index}`)
+              const fieldErrors = invalidFields?.get(index)
+              const fieldInvalid = Boolean(fieldErrors)
+              const fieldOpen = openFields[fieldKey] ?? fieldInvalid
+
+              const supportsConditional =
+                dimension.type === 'SCORING' && (field.type === 'LONG_TEXT' || field.type === 'MARKDOWN')
 
               return (
                 <li
-                  key={itemKey}
-                  style={{ viewTransitionName: toViewTransitionName('form-item', itemKey) }}
+                  key={fieldKey}
+                  style={{ viewTransitionName: toViewTransitionName('form-field', fieldKey) }}
+                  className={cn(fieldInvalid && 'bg-destructive/5')}
                 >
                   <Collapsible
-                    open={itemOpen}
-                    onOpenChange={next => setOpenItems(prev => ({ ...prev, [itemKey]: next }))}
+                    open={fieldOpen}
+                    onOpenChange={next => setOpenFields(previous => ({ ...previous, [fieldKey]: next }))}
                   >
                     <div className='flex flex-wrap items-center gap-2 px-2 py-1.5'>
                       <CollapsibleTrigger className='text-muted-foreground hover:bg-muted/50 flex size-7 shrink-0 items-center justify-center rounded-md'>
-                        <ChevronDownIcon
-                          className={cn('size-3.5 transition-transform', !itemOpen && '-rotate-90')}
-                        />
-                        <span className='sr-only'>{itemOpen ? '折叠评估项' : '展开评估项'}</span>
+                        <ChevronDownIcon className={cn('size-3.5 transition-transform', !fieldOpen && '-rotate-90')} />
+                        <span className='sr-only'>{fieldOpen ? '折叠表单字段' : '展开表单字段'}</span>
                       </CollapsibleTrigger>
-
-                      <span className='text-muted-foreground w-4 shrink-0 text-center text-xs tabular-nums'>
+                      <span
+                        className={cn(
+                          'text-muted-foreground w-4 shrink-0 text-center text-xs tabular-nums',
+                          fieldInvalid && 'text-destructive'
+                        )}
+                      >
                         {index + 1}
                       </span>
-
                       <Input
-                        value={item.title}
+                        value={field.title}
                         disabled={!editable}
-                        placeholder='评估项标题'
+                        placeholder='表单字段标题'
                         className='h-8 min-w-[8rem] flex-1 basis-36'
+                        aria-invalid={fieldInvalid || undefined}
                         onClick={stopRowControl}
-                        onChange={event => patchItem(index, { title: event.target.value })}
+                        onChange={event => patchField(index, { title: event.target.value })}
                       />
-
                       <div className='w-32 shrink-0' onClick={stopRowControl}>
                         <Select
-                          value={item.type}
-                          items={FORM_ITEM_TYPES}
+                          value={field.type}
+                          items={FORM_FIELD_TYPES}
                           disabled={!editable}
                           onValueChange={value => {
-                            const type = value as PerfFormItemType
+                            const type = value as PerfFormFieldType
+                            const migrated = migrateFieldConfig(type, field.config)
 
-                            patchItem(index, { type, config: createDefaultItemConfig(type) })
+                            const keepConditional =
+                              dimension.type === 'SCORING' && (type === 'LONG_TEXT' || type === 'MARKDOWN')
+
+                            if (!keepConditional && field.requiredRule === 'CONDITIONAL')
+                              toast.info('新字段类型不支持按等级必填，已改为选填')
+                            if (migrated.removedIncompatible) toast.info('已保留兼容配置，并清理新字段类型不支持的配置')
+                            patchField(index, {
+                              type,
+                              config: migrated.config,
+                              ...(keepConditional ? {} : { requiredRule: 'OPTIONAL', requiredLevels: [] })
+                            })
                           }}
                         >
-                          <SelectTrigger className='h-8 w-full'>
+                          <SelectTrigger
+                            className='h-8 w-full'
+                            aria-invalid={fieldErrors?.has('type') || fieldErrors?.has('config') || undefined}
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {FORM_ITEM_TYPES.map(option => (
+                            {FORM_FIELD_TYPES.map(option => (
                               <SelectItem key={option.value} value={option.value}>
                                 {option.label}
                               </SelectItem>
@@ -322,41 +362,50 @@ const DimensionEditor = ({
                           </SelectContent>
                         </Select>
                       </div>
-
-                      <label
-                        className='flex shrink-0 items-center gap-1.5 text-xs'
-                        onClick={stopRowControl}
-                      >
-                        <Checkbox
-                          checked={item.required}
+                      <div className='w-28 shrink-0' onClick={stopRowControl}>
+                        <Select
+                          value={field.requiredRule}
+                          items={supportsConditional ? REQUIRED_RULES : REQUIRED_RULES.slice(0, 2)}
                           disabled={!editable}
-                          onCheckedChange={checked =>
-                            patchItem(index, { required: checked === true })
+                          onValueChange={value =>
+                            patchField(index, {
+                              requiredRule: value as PerfFormFieldRequiredRule,
+                              requiredLevels: value === 'CONDITIONAL' ? field.requiredLevels : []
+                            })
                           }
-                        />
-                        必填
-                      </label>
-
-                      {editable && (
-                        <div
-                          className='ml-auto flex shrink-0 items-center gap-0.5'
-                          onClick={stopRowControl}
                         >
+                          <SelectTrigger
+                            className='h-8 w-full'
+                            aria-invalid={fieldErrors?.has('requiredRule') || undefined}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(supportsConditional ? REQUIRED_RULES : REQUIRED_RULES.slice(0, 2)).map(option => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {editable && (
+                        <div className='ml-auto flex shrink-0 items-center gap-0.5' onClick={stopRowControl}>
                           <Button
                             variant='ghost'
                             size='icon-sm'
                             disabled={index === 0}
-                            onClick={() => moveItem(index, -1)}
-                            aria-label='上移评估项'
+                            onClick={() => moveField(index, -1)}
+                            aria-label='上移表单字段'
                           >
                             <ArrowUpIcon />
                           </Button>
                           <Button
                             variant='ghost'
                             size='icon-sm'
-                            disabled={index === dimension.items.length - 1}
-                            onClick={() => moveItem(index, 1)}
-                            aria-label='下移评估项'
+                            disabled={index === dimension.fields.length - 1}
+                            onClick={() => moveField(index, 1)}
+                            aria-label='下移表单字段'
                           >
                             <ArrowDownIcon />
                           </Button>
@@ -366,25 +415,23 @@ const DimensionEditor = ({
                             onClick={() =>
                               onChange({
                                 ...dimension,
-                                items: normalizeOrder(
-                                  dimension.items.filter((_, itemIndex) => itemIndex !== index)
-                                )
+                                fields: normalizeOrder(dimension.fields.filter((_, fieldIndex) => fieldIndex !== index))
                               })
                             }
-                            aria-label='删除评估项'
+                            aria-label='删除表单字段'
                           >
                             <Trash2Icon />
                           </Button>
                         </div>
                       )}
                     </div>
-
                     <CollapsibleContent className='bg-muted/20 border-t px-3 py-3'>
-                      <ItemAdvancedFields
-                        item={item}
+                      <FieldAdvancedFields
+                        field={field}
+                        supportsConditional={supportsConditional}
                         editable={editable}
-                        onChange={patch => patchItem(index, patch)}
-                        onConfigChange={patch => patchItemConfig(index, patch)}
+                        onChange={patch => patchField(index, patch)}
+                        onConfigChange={patch => patchFieldConfig(index, patch)}
                       />
                     </CollapsibleContent>
                   </Collapsible>
@@ -398,25 +445,24 @@ const DimensionEditor = ({
   )
 }
 
-type ItemAdvancedFieldsProps = {
-  item: PerfFormTemplateItem
-  editable: boolean
-  onChange: (patch: Partial<PerfFormTemplateItem>) => void
-  onConfigChange: (patch: PerfFormItemConfig) => void
-}
-
-/** 展开后才出现的次要字段：占位、说明与类型专属配置。 */
-const ItemAdvancedFields = ({
-  item,
+const FieldAdvancedFields = ({
+  field,
+  supportsConditional,
   editable,
   onChange,
   onConfigChange
-}: ItemAdvancedFieldsProps) => (
+}: {
+  field: PerfFormTemplateField
+  supportsConditional: boolean
+  editable: boolean
+  onChange: (patch: Partial<PerfFormTemplateField>) => void
+  onConfigChange: (patch: PerfFormFieldConfig) => void
+}) => (
   <div className='grid gap-3 md:grid-cols-2'>
     <Field className='gap-1.5 md:col-span-2'>
       <FieldLabel>占位提示</FieldLabel>
       <Input
-        value={item.placeholder ?? ''}
+        value={field.placeholder ?? ''}
         disabled={!editable}
         onChange={event => onChange({ placeholder: event.target.value })}
       />
@@ -424,25 +470,48 @@ const ItemAdvancedFields = ({
     <Field className='gap-1.5 md:col-span-2'>
       <FieldLabel>说明</FieldLabel>
       <Textarea
-        value={item.description ?? ''}
+        value={field.description ?? ''}
         disabled={!editable}
         rows={2}
         onChange={event => onChange({ description: event.target.value })}
       />
     </Field>
 
-    {(item.type === 'SHORT_TEXT' || item.type === 'LONG_TEXT' || item.type === 'MARKDOWN') && (
+    {supportsConditional && field.requiredRule === 'CONDITIONAL' && (
+      <Field className='gap-1.5 md:col-span-2'>
+        <FieldLabel>触发必填的维度等级</FieldLabel>
+        <div className='flex flex-wrap gap-4'>
+          {RATING_LEVELS.map(level => (
+            <label key={level} className='flex items-center gap-2 text-sm'>
+              <Checkbox
+                checked={field.requiredLevels.includes(level)}
+                disabled={!editable}
+                onCheckedChange={checked =>
+                  onChange({
+                    requiredLevels:
+                      checked === true
+                        ? [...new Set([...field.requiredLevels, level])]
+                        : field.requiredLevels.filter(current => current !== level)
+                  })
+                }
+              />
+              {level}
+            </label>
+          ))}
+        </div>
+      </Field>
+    )}
+
+    {(field.type === 'SHORT_TEXT' || field.type === 'LONG_TEXT' || field.type === 'MARKDOWN') && (
       <>
         <Field className='gap-1.5'>
           <FieldLabel>最少字数</FieldLabel>
           <Input
             type='number'
             min={0}
-            value={item.config?.minLength ?? ''}
+            value={field.config?.minLength ?? ''}
             disabled={!editable}
-            onChange={event =>
-              onConfigChange({ minLength: numericConfigValue(event.target.value) })
-            }
+            onChange={event => onConfigChange({ minLength: numericConfigValue(event.target.value) })}
           />
         </Field>
         <Field className='gap-1.5'>
@@ -450,34 +519,30 @@ const ItemAdvancedFields = ({
           <Input
             type='number'
             min={0}
-            value={item.config?.maxLength ?? ''}
+            value={field.config?.maxLength ?? ''}
             disabled={!editable}
-            onChange={event =>
-              onConfigChange({ maxLength: numericConfigValue(event.target.value) })
-            }
+            onChange={event => onConfigChange({ maxLength: numericConfigValue(event.target.value) })}
           />
         </Field>
         <Field className='gap-1.5 md:col-span-2'>
           <FieldLabel>默认内容</FieldLabel>
           <Textarea
-            value={item.config?.defaultValue ?? ''}
+            value={field.config?.defaultValue ?? ''}
             disabled={!editable}
             rows={2}
-            placeholder={item.type === 'MARKDOWN' ? '可填写 Markdown 引导结构' : '可选'}
+            placeholder={field.type === 'MARKDOWN' ? '可填写 Markdown 引导结构' : '可选'}
             onChange={event => onConfigChange({ defaultValue: event.target.value })}
           />
         </Field>
       </>
     )}
 
-    {(item.type === 'SINGLE_SELECT' || item.type === 'MULTI_SELECT') && (
+    {(field.type === 'SINGLE_SELECT' || field.type === 'MULTI_SELECT') && (
       <>
         <Field className='gap-1.5 md:col-span-2'>
           <FieldLabel>选项（每行 value|显示名称）</FieldLabel>
           <Textarea
-            value={(item.config?.options ?? [])
-              .map(option => `${option.value}|${option.label}`)
-              .join('\n')}
+            value={(field.config?.options ?? []).map(option => `${option.value}|${option.label}`).join('\n')}
             disabled={!editable}
             rows={3}
             placeholder={'EXCELLENT|优秀\nGOOD|良好'}
@@ -496,18 +561,16 @@ const ItemAdvancedFields = ({
             }
           />
         </Field>
-        {item.type === 'MULTI_SELECT' && (
+        {field.type === 'MULTI_SELECT' && (
           <>
             <Field className='gap-1.5'>
               <FieldLabel>最少选择数</FieldLabel>
               <Input
                 type='number'
                 min={0}
-                value={item.config?.minSelections ?? ''}
+                value={field.config?.minSelections ?? ''}
                 disabled={!editable}
-                onChange={event =>
-                  onConfigChange({ minSelections: numericConfigValue(event.target.value) })
-                }
+                onChange={event => onConfigChange({ minSelections: numericConfigValue(event.target.value) })}
               />
             </Field>
             <Field className='gap-1.5'>
@@ -515,11 +578,9 @@ const ItemAdvancedFields = ({
               <Input
                 type='number'
                 min={0}
-                value={item.config?.maxSelections ?? ''}
+                value={field.config?.maxSelections ?? ''}
                 disabled={!editable}
-                onChange={event =>
-                  onConfigChange({ maxSelections: numericConfigValue(event.target.value) })
-                }
+                onChange={event => onConfigChange({ maxSelections: numericConfigValue(event.target.value) })}
               />
             </Field>
           </>
@@ -527,18 +588,16 @@ const ItemAdvancedFields = ({
       </>
     )}
 
-    {item.type === 'ATTACHMENT' && (
+    {field.type === 'ATTACHMENT' && (
       <>
         <Field className='gap-1.5'>
           <FieldLabel>最多文件数</FieldLabel>
           <Input
             type='number'
             min={1}
-            value={item.config?.maxFiles ?? ''}
+            value={field.config?.maxFiles ?? ''}
             disabled={!editable}
-            onChange={event =>
-              onConfigChange({ maxFiles: numericConfigValue(event.target.value) })
-            }
+            onChange={event => onConfigChange({ maxFiles: numericConfigValue(event.target.value) })}
           />
         </Field>
         <Field className='gap-1.5'>
@@ -546,17 +605,15 @@ const ItemAdvancedFields = ({
           <Input
             type='number'
             min={1}
-            value={item.config?.maxSizeMb ?? ''}
+            value={field.config?.maxSizeMb ?? ''}
             disabled={!editable}
-            onChange={event =>
-              onConfigChange({ maxSizeMb: numericConfigValue(event.target.value) })
-            }
+            onChange={event => onConfigChange({ maxSizeMb: numericConfigValue(event.target.value) })}
           />
         </Field>
         <Field className='gap-1.5 md:col-span-2'>
           <FieldLabel>允许扩展名</FieldLabel>
           <Input
-            value={(item.config?.allowedExtensions ?? []).join(', ')}
+            value={(field.config?.allowedExtensions ?? []).join(', ')}
             disabled={!editable}
             placeholder='pdf, pptx'
             onChange={event =>
@@ -572,18 +629,16 @@ const ItemAdvancedFields = ({
       </>
     )}
 
-    {item.type === 'LINK' && (
+    {field.type === 'LINK' && (
       <>
         <Field className='gap-1.5'>
           <FieldLabel>链接最大长度</FieldLabel>
           <Input
             type='number'
             min={1}
-            value={item.config?.maxLength ?? ''}
+            value={field.config?.maxLength ?? ''}
             disabled={!editable}
-            onChange={event =>
-              onConfigChange({ maxLength: numericConfigValue(event.target.value) })
-            }
+            onChange={event => onConfigChange({ maxLength: numericConfigValue(event.target.value) })}
           />
         </Field>
         <Field className='gap-1.5'>
@@ -592,10 +647,10 @@ const ItemAdvancedFields = ({
             {(['http', 'https'] as const).map(protocol => (
               <label key={protocol} className='flex items-center gap-2 text-sm'>
                 <Checkbox
-                  checked={(item.config?.allowedProtocols ?? []).includes(protocol)}
+                  checked={(field.config?.allowedProtocols ?? []).includes(protocol)}
                   disabled={!editable}
                   onCheckedChange={checked => {
-                    const current = item.config?.allowedProtocols ?? []
+                    const current = field.config?.allowedProtocols ?? []
 
                     onConfigChange({
                       allowedProtocols:

@@ -165,6 +165,183 @@ describe('MarkdownEditor', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('2 个词')
   })
 
+  it('默认显示顶部工具栏', async () => {
+    render(<MarkdownEditor ariaLabel='工具栏编辑器' value='' onChange={() => {}} />)
+
+    await screen.findByRole('textbox', { name: '工具栏编辑器' })
+
+    expect(screen.getByRole('toolbar', { name: 'Markdown 编辑工具栏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '加粗' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销' })).toBeInTheDocument()
+  })
+
+  it('关闭工具栏开关后不显示顶部工具栏', async () => {
+    const { container } = render(
+      <MarkdownEditor
+        ariaLabel='无工具栏编辑器'
+        value=''
+        onChange={() => {}}
+        features={{ toolbar: false }}
+      />
+    )
+
+    await screen.findByRole('textbox', { name: '无工具栏编辑器' })
+
+    expect(container.querySelector('[data-slot="markdown-toolbar"]')).not.toBeInTheDocument()
+    expect(screen.queryByRole('toolbar', { name: 'Markdown 编辑工具栏' })).not.toBeInTheDocument()
+  })
+
+  it('可通过工具栏切换加粗格式', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+
+    render(<MarkdownEditor ariaLabel='工具栏加粗编辑器' value='关键目标' onChange={onChange} />)
+
+    const editor = await screen.findByRole('textbox', { name: '工具栏加粗编辑器' })
+
+    await user.tripleClick(editor)
+    await user.click(screen.getByRole('button', { name: '加粗' }))
+
+    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0]).toContain('**关键目标**'))
+  })
+
+  it('关闭词数开关后不显示词数统计', async () => {
+    render(
+      <MarkdownEditor
+        ariaLabel='无词数编辑器'
+        value='hello world'
+        onChange={() => {}}
+        features={{ wordCount: false }}
+      />
+    )
+
+    await screen.findByRole('textbox', { name: '无词数编辑器' })
+
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('关闭媒体嵌入与图片上传后斜杠菜单不再提供对应入口', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <MarkdownEditor
+        ariaLabel='精简斜杠编辑器'
+        value=''
+        onChange={() => {}}
+        features={{ mediaEmbed: false, imageUpload: false }}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox', { name: '精简斜杠编辑器' })
+
+    await user.click(editor)
+    await user.type(editor, '/')
+
+    expect(await screen.findByRole('option', { name: /二级标题/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /上传图片/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /YouTube/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Twitter/ })).not.toBeInTheDocument()
+  })
+
+  it('关闭斜杠菜单后输入斜杠不再弹出命令列表', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <MarkdownEditor
+        ariaLabel='无斜杠编辑器'
+        value=''
+        onChange={() => {}}
+        features={{ slashCommand: false }}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox', { name: '无斜杠编辑器' })
+
+    await user.click(editor)
+    await user.type(editor, '/')
+
+    expect(screen.queryByRole('option', { name: /二级标题/ })).not.toBeInTheDocument()
+  })
+
+  it('粘贴 Markdown 源码时按富文本样式渲染', async () => {
+    const onChange = vi.fn()
+
+    render(<MarkdownEditor ariaLabel='粘贴 Markdown 编辑器' value='' onChange={onChange} />)
+
+    const editor = await screen.findByRole('textbox', { name: '粘贴 Markdown 编辑器' })
+    const markdown = '## 绩效总结\n\n完成 **关键项目**\n\n- 交付 A\n- 交付 B'
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        types: ['text/plain'],
+        files: [],
+        getData: (type: string) => (type === 'text/plain' ? markdown : '')
+      }
+    })
+
+    expect(await screen.findByRole('heading', { name: '绩效总结', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('关键项目').tagName).toBe('STRONG')
+    expect(screen.getByRole('list')).toBeInTheDocument()
+    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0]).toContain('## 绩效总结'))
+    await waitFor(() => expect(onChange.mock.calls.at(-1)?.[0]).toContain('**关键项目**'))
+  })
+
+  it('带 HTML 源码包装时仍优先按 Markdown 纯文本解析', async () => {
+    const onChange = vi.fn()
+
+    render(<MarkdownEditor ariaLabel='HTML 包装粘贴编辑器' value='' onChange={onChange} />)
+
+    const editor = await screen.findByRole('textbox', { name: 'HTML 包装粘贴编辑器' })
+    const markdown = '## 阶段回顾\n\n推进 **核心交付**'
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        types: ['text/html', 'text/plain'],
+        files: [],
+        getData: (type: string) => {
+          if (type === 'text/plain') return markdown
+
+          if (type === 'text/html') {
+            return `<pre style="font-family:monospace">## 阶段回顾\n\n推进 **核心交付**</pre>`
+          }
+
+          return ''
+        }
+      }
+    })
+
+    expect(await screen.findByRole('heading', { name: '阶段回顾', level: 2 })).toBeInTheDocument()
+    expect(screen.getByText('核心交付').tagName).toBe('STRONG')
+    expect(screen.queryByText(/## 阶段回顾/)).not.toBeInTheDocument()
+  })
+
+  it('关闭粘贴 Markdown 后源码按纯文本插入', async () => {
+    const onChange = vi.fn()
+
+    render(
+      <MarkdownEditor
+        ariaLabel='关闭 Markdown 粘贴编辑器'
+        value=''
+        onChange={onChange}
+        features={{ pasteMarkdown: false }}
+      />
+    )
+
+    const editor = await screen.findByRole('textbox', { name: '关闭 Markdown 粘贴编辑器' })
+
+    fireEvent.paste(editor, {
+      clipboardData: {
+        types: ['text/plain'],
+        files: [],
+        getData: (type: string) => (type === 'text/plain' ? '## 原文标题\n\n**加粗**' : '')
+      }
+    })
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled())
+    expect(screen.queryByRole('heading', { name: '原文标题', level: 2 })).not.toBeInTheDocument()
+    expect(editor).toHaveTextContent(/## 原文标题/)
+  })
+
   it('可通过完整源码菜单嵌入 YouTube 视频', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()

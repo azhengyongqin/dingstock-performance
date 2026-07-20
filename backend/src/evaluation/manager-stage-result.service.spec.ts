@@ -23,6 +23,22 @@ const ratings = [
   { symbol: 'C', minScore: '0', maxScore: '60', mappingScore: '50' },
 ];
 
+const dimension = (
+  key: string,
+  scoringMethod: 'RATING' | 'SCORE',
+  weight: string,
+  isCore: boolean,
+) => ({
+  key,
+  type: 'SCORING',
+  audience: 'LEADER',
+  name: key === 'manager:core' ? '核心业绩' : '价值观',
+  scoringMethod,
+  weight,
+  isCore,
+  fields: [],
+});
+
 const participant = {
   id: 7,
   cycleId: 1,
@@ -33,38 +49,8 @@ const participant = {
           key: 'subform:MANAGER',
           type: 'MANAGER',
           dimensions: [
-            {
-              key: 'dimension:performance',
-              kind: 'REGULAR',
-              audience: 'LEADER',
-              name: '核心业绩',
-              weight: '70',
-              isCore: true,
-              items: [
-                {
-                  key: 'item:performance:score',
-                  type: 'SCORE',
-                  title: '业绩分数',
-                  required: true,
-                },
-              ],
-            },
-            {
-              key: 'dimension:values',
-              kind: 'REGULAR',
-              audience: 'LEADER',
-              name: '价值观',
-              weight: '30',
-              isCore: false,
-              items: [
-                {
-                  key: 'item:values:score',
-                  type: 'SCORE',
-                  title: '价值观分数',
-                  required: true,
-                },
-              ],
-            },
+            dimension('manager:core', 'RATING', '80', true),
+            dimension('manager:values', 'SCORE', '20', false),
           ],
         },
       ],
@@ -73,27 +59,22 @@ const participant = {
   cycle: {
     deletedAt: null,
     currentConfigVersionId: 3,
-    currentConfigVersion: {
-      id: 3,
-      managerStageMode: 'WEIGHTED_SCORE',
-      ratings,
-      constraintProfiles: {
-        WEIGHTED_RATING: [],
-        WEIGHTED_SCORE: [
-          {
-            id: 'core-below-60-cap-c',
-            type: 'CORE_SCORE_CAP',
-            enabled: true,
-            threshold: '60',
-            targetLevel: 'C',
-          },
-        ],
-      },
-    },
+    currentConfigVersion: { id: 3, ratings },
   },
 };
 
-describe('ManagerStageResultService 权威阶段结果', () => {
+const answer = (
+  dimensionKey: string,
+  values: { rawLevel?: 'S' | 'A' | 'B' | 'C'; rawScore?: string },
+) => ({
+  dimensionKey,
+  rawLevel: values.rawLevel ?? null,
+  rawScore: values.rawScore ?? null,
+  derivedLevel: null,
+  fields: [],
+});
+
+describe('ManagerStageResultService 新版维度阶段结果', () => {
   const prisma = {
     perfParticipant: { findUnique: jest.fn() },
     perfEvaluationSubmission: { findFirst: jest.fn() },
@@ -109,19 +90,9 @@ describe('ManagerStageResultService 权威阶段结果', () => {
       id: 101,
       reviewerOpenId: 'ou_leader',
       status: 'SUBMITTED',
-      items: [
-        {
-          itemKey: 'item:performance:score',
-          dimensionKey: 'dimension:performance',
-          rawLevel: null,
-          rawScore: '58',
-        },
-        {
-          itemKey: 'item:values:score',
-          dimensionKey: 'dimension:values',
-          rawLevel: null,
-          rawScore: '100',
-        },
+      dimensionAnswers: [
+        answer('manager:core', { rawLevel: 'S' }),
+        answer('manager:values', { rawScore: '50' }),
       ],
     });
     prisma.perfStageResult.upsert.mockImplementation(
@@ -131,157 +102,109 @@ describe('ManagerStageResultService 权威阶段结果', () => {
     service = new ManagerStageResultService(prisma as never);
   });
 
-  it('按 MANAGER 动态维度计算并保存校准前权威等级，不接收人工初评等级', async () => {
+  it('混合评级与分数维度统一换算加权，并由任一 C 将 A 封顶为 B', async () => {
     const result = await service.recalculate(7);
 
     expect(result).toMatchObject({
       status: 'READY',
-      mode: 'WEIGHTED_SCORE',
       reviewerCount: 1,
-      compositeScore: '70.60',
-      initialLevel: 'B',
-      stageLevel: 'C',
+      compositeScore: '86.00',
+      initialLevel: 'A',
+      stageLevel: 'B',
       dimensions: [
-        { id: 'dimension:performance', score: '58', level: 'C' },
-        { id: 'dimension:values', score: '100', level: 'S' },
+        {
+          id: 'manager:core',
+          scoringMethod: 'RATING',
+          score: '95',
+          level: 'S',
+        },
+        {
+          id: 'manager:values',
+          scoringMethod: 'SCORE',
+          score: '50',
+          level: 'C',
+        },
       ],
     });
     expect(result.constraintReasons).toEqual([
       expect.objectContaining({
-        id: 'core-below-60-cap-c',
-        beforeLevel: 'B',
-        afterLevel: 'C',
+        id: 'any-c-cap',
+        type: 'ANY_C_CAP',
+        beforeLevel: 'A',
+        afterLevel: 'B',
       }),
     ]);
-    expect(prisma.perfStageResult.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: {
-          participantId_stage_cycleConfigVersionId: {
-            participantId: 7,
-            stage: 'MANAGER',
-            cycleConfigVersionId: 3,
-          },
-        },
-        create: expect.objectContaining({
-          stage: 'MANAGER',
-          initialLevel: 'B',
-          stageLevel: 'C',
-          dimensions: {
-            create: expect.arrayContaining([
-              expect.objectContaining({
-                dimensionKey: 'dimension:performance',
-              }),
-            ]),
-          },
-        }),
-      }),
-    );
-    const persisted = prisma.perfStageResult.upsert.mock.calls[0][0];
-    expect(persisted.create.dimensions.create[0]).not.toHaveProperty(
-      'relationAggregates',
-    );
   });
 
-  it('没有生效提交时保存 NO_DATA，不使用更新草稿参与权威结果', async () => {
-    prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce(null);
-
-    const result = await service.recalculate(7);
-
-    expect(result).toMatchObject({
-      status: 'NO_DATA',
-      reviewerCount: 0,
-      compositeScore: null,
-      initialLevel: null,
-      stageLevel: null,
-      dimensions: [],
-    });
-  });
-
-  it('配置为加权评级时使用评级映射分计算，不读取明细中的人工等级结论', async () => {
-    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
-      ...participant,
-      formSnapshot: {
-        content: {
-          subforms: [
-            {
-              key: 'subform:MANAGER',
-              type: 'MANAGER',
-              dimensions: [
+  it.each([
+    {
+      name: '核心 C 强制 C',
+      core: 'C' as const,
+      score: '100',
+      expectedInitial: 'B',
+      expectedFinal: 'C',
+      constraint: 'CORE_C_FORCE',
+    },
+    {
+      name: '核心 B 封顶 B',
+      core: 'B' as const,
+      score: '95',
+      expectedInitial: 'S',
+      expectedFinal: 'B',
+      constraint: 'CORE_B_CAP',
+    },
+  ])(
+    '$name',
+    async ({ core, score, expectedInitial, expectedFinal, constraint }) => {
+      if (constraint === 'CORE_B_CAP') {
+        prisma.perfParticipant.findUnique.mockResolvedValueOnce({
+          ...participant,
+          formSnapshot: {
+            content: {
+              subforms: [
                 {
-                  key: 'dimension:performance',
-                  kind: 'REGULAR',
-                  audience: 'LEADER',
-                  name: '核心业绩',
-                  weight: '100',
-                  isCore: true,
-                  items: [
-                    {
-                      key: 'item:performance:rating',
-                      type: 'RATING',
-                      title: '业绩评级',
-                      required: true,
-                    },
+                  key: 'subform:MANAGER',
+                  type: 'MANAGER',
+                  dimensions: [
+                    dimension('manager:core', 'RATING', '20', true),
+                    dimension('manager:values', 'SCORE', '80', false),
                   ],
                 },
               ],
             },
-          ],
-        },
-      },
-      cycle: {
-        ...participant.cycle,
-        currentConfigVersion: {
-          ...participant.cycle.currentConfigVersion,
-          managerStageMode: 'WEIGHTED_RATING',
-          constraintProfiles: {
-            WEIGHTED_RATING: [],
-            WEIGHTED_SCORE: [],
           },
-        },
-      },
-    });
+        });
+      }
+      prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce({
+        id: 102,
+        reviewerOpenId: 'ou_leader',
+        status: 'SUBMITTED',
+        dimensionAnswers: [
+          answer('manager:core', { rawLevel: core }),
+          answer('manager:values', { rawScore: score }),
+        ],
+      });
+
+      const result = await service.recalculate(7);
+
+      expect(result).toMatchObject({
+        initialLevel: expectedInitial,
+        stageLevel: expectedFinal,
+      });
+      expect(result.constraintReasons).toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: constraint })]),
+      );
+    },
+  );
+
+  it('存在有效红线确认时独立将上级阶段结果强制为 C', async () => {
     prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce({
-      id: 102,
+      id: 103,
       reviewerOpenId: 'ou_leader',
       status: 'SUBMITTED',
-      items: [
-        {
-          itemKey: 'item:performance:rating',
-          dimensionKey: 'dimension:performance',
-          rawLevel: 'A',
-          rawScore: null,
-        },
-      ],
-    });
-
-    const result = await service.recalculate(7);
-
-    expect(result).toMatchObject({
-      mode: 'WEIGHTED_RATING',
-      compositeScore: '85.00',
-      initialLevel: 'A',
-      stageLevel: 'A',
-    });
-  });
-
-  it('存在仍有效的红线确认时把 MANAGER 阶段硬约束为 C 并保存原因', async () => {
-    prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce({
-      id: 101,
-      reviewerOpenId: 'ou_leader',
-      status: 'SUBMITTED',
-      items: [
-        {
-          itemKey: 'item:performance:score',
-          dimensionKey: 'dimension:performance',
-          rawLevel: null,
-          rawScore: '85',
-        },
-        {
-          itemKey: 'item:values:score',
-          dimensionKey: 'dimension:values',
-          rawLevel: null,
-          rawScore: '85',
-        },
+      dimensionAnswers: [
+        answer('manager:core', { rawLevel: 'S' }),
+        answer('manager:values', { rawScore: '95' }),
       ],
     });
     prisma.perfRedLineFinding.findFirst.mockResolvedValueOnce({
@@ -292,17 +215,25 @@ describe('ManagerStageResultService 权威阶段结果', () => {
 
     const result = await service.recalculate(7);
 
-    expect(result).toMatchObject({
-      initialLevel: 'A',
-      stageLevel: 'C',
-    });
+    expect(result).toMatchObject({ initialLevel: 'S', stageLevel: 'C' });
     expect(result.constraintReasons).toEqual([
       expect.objectContaining({
         id: 'red-line:501',
         type: 'CONFIRMED_RED_LINE',
-        beforeLevel: 'A',
+        beforeLevel: 'S',
         afterLevel: 'C',
       }),
     ]);
+  });
+
+  it('没有生效提交时保存 NO_DATA，不使用草稿参与权威结果', async () => {
+    prisma.perfEvaluationSubmission.findFirst.mockResolvedValueOnce(null);
+
+    await expect(service.recalculate(7)).resolves.toMatchObject({
+      status: 'NO_DATA',
+      reviewerCount: 0,
+      compositeScore: null,
+      dimensions: [],
+    });
   });
 });

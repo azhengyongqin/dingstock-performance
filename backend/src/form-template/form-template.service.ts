@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   Injectable,
@@ -8,11 +9,20 @@ import type { Prisma } from '../generated/prisma/client';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import type {
-  FormItemConfig,
+  FormFieldConfig,
+  FormFieldRequiredRule,
+  FormFieldType,
+  FormRatingLevel,
+  FormScoringMethod,
+  FormTemplateSubformContract,
   FormTemplateVersionContract,
 } from './form-template.contract';
 import { analyzeFormTemplatePrefixCoverage } from './prefix-coverage';
 import { validateFormTemplatePublication } from './publication-validator';
+import {
+  toPerformanceSubformContracts,
+  toPerformanceSubformCreateData,
+} from './form-template.persistence';
 
 export type CreateFormTemplateInput = {
   name: string;
@@ -20,38 +30,33 @@ export type CreateFormTemplateInput = {
   jobLevelPrefix: 'D' | 'M';
 };
 
-export type FormTemplateItemInput = {
-  type:
-    | 'RATING'
-    | 'SCORE'
-    | 'SHORT_TEXT'
-    | 'LONG_TEXT'
-    | 'MARKDOWN'
-    | 'SINGLE_SELECT'
-    | 'MULTI_SELECT'
-    | 'ATTACHMENT'
-    | 'LINK';
+export type FormTemplateFieldInput = {
+  key?: string;
+  type: FormFieldType;
   title: string;
   description?: string | null;
   placeholder?: string | null;
-  required: boolean;
+  requiredRule: FormFieldRequiredRule;
+  requiredLevels: FormRatingLevel[];
   sortOrder: number;
-  config?: FormItemConfig | null;
+  config?: FormFieldConfig | null;
 };
 
 export type FormTemplateDimensionInput = {
-  kind: 'REGULAR' | 'TEXT' | 'PROMOTION';
+  key?: string;
+  type: 'SCORING' | 'NON_SCORING';
+  scoringMethod?: FormScoringMethod | null;
   audience: 'EMPLOYEE' | 'REVIEWER' | 'LEADER';
   name: string;
   description?: string | null;
   weight?: number | string | null;
   isCore: boolean;
   sortOrder: number;
-  items: FormTemplateItemInput[];
+  fields: FormTemplateFieldInput[];
 };
 
 export type FormTemplateSubformInput = {
-  type: 'SELF' | 'PEER' | 'MANAGER' | 'PROMOTION';
+  type: 'SELF' | 'PEER' | 'MANAGER';
   title: string;
   description?: string | null;
   sortOrder: number;
@@ -66,17 +71,21 @@ export type ReplaceDraftContentInput = Omit<
   subforms: FormTemplateSubformInput[];
 };
 
+const PERFORMANCE_SUBFORM_TYPES = ['SELF', 'PEER', 'MANAGER'] as const;
 const INITIAL_SUBFORMS = [
   { type: 'SELF', title: '员工自评', sortOrder: 0 },
   { type: 'PEER', title: '360°评估', sortOrder: 1 },
   { type: 'MANAGER', title: '上级评估', sortOrder: 2 },
-  { type: 'PROMOTION', title: '晋升评估', sortOrder: 3 },
 ] as const;
+type BusinessKeySet = {
+  dimensions: Set<string>;
+  fields: Set<string>;
+};
 
 /**
- * 版本化评估表单模板应用服务。
+ * 版本化绩效表单模板应用服务。
  *
- * 稳定模板与首个草稿必须在同一事务内创建，避免出现没有任何版本的孤立模板。
+ * 对外与持久化层统一使用“维度 + 表单字段”；旧晋升内容仅从历史版本只读返回。
  */
 @Injectable()
 export class FormTemplateService {
@@ -100,7 +109,8 @@ export class FormTemplateService {
       items: versions.map(({ template, _count, ...version }) => ({
         ...version,
         systemKey: template.systemKey,
-        subformCount: _count.subforms,
+        // 旧版本可能额外保留晋升内容，绩效表单固定按三个子表单展示。
+        subformCount: Math.min(_count.subforms, 3),
       })),
       total: versions.length,
     };
@@ -123,7 +133,7 @@ export class FormTemplateService {
       items: versions.map(({ template, _count, ...version }) => ({
         ...version,
         systemKey: template.systemKey,
-        subformCount: _count.subforms,
+        subformCount: Math.min(_count.subforms, 3),
       })),
       total: versions.length,
     };
@@ -143,10 +153,9 @@ export class FormTemplateService {
       this.findVersionOrThrow(id),
     ]);
     if (!isAdmin && version.status !== 'PUBLISHED') {
-      // 对非管理员隐藏草稿和归档的存在性，避免泄露未发布模板内容。
       throw new NotFoundException('评估表单模板版本不存在或不可用');
     }
-    return version;
+    return this.toVersionResponse(version);
   }
 
   async createFormTemplate(
@@ -170,7 +179,7 @@ export class FormTemplateService {
         },
       });
 
-      // 四类子表单是版本的固定骨架；草稿允许维度与评估项暂时为空。
+      // 新绩效模板固定三类人工评估；晋升不再随模板新建。
       await tx.perfFormSubform.createMany({
         data: INITIAL_SUBFORMS.map((subform) => ({
           versionId: version.id,
@@ -180,7 +189,9 @@ export class FormTemplateService {
       return version.id;
     });
 
-    const result = await this.findVersionOrThrow(versionId);
+    const result = this.toVersionResponse(
+      await this.findVersionOrThrow(versionId),
+    );
     await this.auditService.record({
       operatorOpenId,
       action: 'form_template.create',
@@ -196,10 +207,15 @@ export class FormTemplateService {
     id: number,
     input: ReplaceDraftContentInput,
   ) {
-    const before = await this.findVersionOrThrow(id);
-    if (before.status !== 'DRAFT') {
+    const beforeRecord = await this.findVersionOrThrow(id);
+    if (beforeRecord.status !== 'DRAFT') {
       throw new BadRequestException('只有草稿版本允许编辑');
     }
+    const keyedSubforms = this.materializeBusinessKeys(
+      input.subforms,
+      this.collectBusinessKeys(beforeRecord),
+    );
+    const before = this.toVersionResponse(beforeRecord);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.perfFormTemplateVersion.update({
@@ -212,19 +228,18 @@ export class FormTemplateService {
         },
       });
 
-      // 草稿采用整体覆盖语义，避免局部 patch 遗留孤立维度或评估项。
-      await tx.perfFormSubform.deleteMany({ where: { versionId: id } });
-      for (const subform of this.toSubformCreateData(input.subforms)) {
+      // 只覆盖三个绩效子表单；旧晋升子表单留在原版本中只读保存。
+      await tx.perfFormSubform.deleteMany({
+        where: { versionId: id, type: { in: [...PERFORMANCE_SUBFORM_TYPES] } },
+      });
+      for (const subform of this.toSubformCreateData(keyedSubforms)) {
         await tx.perfFormSubform.create({
-          data: {
-            versionId: id,
-            ...subform,
-          },
+          data: { versionId: id, ...subform },
         });
       }
     });
 
-    const result = await this.findVersionOrThrow(id);
+    const result = this.toVersionResponse(await this.findVersionOrThrow(id));
     await this.auditService.record({
       operatorOpenId,
       action: 'form_template.draft.update',
@@ -238,37 +253,33 @@ export class FormTemplateService {
 
   async publishVersion(operatorOpenId: string, id: number) {
     const { before, result } = await this.prisma.$transaction(async (tx) => {
-      // 与草稿整体覆盖争用同一版本行锁，确保“读取→校验→发布”之间内容不会变化。
       await tx.$queryRaw`SELECT "id" FROM "performance"."perf_form_template_versions" WHERE "id" = ${id} FOR UPDATE`;
       const lockedDraft = await this.findVersionOrThrow(id, tx);
       if (lockedDraft.status !== 'DRAFT') {
         throw new BadRequestException('只有草稿版本允许发布');
       }
 
-      const issues = validateFormTemplatePublication(
-        this.toPublicationContract(lockedDraft),
-      );
+      const contract = this.toPublicationContract(lockedDraft);
+      const issues = validateFormTemplatePublication(contract);
       if (issues.length > 0) {
-        // 一次返回全部问题，管理员无需逐项尝试发布才能发现下一处错误。
         throw new BadRequestException({
           message: '评估表单模板发布校验失败',
           issues,
         });
       }
 
-      const now = new Date();
       await tx.perfFormTemplateVersion.update({
         where: { id },
         data: {
           status: 'PUBLISHED',
           publishedByOpenId: operatorOpenId,
-          publishedAt: now,
+          publishedAt: new Date(),
           updatedByOpenId: operatorOpenId,
         },
       });
       return {
-        before: lockedDraft,
-        result: await this.findVersionOrThrow(id, tx),
+        before: this.toVersionResponse(lockedDraft),
+        result: this.toVersionResponse(await this.findVersionOrThrow(id, tx)),
       };
     });
 
@@ -297,6 +308,7 @@ export class FormTemplateService {
         where: { templateId: source.templateId },
         _max: { version: true },
       });
+      const performanceSubforms = this.toPublicationContract(source).subforms;
       const version = await tx.perfFormTemplateVersion.create({
         data: {
           templateId: source.templateId,
@@ -309,44 +321,43 @@ export class FormTemplateService {
           createdByOpenId: operatorOpenId,
           updatedByOpenId: operatorOpenId,
           subforms: {
-            create: this.toSubformCreateData(
-              this.toPublicationContract(source).subforms,
-            ),
+            create: this.toSubformCreateData(performanceSubforms),
           },
         },
       });
       return version.id;
     });
 
-    const result = await this.findVersionOrThrow(newVersionId);
+    const result = this.toVersionResponse(
+      await this.findVersionOrThrow(newVersionId),
+    );
     await this.auditService.record({
       operatorOpenId,
       action: 'form_template.draft.create_from_version',
       targetType: 'perf_form_template_version',
       targetId: String(newVersionId),
-      before: source,
+      before: this.toVersionResponse(source),
       after: result,
     });
     return result;
   }
 
   async archiveVersion(operatorOpenId: string, id: number) {
-    const before = await this.findVersionOrThrow(id);
-    if (before.status !== 'PUBLISHED') {
+    const beforeRecord = await this.findVersionOrThrow(id);
+    if (beforeRecord.status !== 'PUBLISHED') {
       throw new BadRequestException('只有已发布版本允许归档');
     }
-
-    const now = new Date();
+    const before = this.toVersionResponse(beforeRecord);
     await this.prisma.perfFormTemplateVersion.update({
       where: { id },
       data: {
         status: 'ARCHIVED',
         archivedByOpenId: operatorOpenId,
-        archivedAt: now,
+        archivedAt: new Date(),
         updatedByOpenId: operatorOpenId,
       },
     });
-    const result = await this.findVersionOrThrow(id);
+    const result = this.toVersionResponse(await this.findVersionOrThrow(id));
     await this.auditService.record({
       operatorOpenId,
       action: 'form_template.archive',
@@ -358,40 +369,83 @@ export class FormTemplateService {
     return result;
   }
 
-  /** Prisma 三层 nested-create 的唯一映射入口，避免编辑、复制等路径字段漂移。 */
-  private toSubformCreateData(
-    subforms: FormTemplateVersionContract['subforms'],
-  ) {
+  private materializeBusinessKeys(
+    subforms: readonly FormTemplateSubformInput[],
+    allowed?: BusinessKeySet,
+  ): FormTemplateSubformContract[] {
+    const usedDimensions = new Set<string>();
+    const usedFields = new Set<string>();
     return subforms.map((subform) => ({
-      type: subform.type,
-      title: subform.title,
-      description: subform.description,
-      sortOrder: subform.sortOrder,
-      dimensions: {
-        create: subform.dimensions.map((dimension) => ({
-          kind: dimension.kind,
-          audience: dimension.audience,
-          name: dimension.name,
-          description: dimension.description,
-          weight: dimension.weight,
-          isCore: dimension.isCore,
-          sortOrder: dimension.sortOrder,
-          items: {
-            create: dimension.items.map((item) => ({
-              type: item.type,
-              title: item.title,
-              description: item.description,
-              placeholder: item.placeholder,
-              required: item.required,
-              sortOrder: item.sortOrder,
-              config: item.config
-                ? (item.config as Prisma.InputJsonValue)
-                : undefined,
-            })),
-          },
-        })),
-      },
+      ...subform,
+      dimensions: subform.dimensions.map((dimension) => {
+        const key = this.materializeKey(
+          dimension.key,
+          allowed?.dimensions,
+          usedDimensions,
+          '评估维度',
+        );
+        return {
+          ...dimension,
+          key,
+          scoringMethod:
+            dimension.type === 'SCORING'
+              ? (dimension.scoringMethod ?? null)
+              : null,
+          weight: dimension.type === 'SCORING' ? dimension.weight : null,
+          isCore: dimension.type === 'SCORING' && dimension.isCore,
+          fields: dimension.fields.map((field) => ({
+            ...field,
+            key: this.materializeKey(
+              field.key,
+              allowed?.fields,
+              usedFields,
+              '表单字段',
+            ),
+          })),
+        };
+      }),
     }));
+  }
+
+  private materializeKey(
+    requested: string | undefined,
+    allowed: Set<string> | undefined,
+    used: Set<string>,
+    label: string,
+  ) {
+    if (requested && allowed && !allowed.has(requested)) {
+      throw new BadRequestException(`${label}业务标识不可由客户端创建或修改`);
+    }
+    const key = requested ?? randomUUID();
+    if (used.has(key)) {
+      throw new BadRequestException(`${label}业务标识不能重复`);
+    }
+    used.add(key);
+    return key;
+  }
+
+  private collectBusinessKeys(
+    version: Awaited<ReturnType<FormTemplateService['findVersionOrThrow']>>,
+  ): BusinessKeySet {
+    const dimensions = new Set<string>();
+    const fields = new Set<string>();
+    for (const subform of version.subforms) {
+      if (!PERFORMANCE_SUBFORM_TYPES.includes(subform.type as never)) continue;
+      for (const dimension of subform.dimensions) {
+        dimensions.add(dimension.businessKey);
+        for (const field of dimension.fields) {
+          fields.add(field.businessKey);
+        }
+      }
+    }
+    return { dimensions, fields };
+  }
+
+  /** Prisma nested-create 的唯一映射入口。 */
+  private toSubformCreateData(
+    subforms: readonly FormTemplateSubformContract[],
+  ) {
+    return toPerformanceSubformCreateData(subforms);
   }
 
   private toPublicationContract(
@@ -401,28 +455,51 @@ export class FormTemplateService {
       name: version.name,
       description: version.description,
       jobLevelPrefix: version.jobLevelPrefix,
-      subforms: version.subforms.map((subform) => ({
-        type: subform.type,
-        title: subform.title,
-        description: subform.description,
-        sortOrder: subform.sortOrder,
-        dimensions: subform.dimensions.map((dimension) => ({
-          kind: dimension.kind,
-          audience: dimension.audience,
-          name: dimension.name,
-          description: dimension.description,
-          weight: dimension.weight?.toString() ?? null,
-          isCore: dimension.isCore,
-          sortOrder: dimension.sortOrder,
-          items: dimension.items.map((item) => ({
-            type: item.type,
-            title: item.title,
-            description: item.description,
-            placeholder: item.placeholder,
-            required: item.required,
-            sortOrder: item.sortOrder,
-            config: item.config as FormItemConfig | null,
-          })),
+      subforms: toPerformanceSubformContracts(version.subforms),
+    };
+  }
+
+  private toVersionResponse(
+    version: Awaited<ReturnType<FormTemplateService['findVersionOrThrow']>>,
+  ) {
+    const contract = this.toPublicationContract(version);
+    const legacyPromotion = version.subforms.find(
+      (subform) => subform.type === 'PROMOTION',
+    );
+    return {
+      ...version,
+      subforms: contract.subforms,
+      // 旧晋升内容单独只读返回，不参与绩效模板保存和发布。
+      legacyPromotionSubform: legacyPromotion
+        ? this.toLegacyPromotionResponse(legacyPromotion)
+        : null,
+    };
+  }
+
+  private toLegacyPromotionResponse(
+    subform: Awaited<
+      ReturnType<FormTemplateService['findVersionOrThrow']>
+    >['subforms'][number],
+  ) {
+    return {
+      title: subform.title,
+      description: subform.description,
+      dimensions: subform.dimensions.map((dimension) => ({
+        key: dimension.businessKey,
+        name: dimension.name,
+        description: dimension.description,
+        audience: dimension.audience,
+        sortOrder: dimension.sortOrder,
+        fields: dimension.fields.map((field) => ({
+          key: field.businessKey,
+          title: field.title,
+          type: field.type,
+          description: field.description,
+          placeholder: field.placeholder,
+          requiredRule: field.requiredRule,
+          requiredLevels: field.requiredLevels,
+          sortOrder: field.sortOrder,
+          config: field.config,
         })),
       })),
     };
@@ -440,7 +517,7 @@ export class FormTemplateService {
           include: {
             dimensions: {
               orderBy: [{ audience: 'asc' }, { sortOrder: 'asc' }],
-              include: { items: { orderBy: { sortOrder: 'asc' } } },
+              include: { fields: { orderBy: { sortOrder: 'asc' } } },
             },
           },
         },

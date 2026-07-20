@@ -1,9 +1,4 @@
-import type { CommentRequiredRules, EvaluationRating } from '@/lib/perf-api'
-
-export type EvaluationRuleDraft = {
-  levels: EvaluationRating[]
-  commentRequiredRules: CommentRequiredRules
-}
+import type { EvaluationRating } from '@/lib/perf-api'
 
 export const DEFAULT_EVALUATION_RATINGS: EvaluationRating[] = [
   {
@@ -37,10 +32,6 @@ export const DEFAULT_EVALUATION_RATINGS: EvaluationRating[] = [
     remark: '工作结果、成长速度等方面有重大突破和创新，价值观表现等可作团队标杆'
   }
 ]
-
-export const DEFAULT_COMMENT_REQUIRED_RULES: CommentRequiredRules = {
-  requiredRatingSymbols: ['S', 'C']
-}
 
 export const createEmptyRating = (): EvaluationRating => ({
   symbol: '',
@@ -109,83 +100,16 @@ export const removeInterval = (levels: EvaluationRating[], i: number): Evaluatio
   return next.filter((_, idx) => idx !== i)
 }
 
-export const normalizeEvaluationRuleDraft = (draft: EvaluationRuleDraft): EvaluationRuleDraft => {
-  const levels = [...draft.levels]
-    .map(item => ({
-      symbol: item.symbol.trim(),
-      name: item.name.trim(),
-      minScore: Number(item.minScore),
-      maxScore: Number(item.maxScore),
-      maxInclusive: false,
-      remark: item.remark?.trim() || undefined
-    }))
-    .sort((a, b) => a.minScore - b.minScore)
-
-  if (levels.length > 0) {
-    levels[levels.length - 1] = { ...levels[levels.length - 1], maxInclusive: true }
-  }
-
-  const symbols = new Set(levels.map(item => item.symbol))
-
-  return {
-    levels,
-    commentRequiredRules: {
-      requiredRatingSymbols: [
-        ...new Set((draft.commentRequiredRules.requiredRatingSymbols ?? []).filter(symbol => symbols.has(symbol)))
-      ]
-    }
-  }
-}
-
-export const validateEvaluationRuleDraft = (draft: EvaluationRuleDraft): string | null => {
-  const { levels } = normalizeEvaluationRuleDraft(draft)
-
-  if (levels.length === 0) return '至少需要配置一个评级'
-
-  const symbols = new Set<string>()
-
-  for (const rating of levels) {
-    if (!rating.symbol) return '评级符号不能为空'
-    if (!rating.name) return `评级 ${rating.symbol} 的名称不能为空`
-    if (symbols.has(rating.symbol)) return `评级符号 ${rating.symbol} 重复`
-    symbols.add(rating.symbol)
-
-    if (!Number.isFinite(rating.minScore) || !Number.isFinite(rating.maxScore)) {
-      return `评级 ${rating.symbol} 的分数区间无效`
-    }
-
-    if (rating.minScore < 0 || rating.maxScore > 100) return '评级分数区间必须在 0-100 内'
-    if (rating.minScore >= rating.maxScore) return `评级 ${rating.symbol} 的分数下限必须小于上限`
-  }
-
-  if (levels[0].minScore !== 0) return '最低评级必须从 0 分开始'
-
-  for (let index = 0; index < levels.length; index += 1) {
-    const current = levels[index]
-    const next = levels[index + 1]
-
-    if (next && current.maxScore !== next.minScore) {
-      return `评级 ${current.symbol} 与 ${next.symbol} 的区间必须连续`
-    }
-  }
-
-  const last = levels[levels.length - 1]
-
-  if (last.maxScore !== 100) return '最高评级必须到 100 分'
-
-  return null
-}
-
 export const findRatingByScore = (levels: EvaluationRating[], score: number): EvaluationRating | null => {
-  const normalized = normalizeEvaluationRuleDraft({
-    levels,
-    commentRequiredRules: DEFAULT_COMMENT_REQUIRED_RULES
-  }).levels
+  const normalized = [...levels]
+    .map(level => ({ ...level, minScore: Number(level.minScore), maxScore: Number(level.maxScore) }))
+    .sort((left, right) => left.minScore - right.minScore)
 
   return (
     normalized.find(item => {
       const aboveMin = score >= item.minScore
-      const belowMax = item.maxInclusive ? score <= item.maxScore : score < item.maxScore
+      const isHighest = item === normalized.at(-1)
+      const belowMax = isHighest ? score <= item.maxScore : score < item.maxScore
 
       return aboveMin && belowMax
     }) ?? null

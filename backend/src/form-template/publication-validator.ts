@@ -1,8 +1,11 @@
 import {
-  FORM_ITEM_TYPES,
+  FORM_FIELD_REQUIRED_RULES,
+  FORM_FIELD_TYPES,
+  FORM_RATING_LEVELS,
+  FORM_SCORING_METHODS,
   FORM_SUBFORM_TYPES,
-  type FormItemConfig,
-  type FormItemType,
+  type FormFieldConfig,
+  type FormFieldType,
   type FormTemplateVersionContract,
 } from './form-template.contract';
 
@@ -12,24 +15,36 @@ export type FormTemplatePublicationIssue = {
   message: string;
 };
 
-const SCORING_ITEM_TYPES = new Set(['RATING', 'SCORE']);
-const CONTROLLED_ITEM_TYPES = new Set<string>(FORM_ITEM_TYPES);
+const SUBFORM_LABEL = {
+  SELF: '员工自评',
+  PEER: '360°评估',
+  MANAGER: '上级评估',
+} as const;
+
+const FIELD_TYPE_LABEL: Record<FormFieldType, string> = {
+  SHORT_TEXT: '单行文本',
+  LONG_TEXT: '多行文本',
+  MARKDOWN: 'Markdown',
+  SINGLE_SELECT: '单选',
+  MULTI_SELECT: '多选',
+  ATTACHMENT: '文件附件',
+  LINK: '链接',
+};
 
 function percentageToHundredths(value: number | string | null | undefined) {
   if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value).trim());
   if (!match) return null;
-  const hundredths =
+  const result =
     Number(match[1]) * 100 + Number((match[2] ?? '').padEnd(2, '0'));
-  return Number.isSafeInteger(hundredths) ? hundredths : null;
+  return Number.isSafeInteger(result) ? result : null;
 }
 
-function hasDuplicate(values: readonly number[]) {
+function hasDuplicate<T>(values: readonly T[]) {
   return new Set(values).size !== values.length;
 }
 
-function hasOnlyKeys(config: FormItemConfig, allowedKeys: readonly string[]) {
+function hasOnlyKeys(config: FormFieldConfig, allowedKeys: readonly string[]) {
   const allowed = new Set(allowedKeys);
   return Object.keys(config).every((key) => allowed.has(key));
 }
@@ -38,7 +53,7 @@ function isNonNegativeInteger(value: unknown) {
   return Number.isInteger(value) && Number(value) >= 0;
 }
 
-function hasValidTextConfig(config: FormItemConfig) {
+function hasValidTextConfig(config: FormFieldConfig) {
   if (!hasOnlyKeys(config, ['minLength', 'maxLength', 'defaultValue'])) {
     return false;
   }
@@ -66,7 +81,7 @@ function hasValidTextConfig(config: FormItemConfig) {
   );
 }
 
-function hasValidOptions(config: FormItemConfig) {
+function hasValidOptions(config: FormFieldConfig) {
   if (!config.options || config.options.length === 0) return false;
   const values = config.options.map((option) => option.value.trim());
   return (
@@ -76,21 +91,16 @@ function hasValidOptions(config: FormItemConfig) {
   );
 }
 
-function isValidItemConfig(type: FormItemType, config?: FormItemConfig | null) {
+function isValidFieldConfig(
+  type: FormFieldType,
+  config?: FormFieldConfig | null,
+) {
   const value = config ?? {};
-  if (type === 'RATING' || type === 'SCORE') {
-    return Object.keys(value).length === 0;
-  }
   if (type === 'SHORT_TEXT' || type === 'LONG_TEXT' || type === 'MARKDOWN') {
     return hasValidTextConfig(value);
   }
   if (type === 'SINGLE_SELECT') {
-    return (
-      hasOnlyKeys(value, ['options', 'employeeVisible']) &&
-      hasValidOptions(value) &&
-      (value.employeeVisible === undefined ||
-        typeof value.employeeVisible === 'boolean')
-    );
+    return hasOnlyKeys(value, ['options']) && hasValidOptions(value);
   }
   if (type === 'MULTI_SELECT') {
     if (
@@ -145,11 +155,12 @@ function isValidItemConfig(type: FormItemType, config?: FormItemConfig | null) {
       return false;
     }
     if (value.allowedProtocols) {
-      const protocols = value.allowedProtocols;
       if (
-        protocols.length === 0 ||
-        protocols.some((protocol) => !['http', 'https'].includes(protocol)) ||
-        new Set(protocols).size !== protocols.length
+        value.allowedProtocols.length === 0 ||
+        value.allowedProtocols.some(
+          (protocol) => !['http', 'https'].includes(protocol),
+        ) ||
+        new Set(value.allowedProtocols).size !== value.allowedProtocols.length
       ) {
         return false;
       }
@@ -159,35 +170,50 @@ function isValidItemConfig(type: FormItemType, config?: FormItemConfig | null) {
   return false;
 }
 
-/** 发布校验公开入口；返回空数组表示版本内容满足发布条件。 */
+/** 发布校验公开入口；草稿可不完整，只有发布动作调用本函数。 */
 export function validateFormTemplatePublication(
   template: FormTemplateVersionContract,
 ): FormTemplatePublicationIssue[] {
   const issues: FormTemplatePublicationIssue[] = [];
   const counts = new Map<string, number>();
 
+  if (!template.name.trim()) {
+    issues.push({
+      code: 'TEMPLATE_NAME_REQUIRED',
+      path: 'name',
+      message: '表单模板名称不能为空',
+    });
+  }
+
   for (const subform of template.subforms) {
     counts.set(subform.type, (counts.get(subform.type) ?? 0) + 1);
   }
-
   for (const type of FORM_SUBFORM_TYPES) {
     const count = counts.get(type) ?? 0;
-    if (count > 1) {
-      issues.push({
-        code: 'SUBFORM_DUPLICATE',
-        path: `subforms.${type}`,
-        message: `${type} 子表单只能存在一个`,
-      });
-    }
-  }
-  for (const type of FORM_SUBFORM_TYPES) {
-    if (!counts.has(type)) {
+    if (count === 0) {
       issues.push({
         code: 'SUBFORM_REQUIRED',
         path: `subforms.${type}`,
-        message: `缺少 ${type} 子表单`,
+        message: `缺少${SUBFORM_LABEL[type]}子表单`,
+      });
+    } else if (count > 1) {
+      issues.push({
+        code: 'SUBFORM_DUPLICATE',
+        path: `subforms.${type}`,
+        message: `${SUBFORM_LABEL[type]}子表单只能存在一个`,
       });
     }
+  }
+  if (
+    template.subforms.some(
+      (subform) => !FORM_SUBFORM_TYPES.includes(subform.type),
+    )
+  ) {
+    issues.push({
+      code: 'SUBFORM_TYPE_INVALID',
+      path: 'subforms',
+      message: '绩效表单只允许员工自评、360°评估和上级评估',
+    });
   }
 
   template.subforms.forEach((subform, subformIndex) => {
@@ -207,228 +233,225 @@ export function validateFormTemplatePublication(
     });
   }
 
+  const dimensionKeys: string[] = [];
+  const fieldKeys: string[] = [];
   const expectedAudience = {
     SELF: 'EMPLOYEE',
     PEER: 'REVIEWER',
     MANAGER: 'LEADER',
   } as const;
-  for (const subform of template.subforms) {
-    subform.dimensions.forEach((dimension, dimensionIndex) => {
-      if (
-        subform.type !== 'PROMOTION' &&
-        dimension.audience !== expectedAudience[subform.type]
-      ) {
-        issues.push({
-          code: 'DIMENSION_AUDIENCE_INVALID',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].audience`,
-          message: `${subform.type} 维度填写对象不合法`,
-        });
-      }
-      if (subform.type === 'PROMOTION' && dimension.kind !== 'PROMOTION') {
-        issues.push({
-          code: 'PROMOTION_DIMENSION_KIND_INVALID',
-          path: `subforms.PROMOTION.dimensions[${dimensionIndex}].kind`,
-          message: 'PROMOTION 子表单只能包含 PROMOTION 维度',
-        });
-      }
-      if (subform.type !== 'PROMOTION' && dimension.kind === 'PROMOTION') {
-        issues.push({
-          code: 'DIMENSION_KIND_INVALID',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].kind`,
-          message: '晋升维度只能归属 PROMOTION 子表单',
-        });
-      }
-    });
-  }
 
   for (const subform of template.subforms) {
-    subform.dimensions.forEach((dimension, dimensionIndex) => {
-      if (!Number.isInteger(dimension.sortOrder) || dimension.sortOrder < 0) {
-        issues.push({
-          code: 'DIMENSION_SORT_ORDER_INVALID',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].sortOrder`,
-          message: '维度排序必须是非负整数',
-        });
-      }
-    });
-    for (const audience of ['EMPLOYEE', 'REVIEWER', 'LEADER'] as const) {
-      const audienceOrders = subform.dimensions
-        .filter((dimension) => dimension.audience === audience)
-        .map((dimension) => dimension.sortOrder);
-      if (hasDuplicate(audienceOrders)) {
-        issues.push({
-          code: 'DIMENSION_SORT_ORDER_DUPLICATE',
-          path: `subforms.${subform.type}.dimensions.sortOrder`,
-          message: '同一子表单、同一填写对象内的维度排序不能重复',
-        });
-      }
+    const label = SUBFORM_LABEL[subform.type];
+    if (!subform.title.trim()) {
+      issues.push({
+        code: 'SUBFORM_TITLE_REQUIRED',
+        path: `subforms.${subform.type}.title`,
+        message: `${label}子表单标题不能为空`,
+      });
+    }
+    const scoringDimensions = subform.dimensions.filter(
+      (dimension) => dimension.type === 'SCORING',
+    );
+
+    if (scoringDimensions.length === 0) {
+      issues.push({
+        code: 'SCORING_DIMENSION_REQUIRED',
+        path: `subforms.${subform.type}.dimensions`,
+        message: `${label}至少需要一个计分维度`,
+      });
     }
 
-    subform.dimensions.forEach((dimension, dimensionIndex) => {
-      dimension.items.forEach((item, itemIndex) => {
-        if (!Number.isInteger(item.sortOrder) || item.sortOrder < 0) {
-          issues.push({
-            code: 'ITEM_SORT_ORDER_INVALID',
-            path: `subforms.${subform.type}.dimensions[${dimensionIndex}].items[${itemIndex}].sortOrder`,
-            message: '评估项排序必须是非负整数',
-          });
-        }
-      });
-      if (hasDuplicate(dimension.items.map((item) => item.sortOrder))) {
-        issues.push({
-          code: 'ITEM_SORT_ORDER_DUPLICATE',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].items.sortOrder`,
-          message: '同一维度内的评估项排序不能重复',
-        });
-      }
-    });
-  }
-
-  for (const subform of template.subforms) {
-    subform.dimensions.forEach((dimension, dimensionIndex) => {
-      dimension.items.forEach((item, itemIndex) => {
-        const itemPath = `subforms.${subform.type}.dimensions[${dimensionIndex}].items[${itemIndex}]`;
-        if (!CONTROLLED_ITEM_TYPES.has(item.type)) {
-          issues.push({
-            code: 'ITEM_TYPE_INVALID',
-            path: `${itemPath}.type`,
-            message: '评估项必须使用受控组件类型',
-          });
-          return;
-        }
-        if (!isValidItemConfig(item.type, item.config)) {
-          issues.push({
-            code: 'ITEM_CONFIG_INVALID',
-            path: `${itemPath}.config`,
-            message: `${item.type} 的组件配置不合法`,
-          });
-        }
-      });
-    });
-  }
-
-  for (const subform of template.subforms) {
-    if (subform.type !== 'PEER' && subform.type !== 'MANAGER') continue;
-
-    const regularDimensions = subform.dimensions.filter(
-      (dimension) => dimension.kind === 'REGULAR',
-    );
-    regularDimensions.forEach((dimension, dimensionIndex) => {
-      if (percentageToHundredths(dimension.weight) === null) {
-        const originalIndex = subform.dimensions.indexOf(dimension);
+    let totalWeight = 0;
+    scoringDimensions.forEach((dimension) => {
+      const dimensionIndex = subform.dimensions.indexOf(dimension);
+      const weight = percentageToHundredths(dimension.weight);
+      if (weight === null || weight <= 0 || weight > 10_000) {
         issues.push({
           code: 'DIMENSION_WEIGHT_INVALID',
-          path: `subforms.${subform.type}.dimensions[${originalIndex >= 0 ? originalIndex : dimensionIndex}].weight`,
-          message: `${subform.type} 的每个常规维度都必须设置合法权重`,
+          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].weight`,
+          message: `${label}计分维度占比必须大于 0%、不超过 100% 且最多两位小数`,
+        });
+      } else {
+        totalWeight += weight;
+      }
+      if (!FORM_SCORING_METHODS.includes(dimension.scoringMethod as never)) {
+        issues.push({
+          code: 'DIMENSION_SCORING_METHOD_INVALID',
+          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].scoringMethod`,
+          message: '计分维度必须选择评级或 0～100 分',
         });
       }
     });
-    const total = regularDimensions.reduce(
-      (sum, dimension) => sum + (percentageToHundredths(dimension.weight) ?? 0),
-      0,
-    );
-    if (total !== 10_000) {
+    if (totalWeight !== 10_000) {
       issues.push({
         code: 'DIMENSION_WEIGHT_TOTAL_INVALID',
         path: `subforms.${subform.type}.dimensions`,
-        message: `${subform.type} 常规维度权重合计必须为 100%`,
+        message: `${label}计分维度占比合计必须为 100%`,
       });
     }
-
-    const coreCount = regularDimensions.filter(
-      (dimension) => dimension.isCore,
-    ).length;
-    if (coreCount !== 1) {
+    if (
+      scoringDimensions.filter((dimension) => dimension.isCore).length !== 1
+    ) {
       issues.push({
         code: 'CORE_DIMENSION_COUNT_INVALID',
         path: `subforms.${subform.type}.dimensions`,
-        message: `${subform.type} 必须且只能有一个核心维度`,
+        message: `${label}必须且只能有一个核心计分维度`,
       });
     }
-  }
 
-  for (const subform of template.subforms) {
-    const scoringTypes = new Set<string>();
+    const audienceOrders: number[] = [];
     subform.dimensions.forEach((dimension, dimensionIndex) => {
-      const scoringItems = dimension.items.filter((item) =>
-        SCORING_ITEM_TYPES.has(item.type),
-      );
-      if (dimension.kind === 'REGULAR' && scoringItems.length !== 1) {
+      const dimensionPath = `subforms.${subform.type}.dimensions[${dimensionIndex}]`;
+      dimensionKeys.push(dimension.key);
+      audienceOrders.push(dimension.sortOrder);
+
+      if (!dimension.key?.trim()) {
         issues.push({
-          code: 'SCORING_ITEM_COUNT_INVALID',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].items`,
-          message: '每个常规维度必须且只能有一个计分项',
+          code: 'DIMENSION_KEY_REQUIRED',
+          path: `${dimensionPath}.key`,
+          message: '评估维度缺少稳定业务标识',
         });
       }
-      if (dimension.kind !== 'REGULAR' && scoringItems.length > 0) {
+      if (!dimension.name.trim()) {
         issues.push({
-          code: 'NON_SCORING_DIMENSION_HAS_SCORING_ITEM',
-          path: `subforms.${subform.type}.dimensions[${dimensionIndex}].items`,
-          message: 'TEXT 与 PROMOTION 维度不能包含评级或评分项',
+          code: 'DIMENSION_NAME_REQUIRED',
+          path: `${dimensionPath}.name`,
+          message: '评估维度名称不能为空',
         });
       }
-      if (dimension.kind === 'REGULAR') {
-        scoringItems.forEach((item) => scoringTypes.add(item.type));
+      if (dimension.audience !== expectedAudience[subform.type]) {
+        issues.push({
+          code: 'DIMENSION_AUDIENCE_INVALID',
+          path: `${dimensionPath}.audience`,
+          message: `${label}维度的填写对象不合法`,
+        });
+      }
+      if (!Number.isInteger(dimension.sortOrder) || dimension.sortOrder < 0) {
+        issues.push({
+          code: 'DIMENSION_SORT_ORDER_INVALID',
+          path: `${dimensionPath}.sortOrder`,
+          message: '维度排序必须是非负整数',
+        });
+      }
+      if (
+        dimension.type === 'NON_SCORING' &&
+        (dimension.scoringMethod != null ||
+          dimension.weight != null ||
+          dimension.isCore)
+      ) {
+        issues.push({
+          code: 'NON_SCORING_DIMENSION_CONFIG_INVALID',
+          path: dimensionPath,
+          message: '非计分维度不能设置计分方式、占比或核心维度',
+        });
+      }
+
+      dimension.fields.forEach((field, fieldIndex) => {
+        const fieldPath = `${dimensionPath}.fields[${fieldIndex}]`;
+        fieldKeys.push(field.key);
+        if (!field.key?.trim()) {
+          issues.push({
+            code: 'FIELD_KEY_REQUIRED',
+            path: `${fieldPath}.key`,
+            message: '表单字段缺少稳定业务标识',
+          });
+        }
+        if (!field.title.trim()) {
+          issues.push({
+            code: 'FIELD_TITLE_REQUIRED',
+            path: `${fieldPath}.title`,
+            message: '表单字段标题不能为空',
+          });
+        }
+        if (!FORM_FIELD_TYPES.includes(field.type)) {
+          issues.push({
+            code: 'FIELD_TYPE_INVALID',
+            path: `${fieldPath}.type`,
+            message: '表单字段必须使用受控的非计分组件类型',
+          });
+          return;
+        }
+        if (!Number.isInteger(field.sortOrder) || field.sortOrder < 0) {
+          issues.push({
+            code: 'FIELD_SORT_ORDER_INVALID',
+            path: `${fieldPath}.sortOrder`,
+            message: '表单字段排序必须是非负整数',
+          });
+        }
+        if (!isValidFieldConfig(field.type, field.config)) {
+          issues.push({
+            code: 'FIELD_CONFIG_INVALID',
+            path: `${fieldPath}.config`,
+            message: `${FIELD_TYPE_LABEL[field.type]}的组件配置不合法`,
+          });
+        }
+        if (!FORM_FIELD_REQUIRED_RULES.includes(field.requiredRule)) {
+          issues.push({
+            code: 'FIELD_REQUIRED_RULE_INVALID',
+            path: `${fieldPath}.requiredRule`,
+            message: '表单字段必填规则不合法',
+          });
+        }
+
+        const requiredLevels = field.requiredLevels ?? [];
+        const conditionalAllowed =
+          dimension.type === 'SCORING' &&
+          (field.type === 'LONG_TEXT' || field.type === 'MARKDOWN');
+        if (field.requiredRule === 'CONDITIONAL') {
+          if (
+            !conditionalAllowed ||
+            requiredLevels.length === 0 ||
+            hasDuplicate(requiredLevels) ||
+            requiredLevels.some((level) => !FORM_RATING_LEVELS.includes(level))
+          ) {
+            issues.push({
+              code: 'FIELD_CONDITIONAL_RULE_INVALID',
+              path: `${fieldPath}.requiredLevels`,
+              message:
+                '只有计分维度中的多行文本或 Markdown 可按有效维度等级条件必填',
+            });
+          }
+        } else if (requiredLevels.length > 0) {
+          issues.push({
+            code: 'FIELD_REQUIRED_LEVELS_UNUSED',
+            path: `${fieldPath}.requiredLevels`,
+            message: '非条件必填字段不能设置触发等级',
+          });
+        }
+      });
+
+      if (hasDuplicate(dimension.fields.map((field) => field.sortOrder))) {
+        issues.push({
+          code: 'FIELD_SORT_ORDER_DUPLICATE',
+          path: `${dimensionPath}.fields.sortOrder`,
+          message: '同一维度内的表单字段排序不能重复',
+        });
       }
     });
 
-    if (
-      (subform.type === 'PEER' || subform.type === 'MANAGER') &&
-      scoringTypes.size > 1
-    ) {
+    if (hasDuplicate(audienceOrders)) {
       issues.push({
-        code: 'SCORING_TYPE_MIXED',
-        path: `subforms.${subform.type}.dimensions`,
-        message: `${subform.type} 的常规维度不能混用评级和评分项`,
+        code: 'DIMENSION_SORT_ORDER_DUPLICATE',
+        path: `subforms.${subform.type}.dimensions.sortOrder`,
+        message: '同一子表单内的维度排序不能重复',
       });
     }
   }
 
-  const self = template.subforms.find((subform) => subform.type === 'SELF');
-  if (self) {
-    const scoringItems = self.dimensions.flatMap((dimension) =>
-      dimension.items.filter((item) => SCORING_ITEM_TYPES.has(item.type)),
-    );
-    if (
-      scoringItems.length !== 1 ||
-      scoringItems[0]?.type !== 'RATING' ||
-      !scoringItems[0].required
-    ) {
-      issues.push({
-        code: 'SELF_RATING_INVALID',
-        path: 'subforms.SELF',
-        message: 'SELF 必须且只能包含一个必填 RATING 自评等级项',
-      });
-    }
-  }
-
-  const promotion = template.subforms.find(
-    (subform) => subform.type === 'PROMOTION',
-  );
-  if (promotion) {
-    promotion.dimensions.forEach((dimension, dimensionIndex) => {
-      if (!['EMPLOYEE', 'LEADER'].includes(dimension.audience)) {
-        issues.push({
-          code: 'PROMOTION_ROLE_INVALID',
-          path: `subforms.PROMOTION.dimensions[${dimensionIndex}].audience`,
-          message: 'PROMOTION 维度只能属于 EMPLOYEE 或 LEADER 区段',
-        });
-      }
+  if (hasDuplicate(dimensionKeys.filter(Boolean))) {
+    issues.push({
+      code: 'DIMENSION_KEY_DUPLICATE',
+      path: 'subforms.dimensions.key',
+      message: '同一表单版本内的评估维度业务标识不能重复',
     });
-
-    for (const role of ['EMPLOYEE', 'LEADER'] as const) {
-      const hasContent = promotion.dimensions.some(
-        (dimension) =>
-          dimension.audience === role && dimension.items.length > 0,
-      );
-      if (!hasContent) {
-        issues.push({
-          code: 'PROMOTION_ROLE_CONTENT_MISSING',
-          path: `subforms.PROMOTION.${role}`,
-          message: `PROMOTION ${role} 区段至少需要一个评估项`,
-        });
-      }
-    }
+  }
+  if (hasDuplicate(fieldKeys.filter(Boolean))) {
+    issues.push({
+      code: 'FIELD_KEY_DUPLICATE',
+      path: 'subforms.dimensions.fields.key',
+      message: '同一表单版本内的表单字段业务标识不能重复',
+    });
   }
 
   return issues;

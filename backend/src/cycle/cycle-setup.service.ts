@@ -11,16 +11,20 @@ import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import type { SchedulePreset } from '../config-template/config-template.contract';
 import type {
-  ConfigConstraintProfiles,
-  ConfigRatingDefinition,
-  ConfigStageModes,
   ConfigTemplateVersionContract,
   ConfigTemplatePublicationIssue,
   NotificationRules,
 } from '../config-template/config-template.contract';
 import { validateConfigTemplatePublication } from '../config-template/publication-validator';
-import type { FormItemConfig } from '../form-template/form-template.contract';
-import type { FormTemplateSubformContract } from '../form-template/form-template.contract';
+import {
+  omitPersistedConfigInternals,
+  toPublicRatings,
+} from '../config-template/config-template.public';
+import {
+  FORM_SUBFORM_TYPES,
+  type FormTemplateSubformContract,
+} from '../form-template/form-template.contract';
+import { toPerformanceSubformContracts } from '../form-template/form-template.persistence';
 import {
   generateCyclePlan,
   validateCyclePlan,
@@ -76,7 +80,7 @@ const sourceVersionInclude = {
                   { audience: 'asc' as const },
                   { sortOrder: 'asc' as const },
                 ],
-                include: { items: { orderBy: { sortOrder: 'asc' as const } } },
+                include: { fields: { orderBy: { sortOrder: 'asc' as const } } },
               },
             },
           },
@@ -175,7 +179,7 @@ export class CycleSetupService {
         status: PerfCycleStatus.DRAFT,
       },
     });
-    return this.getSetup(cycleId);
+    return this.toPublicSetup(await this.getSetup(cycleId));
   }
 
   /**
@@ -421,12 +425,7 @@ export class CycleSetupService {
       cycle: { connect: { id: cycleId } },
       version,
       sourceConfigVersion: { connect: { id: source.id } },
-      selfStageMode: source.selfStageMode,
-      peerStageMode: source.peerStageMode,
-      managerStageMode: source.managerStageMode,
-      aiStageMode: source.aiStageMode,
-      ratings: this.inputJson(source.ratings),
-      constraintProfiles: this.inputJson(source.constraintProfiles),
+      ratings: this.inputJson(toPublicRatings(source.ratings)),
       orgOwnerWeight: source.orgOwnerWeight,
       projectOwnerWeight: source.projectOwnerWeight,
       peerWeight: source.peerWeight,
@@ -483,14 +482,7 @@ export class CycleSetupService {
         sourceFormTemplateVersionId: form.sourceFormTemplateVersionId,
         content: form.content,
       })),
-      stageModes: {
-        SELF: snapshot.selfStageMode,
-        PEER: snapshot.peerStageMode,
-        MANAGER: snapshot.managerStageMode,
-        AI: snapshot.aiStageMode,
-      },
-      ratings: snapshot.ratings,
-      constraintProfiles: snapshot.constraintProfiles,
+      ratings: toPublicRatings(snapshot.ratings),
       reviewerRelationWeights: {
         ORG_OWNER: snapshot.orgOwnerWeight.toString(),
         PROJECT_OWNER: snapshot.projectOwnerWeight.toString(),
@@ -533,12 +525,7 @@ export class CycleSetupService {
       await tx.perfCycleConfigVersion.update({
         where: { id: snapshot.id },
         data: {
-          selfStageMode: dto.stageModes.SELF,
-          peerStageMode: dto.stageModes.PEER,
-          managerStageMode: dto.stageModes.MANAGER,
-          aiStageMode: dto.stageModes.AI,
-          ratings: this.inputJson(dto.ratings),
-          constraintProfiles: this.inputJson(dto.constraintProfiles),
+          ratings: this.inputJson(toPublicRatings(dto.ratings)),
           orgOwnerWeight: dto.reviewerRelationWeights.ORG_OWNER,
           projectOwnerWeight: dto.reviewerRelationWeights.PROJECT_OWNER,
           peerWeight: dto.reviewerRelationWeights.PEER,
@@ -803,7 +790,10 @@ export class CycleSetupService {
         after: { status: PerfCycleStatus.SCHEDULED },
       });
     }
-    return { changed, cycle: await this.getSetup(cycleId) };
+    return {
+      changed,
+      cycle: this.toPublicSetup(await this.getSetup(cycleId)),
+    };
   }
 
   async returnToDraft(operatorOpenId: string, cycleId: number) {
@@ -831,7 +821,10 @@ export class CycleSetupService {
         after: { status: PerfCycleStatus.DRAFT },
       });
     }
-    return { changed, cycle: await this.getSetup(cycleId) };
+    return {
+      changed,
+      cycle: this.toPublicSetup(await this.getSetup(cycleId)),
+    };
   }
 
   private async requireEditableSetup(cycleId: number, client: DbClient) {
@@ -898,16 +891,7 @@ export class CycleSetupService {
   ): ConfigTemplateVersionContract {
     return {
       name: '周期配置快照',
-      stageModes: (advanced?.stageModes ?? {
-        SELF: snapshot.selfStageMode,
-        PEER: snapshot.peerStageMode,
-        MANAGER: snapshot.managerStageMode,
-        AI: snapshot.aiStageMode,
-      }) as ConfigStageModes,
-      ratings: (advanced?.ratings ??
-        snapshot.ratings) as unknown as ConfigRatingDefinition[],
-      constraintProfiles: (advanced?.constraintProfiles ??
-        snapshot.constraintProfiles) as unknown as ConfigConstraintProfiles,
+      ratings: toPublicRatings(advanced?.ratings ?? snapshot.ratings),
       reviewerRelationWeights: advanced?.reviewerRelationWeights ?? {
         ORG_OWNER: snapshot.orgOwnerWeight.toString(),
         PROJECT_OWNER: snapshot.projectOwnerWeight.toString(),
@@ -944,42 +928,71 @@ export class CycleSetupService {
       include: typeof sourceVersionInclude.formBindings.include.formTemplateVersion.include;
     }>,
   ) {
+    const subforms = toPerformanceSubformContracts(version.subforms);
+
     return {
-      schemaVersion: 1,
+      // v2 快照与新版模板采用同一“维度 + 字段”层级，并直接继承稳定业务 key。
+      schemaVersion: 2,
       name: version.name,
       description: version.description,
       jobLevelPrefix: version.jobLevelPrefix,
-      subforms: version.subforms.map((subform) => ({
-        key: `subform:${subform.type}`,
-        type: subform.type,
-        title: subform.title,
-        description: subform.description,
-        sortOrder: subform.sortOrder,
-        dimensions: subform.dimensions.map((dimension) => ({
-          key: `dimension:${subform.type}:${dimension.audience}:${dimension.sortOrder}`,
-          kind: dimension.kind,
-          audience: dimension.audience,
-          name: dimension.name,
-          description: dimension.description,
-          weight: dimension.weight?.toString() ?? null,
-          isCore: dimension.isCore,
-          sortOrder: dimension.sortOrder,
-          items: dimension.items.map((item) => ({
-            key: `item:${subform.type}:${dimension.audience}:${dimension.sortOrder}:${item.sortOrder}`,
-            type: item.type,
-            title: item.title,
-            description: item.description,
-            placeholder: item.placeholder,
-            required: item.required,
-            sortOrder: item.sortOrder,
-            config: item.config as FormItemConfig | null,
+      subforms: subforms
+        .filter((subform) => FORM_SUBFORM_TYPES.includes(subform.type))
+        .map((subform) => ({
+          key: `subform:${subform.type}`,
+          type: subform.type,
+          title: subform.title,
+          description: subform.description,
+          sortOrder: subform.sortOrder,
+          dimensions: subform.dimensions.map((dimension) => ({
+            sourceDimensionId: dimension.id,
+            key: dimension.key,
+            type: dimension.type,
+            audience: dimension.audience,
+            name: dimension.name,
+            description: dimension.description,
+            scoringMethod: dimension.scoringMethod ?? null,
+            weight:
+              dimension.type === 'SCORING' && dimension.weight != null
+                ? dimension.weight.toString()
+                : null,
+            isCore: dimension.isCore,
+            sortOrder: dimension.sortOrder,
+            fields: dimension.fields.map((field) => ({
+              sourceFieldId: field.id,
+              key: field.key,
+              type: field.type,
+              title: field.title,
+              description: field.description,
+              placeholder: field.placeholder,
+              requiredRule: field.requiredRule,
+              requiredLevels: [...field.requiredLevels],
+              sortOrder: field.sortOrder,
+              config: field.config ?? null,
+            })),
           })),
         })),
-      })),
     };
   }
 
   private inputJson(value: unknown): Prisma.InputJsonValue {
     return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  }
+
+  private toPublicSetup<T extends { currentConfigVersion?: unknown }>(
+    cycle: T,
+  ) {
+    const current = cycle.currentConfigVersion as
+      (Record<string, unknown> & { ratings?: unknown }) | null | undefined;
+    if (!current) return cycle;
+    const ratings = current.ratings;
+    const publicCurrent = omitPersistedConfigInternals(current);
+    return {
+      ...cycle,
+      currentConfigVersion: {
+        ...publicCurrent,
+        ratings: toPublicRatings(ratings),
+      },
+    };
   }
 }

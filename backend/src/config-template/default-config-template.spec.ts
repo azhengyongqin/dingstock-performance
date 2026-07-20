@@ -1,15 +1,9 @@
 import { buildDefaultConfigTemplate } from './default-config-template';
 
 describe('buildDefaultConfigTemplate', () => {
-  it('提供固定阶段模式、S/A/B/C 映射、受控约束和四类默认关系权重', () => {
+  it('提供 S/A/B/C 映射和四类默认关系权重，不再公开旧全局规则', () => {
     const value = buildDefaultConfigTemplate();
 
-    expect(value.stageModes).toEqual({
-      SELF: 'DIRECT_RATING',
-      PEER: 'WEIGHTED_RATING',
-      MANAGER: 'WEIGHTED_SCORE',
-      AI: 'DIRECT_RATING',
-    });
     expect(
       value.ratings.map(({ symbol, mappingScore }) => [symbol, mappingScore]),
     ).toEqual([
@@ -24,12 +18,11 @@ describe('buildDefaultConfigTemplate', () => {
       PEER: '25',
       CROSS_DEPT: '15',
     });
-    expect(
-      value.constraintProfiles.WEIGHTED_RATING.map((rule) => rule.type),
-    ).toEqual(['CORE_RATING_FORCE', 'CORE_RATING_CAP', 'ANY_RATING_CAP']);
-    expect(
-      value.constraintProfiles.WEIGHTED_SCORE.map((rule) => rule.type),
-    ).toEqual(['CORE_SCORE_FORCE', 'CORE_SCORE_CAP', 'ANY_SCORE_CAP']);
+    expect(value).not.toHaveProperty('stageModes');
+    expect(value).not.toHaveProperty('constraintProfiles');
+    value.ratings.forEach((rating) => {
+      expect(rating).not.toHaveProperty('commentRequired');
+    });
   });
 
   it('默认日程使用 0/0 明确保持草稿不可发布', () => {

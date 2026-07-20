@@ -44,12 +44,7 @@ describe('ConfigTemplateService', () => {
     name: validContract.name,
     description: validContract.description,
     sourceVersionId: null,
-    selfStageMode: validContract.stageModes.SELF,
-    peerStageMode: validContract.stageModes.PEER,
-    managerStageMode: validContract.stageModes.MANAGER,
-    aiStageMode: validContract.stageModes.AI,
     ratings: validContract.ratings,
-    constraintProfiles: validContract.constraintProfiles,
     orgOwnerWeight: validContract.reviewerRelationWeights.ORG_OWNER,
     projectOwnerWeight: validContract.reviewerRelationWeights.PROJECT_OWNER,
     peerWeight: validContract.reviewerRelationWeights.PEER,
@@ -142,7 +137,6 @@ describe('ConfigTemplateService', () => {
     ).resolves.toEqual(
       expect.objectContaining({
         id: 20,
-        stageModes: validContract.stageModes,
         reviewerRelationWeights: validContract.reviewerRelationWeights,
         formTemplateVersionIds: [],
         publicationIssues: expect.arrayContaining([
@@ -154,6 +148,12 @@ describe('ConfigTemplateService', () => {
         available: false,
       }),
     );
+    rbacMock.isAdmin.mockResolvedValue(true);
+    const result = await service.getVersion('admin-open-id', 20);
+    expect(result).not.toHaveProperty('stageModes');
+    result.ratings.forEach((rating) => {
+      expect(rating).not.toHaveProperty('commentRequired');
+    });
 
     expect(txMock.perfConfigTemplateVersion.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -161,8 +161,6 @@ describe('ConfigTemplateService', () => {
         version: 1,
         status: 'DRAFT',
         name: '研发绩效配置',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
         orgOwnerWeight: '30',
         createdByOpenId: 'admin-open-id',
       }),
@@ -184,8 +182,7 @@ describe('ConfigTemplateService', () => {
     expect(txMock.perfConfigTemplateVersion.update).toHaveBeenCalledWith({
       where: { id: 20 },
       data: expect.objectContaining({
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
+        ratings: validContract.ratings,
         updatedByOpenId: 'admin-open-id',
       }),
     });
@@ -384,7 +381,7 @@ describe('ConfigTemplateService', () => {
     rbacMock.isAdmin.mockResolvedValue(false);
     const peerDimensions = formBindingsWithIds[0].formTemplateVersion.subforms
       .find((subform) => subform.type === 'PEER')!
-      .dimensions.filter((dimension) => dimension.kind === 'REGULAR');
+      .dimensions.filter((dimension) => dimension.type === 'SCORING');
 
     await expect(
       service.calculatePreview('hr-open-id', 20, {

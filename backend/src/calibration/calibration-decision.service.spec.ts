@@ -173,6 +173,26 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
         status: 'CALIBRATED',
       },
     });
+    expect(tx.perfEvaluationSubmission.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          dimensionAnswers: {
+            select: expect.objectContaining({
+              dimensionKey: true,
+              fields: {
+                select: {
+                  fieldKey: true,
+                  fieldType: true,
+                  value: true,
+                },
+                orderBy: { id: 'asc' },
+              },
+            }),
+            orderBy: { id: 'asc' },
+          },
+        }),
+      }),
+    );
     expect(prisma.$transaction).toHaveBeenCalledTimes(2);
   });
 
@@ -411,11 +431,16 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
         reviewerOpenId: 'ou_employee',
         submittedAt: new Date('2026-07-15T08:00:00.000Z'),
         updatedAt: new Date('2026-07-15T08:00:00.000Z'),
-        items: [
+        dimensionAnswers: [
           {
+            subformKey: 'subform:SELF',
             dimensionKey: 'delivery',
-            itemKey: 'delivery-result',
+            scoringMethod: 'RATING',
             rawLevel: 'A',
+            rawScore: null,
+            calculationScore: '90',
+            derivedLevel: 'A',
+            fields: [],
           },
         ],
       },

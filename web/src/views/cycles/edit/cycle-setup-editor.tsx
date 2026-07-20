@@ -82,7 +82,6 @@ type Props = {
   onAddMember: (openId: string) => void
   onAddDepartment: (departmentId: string) => void
   onRemoveMember: (participantId: number) => void
-  onTogglePromotion: (participant: PerfCycleSetupParticipant) => void
   onPlanChange: (plan: PerfCyclePlan) => void
   onSavePlan: () => Promise<boolean>
   onRunChecks: () => void
@@ -99,18 +98,16 @@ const ParticipantTable = ({
   participants,
   prefixChecks,
   editable,
-  onTogglePromotion,
   onRemoveMember
-}: Pick<Props, 'participants' | 'prefixChecks' | 'editable' | 'onTogglePromotion' | 'onRemoveMember'>) => {
+}: Pick<Props, 'participants' | 'prefixChecks' | 'editable' | 'onRemoveMember'>) => {
   const columns = useMemo(
     () =>
       getParticipantSetupColumns({
         prefixChecks,
         editable,
-        onTogglePromotion,
         onRemove: onRemoveMember
       }),
-    [prefixChecks, editable, onTogglePromotion, onRemoveMember]
+    [prefixChecks, editable, onRemoveMember]
   )
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -168,7 +165,6 @@ const CycleSetupEditor = ({
   onAddMember,
   onAddDepartment,
   onRemoveMember,
-  onTogglePromotion,
   onPlanChange,
   onSavePlan,
   onRunChecks,
@@ -449,7 +445,6 @@ const CycleSetupEditor = ({
                   participants={participants}
                   prefixChecks={prefixChecks}
                   editable={editable}
-                  onTogglePromotion={onTogglePromotion}
                   onRemoveMember={onRemoveMember}
                 />
               </div>

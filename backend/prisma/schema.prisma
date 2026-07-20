@@ -421,26 +421,6 @@ enum PerfParticipantStatus {
   @@schema("performance")
 }
 
-/// 旧模型迁移批次状态；失败批次可按同一 runKey 重跑，回滚只做显式补偿。
-enum PerfLegacyMigrationRunStatus {
-  RUNNING
-  COMPLETED
-  FAILED
-  ROLLED_BACK
-
-  @@schema("performance")
-}
-
-/// 单个旧业务键的迁移结果；唯一来源键是跨批次幂等边界。
-enum PerfLegacyMigrationItemStatus {
-  MIGRATED
-  SKIPPED
-  FAILED
-  ROLLED_BACK
-
-  @@schema("performance")
-}
-
 /// 系统角色（产品 §3）；EMPLOYEE/REVIEWER/LEADER 为任务关系派生角色，
 /// role_grants 表仅显式授权 HR/ADMIN，枚举全集用于维度可见/可填角色配置
 enum PerfRole {
@@ -595,15 +575,6 @@ enum PerfConfigTemplateVersionStatus {
   @@schema("performance")
 }
 
-/// 评估阶段结果模式；各阶段允许的模式由数据库 CHECK 与发布校验共同限制。
-enum PerfStageResultMode {
-  DIRECT_RATING /// 直接选择 S/A/B/C，不参与加权计算
-  WEIGHTED_RATING /// 评级映射为计算分后加权
-  WEIGHTED_SCORE /// 直接使用 0～100 分进行加权
-
-  @@schema("performance")
-}
-
 /// 阶段结果数据状态：READY=有有效输入并完成计算；NO_DATA=没有有效输入，不伪造零分或等级。
 enum PerfStageResultStatus {
   READY
@@ -636,7 +607,7 @@ enum PerfJobLevelPrefix {
   @@schema("performance")
 }
 
-/// 一个评估表单版本固定包含的四类子表单。
+/// 人工绩效使用前三类子表单；PROMOTION 仅保留旧版本历史读取。
 enum PerfFormSubformType {
   SELF /// 员工自评
   PEER /// 360°评估
@@ -646,11 +617,28 @@ enum PerfFormSubformType {
   @@schema("performance")
 }
 
-/// 表单维度类型；常规计分、文本内容和晋升内容分别处理。
-enum PerfFormDimensionKind {
-  REGULAR /// 常规评估维度，可参与阶段计算
-  TEXT /// 非计分文本/说明维度
-  PROMOTION /// 晋升评估维度
+/// 表单维度类型；旧晋升内容仅用于只读历史，不进入绩效发布与提交链。
+enum PerfFormDimensionType {
+  SCORING /// 计分维度
+  NON_SCORING /// 非计分维度
+  LEGACY_PROMOTION /// 旧晋升内容，只读保留
+
+  @@schema("performance")
+}
+
+/// 计分维度直接持有的输入方式。
+enum PerfFormScoringMethod {
+  RATING /// S/A/B/C 评级选择
+  SCORE /// 0～100 分数输入
+
+  @@schema("performance")
+}
+
+/// 表单字段的正式提交必填规则。
+enum PerfFormFieldRequiredRule {
+  OPTIONAL /// 选填
+  ALWAYS /// 始终必填
+  CONDITIONAL /// 命中维度等级时必填
 
   @@schema("performance")
 }
@@ -664,10 +652,8 @@ enum PerfFormAudience {
   @@schema("performance")
 }
 
-/// 受控评估项组件目录；禁止保存任意 HTML、脚本或自定义组件类型。
-enum PerfFormItemType {
-  RATING /// S/A/B/C 评级选择
-  SCORE /// 0～100 分数输入
+/// 受控表单字段目录；计分输入归属维度，不属于字段。
+enum PerfFormFieldType {
   SHORT_TEXT /// 单行文本
   LONG_TEXT /// 多行文本
   MARKDOWN /// Markdown 内容
@@ -679,12 +665,20 @@ enum PerfFormItemType {
   @@schema("performance")
 }
 
-/// 固定 S/A/B/C 四档评级符号（ADR-0019）；评估项原始评级与阶段等级均引用此枚举，不接受任意字符串。
+/// 固定 S/A/B/C 四档评级符号（ADR-0019）；维度原始评级与阶段等级均引用此枚举，不接受任意字符串。
 enum PerfRatingSymbol {
   S
   A
   B
   C
+
+  @@schema("performance")
+}
+
+/// 旧晋升只读归档来源；不参与新版模板、快照或人工评估提交链。
+enum PerfLegacyPromotionArchiveSource {
+  EVALUATION_ITEM_RESULT /// contract 前的旧评估项作答
+  RESULT_VERSION_SNAPSHOT /// 已发布结果快照中的员工可见晋升投影
 
   @@schema("performance")
 }
@@ -739,7 +733,7 @@ model PerfFormTemplateVersion {
   @@schema("performance")
 }
 
-/// 表单版本下的子表单；同一版本每种类型只能存在一份，发布校验要求四类齐全。
+/// 表单版本下的子表单；新版发布只要求 SELF / PEER / MANAGER，旧 PROMOTION 不参与发布。
 model PerfFormSubform {
   id          Int                 @id @default(autoincrement()) /// 内部自增主键
   versionId   Int                 @map("version_id") /// 所属评估表单模板版本
@@ -759,11 +753,13 @@ model PerfFormSubform {
   @@schema("performance")
 }
 
-/// 子表单维度；权重与核心标记只属于维度，评估项不设置第二层权重。
+/// 子表单维度；权重与核心标记只属于计分维度。
 model PerfFormDimension {
   id          Int                   @id @default(autoincrement()) /// 内部自增主键
   subformId   Int                   @map("subform_id") /// 所属子表单
-  kind        PerfFormDimensionKind @default(REGULAR) /// 常规、文本或晋升维度
+  businessKey String                @default(uuid()) @map("business_key") /// 跨版本不变的业务标识；改名、换序、改类型均不改变
+  type        PerfFormDimensionType @default(SCORING) /// 计分、非计分或只读旧晋升维度
+  scoringMethod PerfFormScoringMethod? @map("scoring_method") /// 计分维度直接持有评级或分数方式；非计分维度为空
   audience    PerfFormAudience /// 填写对象；发布校验限制各子表单允许的对象
   name        String /// 维度名称
   description String? /// 维度说明与评价边界
@@ -774,23 +770,27 @@ model PerfFormDimension {
   updatedAt   DateTime              @updatedAt @map("updated_at") /// 最近更新时间
 
   subform PerfFormSubform @relation(fields: [subformId], references: [id], onDelete: Cascade)
-  items   PerfFormItem[]
+  fields  PerfFormField[]
 
   @@unique([subformId, audience, sortOrder])
-  @@index([subformId, kind])
+  @@unique([subformId, businessKey])
+  @@index([subformId, type])
+  @@index([businessKey])
   @@map("perf_form_dimensions")
   @@schema("performance")
 }
 
-/// 受控评估项；类型专属选项、长度与数量限制存入经服务层校验的 config JSONB。
-model PerfFormItem {
+/// 受控表单字段；类型专属选项、长度与数量限制存入经服务层校验的 config JSONB。
+model PerfFormField {
   id          Int              @id @default(autoincrement()) /// 内部自增主键
   dimensionId Int              @map("dimension_id") /// 所属表单维度
-  type        PerfFormItemType /// 受控组件类型
-  title       String /// 评估项标题
-  description String? /// 评估项说明
+  businessKey String           @default(uuid()) @map("business_key") /// 跨版本不变的字段业务标识；删除后不复用
+  type        PerfFormFieldType /// 受控字段类型
+  title       String /// 表单字段标题
+  description String? /// 表单字段说明
   placeholder String? /// 输入占位提示
-  required    Boolean          @default(false) /// 是否为正式提交必填项
+  requiredRule PerfFormFieldRequiredRule @default(OPTIONAL) @map("required_rule") /// 新版字段必填规则
+  requiredLevels PerfRatingSymbol[] @default([]) @map("required_levels") /// CONDITIONAL 规则触发的维度等级
   sortOrder   Int              @default(0) @map("sort_order") /// 维度内展示顺序，必须非负且唯一
   config      Json? /// 类型专属配置；不允许存任意脚本或 HTML
   createdAt   DateTime         @default(now()) @map("created_at") /// 创建时间
@@ -799,7 +799,8 @@ model PerfFormItem {
   dimension PerfFormDimension @relation(fields: [dimensionId], references: [id], onDelete: Cascade)
 
   @@unique([dimensionId, sortOrder])
-  @@map("perf_form_items")
+  @@index([businessKey])
+  @@map("perf_form_fields")
   @@schema("performance")
 }
 
@@ -826,12 +827,7 @@ model PerfConfigTemplateVersion {
   name               String /// 版本名称；作为发布内容的一部分保持不可变
   description        String? /// 版本说明
   sourceVersionId    Int?                            @map("source_version_id") /// 从哪个已发布版本复制出的草稿；首版为空
-  selfStageMode      PerfStageResultMode             @default(DIRECT_RATING) @map("self_stage_mode") /// 自评固定直接评级
-  peerStageMode      PerfStageResultMode             @default(WEIGHTED_RATING) @map("peer_stage_mode") /// 360°默认加权评级
-  managerStageMode   PerfStageResultMode             @default(WEIGHTED_SCORE) @map("manager_stage_mode") /// 上级评估默认加权评分
-  aiStageMode        PerfStageResultMode             @default(DIRECT_RATING) @map("ai_stage_mode") /// AI固定直接评级
-  ratings            Json                            @default("[]") /// 固定 S/A/B/C 顺序的等级名称、区间、映射分与评语要求
-  constraintProfiles Json                            @default("{}") @map("constraint_profiles") /// 按 WEIGHTED_RATING / WEIGHTED_SCORE 模式保存的受控等级约束，不允许公式或脚本
+  ratings            Json                            @default("[]") /// 固定 S/A/B/C 顺序的等级名称、区间与映射分
   orgOwnerWeight     Decimal                         @default(30) @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
   projectOwnerWeight Decimal                         @default(30) @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
   peerWeight         Decimal                         @default(25) @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
@@ -885,12 +881,7 @@ model PerfCycleConfigVersion {
   cycleId                       Int                 @map("cycle_id") /// 所属绩效周期
   version                       Int /// 周期内递增版本号，从 1 开始
   sourceConfigTemplateVersionId Int?                @map("source_config_template_version_id") /// 来源配置模板版本；历史回填可为空
-  selfStageMode                 PerfStageResultMode @map("self_stage_mode") /// 自评固定直接评级
-  peerStageMode                 PerfStageResultMode @map("peer_stage_mode") /// 360°加权评级或加权评分
-  managerStageMode              PerfStageResultMode @map("manager_stage_mode") /// 上级评估加权评级或加权评分
-  aiStageMode                   PerfStageResultMode @map("ai_stage_mode") /// AI 固定直接评级
-  ratings                       Json /// 固定 S/A/B/C 的等级、区间、映射分和评语要求快照
-  constraintProfiles            Json                @map("constraint_profiles") /// 按计算模式保存的受控约束快照
+  ratings                       Json /// 固定 S/A/B/C 的等级、区间和映射分快照
   orgOwnerWeight                Decimal             @map("org_owner_weight") @db.Decimal(5, 2) /// 组织负责人基础权重
   projectOwnerWeight            Decimal             @map("project_owner_weight") @db.Decimal(5, 2) /// 项目负责人基础权重
   peerWeight                    Decimal             @map("peer_weight") @db.Decimal(5, 2) /// 同部门同事基础权重
@@ -922,7 +913,7 @@ model PerfCycleFormSnapshot {
   cycleId                     Int                @map("cycle_id") /// 冗余周期 ID，用于复合外键阻止跨周期挂载
   jobLevelPrefix              PerfJobLevelPrefix @map("job_level_prefix") /// 受控 D/M 职级前缀
   sourceFormTemplateVersionId Int                @map("source_form_template_version_id") /// 来源已发布表单版本
-  content                     Json /// 完整子表单、维度、评估项及稳定快照 key 的 JSONB
+  content                     Json /// v2 完整子表单、维度、字段、条件必填与稳定业务 key 的 JSONB
   createdAt                   DateTime           @default(now()) @map("created_at") /// 创建时间
   updatedAt                   DateTime           @updatedAt @map("updated_at") /// DRAFT / SCHEDULED 阶段的最近调整时间
 
@@ -963,63 +954,12 @@ model PerfCycle {
   exportTasks           ReportExportTask[]
   rollbacks             PerfCycleRollback[]
   archive               PerfCycleArchive?
-  legacyMigrationRuns   PerfLegacyMigrationRun[]
+  legacyPromotionArchives PerfLegacyPromotionArchive[]
 
   @@unique([currentConfigVersionId, id])
   @@index([status, plannedStartAt])
   @@index([deletedAt])
   @@map("perf_cycles")
-  @@schema("performance")
-}
-
-/// Ticket 20 旧模型迁移批次。报告全部固化在批次上，Ticket 21 只能在 readinessReport.ready=true 后切读。
-model PerfLegacyMigrationRun {
-  id               Int                          @id @default(autoincrement()) /// 内部自增主键
-  runKey           String                       @unique @map("run_key") /// 运维指定的幂等批次键；同键失败后原位重跑
-  cycleId          Int?                         @map("cycle_id") /// 可选的单周期演练范围；为空表示全量
-  dryRun           Boolean                      @default(true) @map("dry_run") /// true 只生成计划和报告，不写业务目标表
-  status           PerfLegacyMigrationRunStatus @default(RUNNING) /// RUNNING / COMPLETED / FAILED / ROLLED_BACK
-  sourceCounts     Json                         @default("{}") @map("source_counts") /// 旧表记录数快照
-  migratedCounts   Json                         @default("{}") @map("migrated_counts") /// 新表写入/复用/跳过/失败统计
-  validationReport Json?                        @map("validation_report") /// 记录数、业务键、提交、维度、版本和状态闭合校验
-  shadowReport     Json?                        @map("shadow_report") /// 人工上级旧等级与新计算等级差异明细
-  readinessReport  Json?                        @map("readiness_report") /// { ready, blockers, thresholds, metrics }
-  errorMessage     String?                      @map("error_message") /// 批次级失败摘要；逐项异常保存在 items.detail
-  startedAt        DateTime                     @default(now()) @map("started_at") /// 最近一次执行开始时间
-  completedAt      DateTime?                    @map("completed_at") /// 最近一次成功/失败结束时间
-  rolledBackAt     DateTime?                    @map("rolled_back_at") /// 显式补偿回滚完成时间
-  createdAt        DateTime                     @default(now()) @map("created_at") /// 首次创建时间
-  updatedAt        DateTime                     @updatedAt @map("updated_at") /// 重跑或报告更新时刷新
-
-  cycle PerfCycle?                @relation(fields: [cycleId], references: [id], onDelete: Restrict)
-  items PerfLegacyMigrationItem[]
-
-  @@index([status, createdAt])
-  @@index([cycleId, status])
-  @@map("perf_legacy_migration_runs")
-  @@schema("performance")
-}
-
-/// 旧来源业务键到新目标记录的迁移账本。唯一来源键避免失败重跑重复写入，并保留异常定位上下文。
-model PerfLegacyMigrationItem {
-  id                Int                           @id @default(autoincrement()) /// 内部自增主键
-  runId             Int                           @map("run_id") /// 最近处理本来源键的迁移批次
-  sourceType        String                        @map("source_type") /// LEGACY_TEMPLATE/CYCLE/SELF/PEER/MANAGER/RESULT 等受控值
-  sourceBusinessKey String                        @map("source_business_key") /// 旧模型稳定业务键，如 perf_reviews:123
-  targetType        String?                       @map("target_type") /// 新 Prisma model 名称
-  targetId          Int?                          @map("target_id") /// 新模型内部主键；失败/跳过时可空
-  checksum          String                        @db.Char(64) /// 旧来源规范化载荷 SHA-256；变化时报告冲突而不静默覆盖
-  status            PerfLegacyMigrationItemStatus /// MIGRATED / SKIPPED / FAILED / ROLLED_BACK
-  detail            Json                          @default("{}") /// 校验错误码、字段路径、重跑/回滚说明和目标业务键
-  createdAt         DateTime                      @default(now()) @map("created_at") /// 首次记账时间
-  updatedAt         DateTime                      @updatedAt @map("updated_at") /// 最近一次重跑结果时间
-
-  run PerfLegacyMigrationRun @relation(fields: [runId], references: [id], onDelete: Restrict)
-
-  @@unique([sourceType, sourceBusinessKey]) /// 跨批次幂等边界
-  @@index([runId, status])
-  @@index([targetType, targetId])
-  @@map("perf_legacy_migration_items")
   @@schema("performance")
 }
 
@@ -1072,7 +1012,6 @@ model PerfParticipant {
   jobLevelSnapshot       Json?                 @map("job_level_snapshot") /// 启动时职级/岗位快照（来自 corehr job_level 等对象，含 jobCategory 岗位类别如 D/M）；用于维度 applicable_scope 匹配与展示
   jobLevelPrefixSnapshot PerfJobLevelPrefix?   @map("job_level_prefix_snapshot") /// 从 CoreHR 职级 code 提取的 D/M 前缀；遗留数据可为空
   formSnapshotId         Int?                  @map("form_snapshot_id") /// 精确匹配的周期表单快照；与职级前缀成对存在
-  isPromotionEnabled     Boolean               @default(false) @map("is_promotion_enabled") /// 是否启用晋升评估维度
   status                 PerfParticipantStatus @default(ACTIVE) /// 结果生命周期；评估进度由任务与统一提交派生
   evaluationLockedAt     DateTime?             @map("evaluation_locked_at") /// 首次成功校准时写入；与首条校准决定同事务产生
   createdAt              DateTime              @default(now()) @map("created_at") /// 创建时间
@@ -1091,6 +1030,7 @@ model PerfParticipant {
   evaluationTasks       PerfEvaluationTask[]
   evaluationSubmissions PerfEvaluationSubmission[]
   stageResults          PerfStageResult[]
+  legacyPromotionArchives PerfLegacyPromotionArchive[]
 
   @@unique([cycleId, employeeOpenId]) /// 一人一周期仅一条参与记录
   @@unique([id, cycleId]) /// 供统一任务复合外键保证任务与参与人属于同一周期
@@ -1172,7 +1112,7 @@ model PerfEvaluationSubmission {
   stage                PerfEvaluationTaskType @map("stage") /// SELF/PEER/MANAGER；AI 不走人工提交，数据库 CHECK 禁止取值 'AI'
   reviewerOpenId       String                 @map("reviewer_open_id") /// 填写人 open_id：SELF=员工本人，PEER=评审员，MANAGER=须匹配考核 Leader 快照，均由数据库触发器校验。注意：触发器只在 INSERT/UPDATE 时按当时快照校验；更换 Leader 快照不会追溯校验既有 MANAGER 提交行，快照变更后的既有提交处置由服务层负责
   reviewerAssignmentId Int?                   @map("reviewer_assignment_id") /// 360°提交关联的有效评审员指派；仅 PEER 非空，复合外键保证指派归属同一参与者与评审员
-  formSnapshotId       Int                    @map("form_snapshot_id") /// 提交所依据的周期表单快照；评估项结果据此 + key 定位，不建评估项独立行表
+  formSnapshotId       Int                    @map("form_snapshot_id") /// 提交所依据的周期表单快照；维度与字段作答据此定位稳定 key
   status               PerfReviewStatus       @default(DRAFT) /// DRAFT=编辑草稿，SUBMITTED=当前生效，INVALIDATED=结构变更失效历史
   submittedAt          DateTime?              @map("submitted_at") /// 最近一次原子生效提交时间；重新提交时整体刷新
   submittedByOpenId    String?                @map("submitted_by_open_id") /// 最近一次提交的操作人 open_id（审计用，通常等于 reviewer_open_id）
@@ -1183,9 +1123,9 @@ model PerfEvaluationSubmission {
   participant        PerfParticipant            @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Cascade)
   formSnapshot       PerfCycleFormSnapshot      @relation(fields: [formSnapshotId], references: [id], onDelete: Restrict)
   reviewerAssignment PerfReviewerAssignment?    @relation(fields: [reviewerAssignmentId, participantId, reviewerOpenId], references: [id, participantId, reviewerOpenId], onDelete: Restrict)
-  items              PerfEvaluationItemResult[]
+  dimensionAnswers   PerfEvaluationDimensionAnswer[]
 
-  @@unique([id, formSnapshotId]) /// 供评估项结果复合外键锁定表单快照，防止跨快照写入
+  @@unique([id, formSnapshotId]) /// 供维度作答复合外键锁定表单快照，防止跨快照写入
   @@index([cycleId, stage])
   @@index([participantId, stage, status])
   @@index([reviewerOpenId, stage, status])
@@ -1195,29 +1135,45 @@ model PerfEvaluationSubmission {
   @@schema("performance")
 }
 
-/// 关系化评估项结果（ADR-0008）：评估项无独立行表，通过 formSnapshotId + key 字符串定位表单快照内容。
-/// 计分项（RATING/SCORE）同时保留原始输入与计算分；非计分项内容进 value JSONB。
-model PerfEvaluationItemResult {
-  id               Int               @id @default(autoincrement()) /// 内部自增主键
-  submissionId     Int               @map("submission_id") /// 所属评估提交（草稿或生效行）
-  formSnapshotId   Int               @map("form_snapshot_id") /// 冗余表单快照 ID，用于复合外键校验与所属提交的表单快照一致
-  subformKey       String            @map("subform_key") /// 表单快照 content.subforms[].key，如 "subform:PEER"
-  dimensionKey     String            @map("dimension_key") /// 表单快照 content...dimensions[].key
-  itemKey          String            @map("item_key") /// 表单快照 content...items[].key；同一提交内唯一
-  itemType         PerfFormItemType  @map("item_type") /// 提交时的评估项类型快照，决定下列哪组字段承载内容
-  rawLevel         PerfRatingSymbol? @map("raw_level") /// RATING 类型原始评级（S/A/B/C）
-  rawScore         Decimal?          @map("raw_score") @db.Decimal(5, 2) /// SCORE 类型原始分数
-  calculationScore Decimal?          @map("calculation_score") @db.Decimal(5, 2) /// 按当期评估规则换算的计算分；提交时写入，可为空待计算
-  value            Json? /// 非计分项内容：文本/Markdown/单多选/附件/链接等结构化载荷
-  createdAt        DateTime          @default(now()) @map("created_at") /// 创建时间
-  updatedAt        DateTime          @updatedAt @map("updated_at") /// 最近更新时间
+/// 新版维度作答：计分值直接归属维度；草稿允许计分值为空，正式提交完整性由业务服务校验。
+model PerfEvaluationDimensionAnswer {
+  id               Int                    @id @default(autoincrement()) /// 内部自增主键
+  submissionId     Int                    @map("submission_id") /// 所属统一评估提交
+  formSnapshotId   Int                    @map("form_snapshot_id") /// 冗余快照 ID；复合外键保证与提交一致
+  subformKey       String                 @map("subform_key") /// 周期快照中的稳定子表单 key
+  dimensionKey     String                 @map("dimension_key") /// 周期快照中的稳定维度 key
+  scoringMethod    PerfFormScoringMethod? @map("scoring_method") /// 计分维度的评级/分数方式；非计分维度为空
+  rawLevel         PerfRatingSymbol?      @map("raw_level") /// 评级维度原始选择
+  rawScore         Decimal?               @map("raw_score") @db.Decimal(5, 2) /// 分数维度原始 0～100 分
+  calculationScore Decimal?               @map("calculation_score") @db.Decimal(5, 2) /// 按周期规则统一换算后的 0～100 分
+  derivedLevel     PerfRatingSymbol?      @map("derived_level") /// 计算分按周期评级区间派生的维度等级
+  createdAt        DateTime               @default(now()) @map("created_at") /// 创建时间
+  updatedAt        DateTime               @updatedAt @map("updated_at") /// 草稿或重新提交最近替换时间
 
   submission PerfEvaluationSubmission @relation(fields: [submissionId, formSnapshotId], references: [id, formSnapshotId], onDelete: Cascade)
+  fields     PerfEvaluationFieldAnswer[]
 
-  @@unique([submissionId, itemKey]) /// 同一提交内评估项 key 唯一
-  @@index([formSnapshotId, itemKey]) /// 跨提交按评估项聚合（360°关系加权、维度汇总）
-  @@index([formSnapshotId, subformKey, dimensionKey])
-  @@map("perf_evaluation_item_results")
+  @@unique([submissionId, dimensionKey]) /// 同一提交内同一维度最多一条作答
+  @@index([formSnapshotId, dimensionKey]) /// 跨提交按稳定维度聚合
+  @@map("perf_evaluation_dimension_answers")
+  @@schema("performance")
+}
+
+/// 新版字段作答：只承载非计分字段的受控 JSON 值，并从属于一条维度作答。
+model PerfEvaluationFieldAnswer {
+  id                Int              @id @default(autoincrement()) /// 内部自增主键
+  dimensionAnswerId Int              @map("dimension_answer_id") /// 所属维度作答
+  fieldKey          String           @map("field_key") /// 周期快照中的稳定字段 key
+  fieldType         PerfFormFieldType @map("field_type") /// 提交时字段类型快照
+  value             Json /// 与字段类型匹配的受控结构化值
+  createdAt         DateTime         @default(now()) @map("created_at") /// 创建时间
+  updatedAt         DateTime         @updatedAt @map("updated_at") /// 草稿或重新提交最近替换时间
+
+  dimensionAnswer PerfEvaluationDimensionAnswer @relation(fields: [dimensionAnswerId], references: [id], onDelete: Cascade)
+
+  @@unique([dimensionAnswerId, fieldKey]) /// 同一维度作答内同一字段最多一条作答
+  @@index([fieldKey]) /// 跨提交按稳定字段查询
+  @@map("perf_evaluation_field_answers")
   @@schema("performance")
 }
 
@@ -1229,7 +1185,6 @@ model PerfStageResult {
   cycleConfigVersionId Int                    @map("cycle_config_version_id") /// 本次计算使用的周期配置快照版本
   stage                PerfEvaluationTaskType /// SELF / PEER / MANAGER / AI；Ticket 08 首先写入 PEER
   status               PerfStageResultStatus /// READY 或 NO_DATA
-  mode                 PerfStageResultMode /// 本次计算使用的阶段结果模式快照
   reviewerCount        Int                    @default(0) @map("reviewer_count") /// 实际进入计算的有效评审员数量
   compositeScore       Decimal?               @map("composite_score") @db.Decimal(5, 2) /// 四舍五入两位后的阶段综合分；NO_DATA 为空
   initialLevel         PerfRatingSymbol?      @map("initial_level") /// 综合分映射出的初始等级；NO_DATA 为空
@@ -1304,7 +1259,6 @@ model PerfAiReport {
   summary            String?             @map("summary") /// 综合摘要
   highlights         Json?               @map("highlights") /// 亮点：[{ title, evidence }]
   improvements       Json?               @map("improvements") /// 待改进点：[{ title, evidence }]
-  promotionSummary   String?             @map("promotion_summary") /// 晋升证据摘要；仅启用晋升评估时存在
   riskFlags          Json?               @map("risk_flags") /// 风险/一致性提示：[{ type, description }]
   inputsDigest       Json?               @map("inputs_digest") /// 输入来源元数据（当前有效提交/阶段结果 id 与更新时间）
   inputSnapshot      Json?               @map("input_snapshot") /// 实际生成输入快照；只包含当前有效人工提交和当前配置阶段结果
@@ -1388,7 +1342,7 @@ model PerfResultVersion {
   finalLevel              PerfRatingSymbol @map("final_level") /// 员工可见的最终等级；有效红线强制为 C（数据库触发器兜底）
   employeeExplanation     String?          @map("employee_explanation") /// 员工可见解释；发布时收敛，不含内部校准讨论
   sourceCalibrationId     Int?             @map("source_calibration_id") /// 来源校准决定；仅迁移回填的历史版本可为空
-  resultSnapshot          Json             @map("result_snapshot") /// 隐私收敛后的员工可见结果快照：{ cycle, manager{compositeScore,dimensions,overallComment}, self, promotion }
+  resultSnapshot          Json             @map("result_snapshot") /// 员工安全快照；新版本 promotion 固定 null，历史非空投影按原值只读保留并写入专用归档
   publishedByOpenId       String           @map("published_by_open_id") /// 发布操作人 open_id；迁移回填为 system:migration
   publishedAt             DateTime         @default(now()) @map("published_at") /// 发布时间
   supersededAt            DateTime?        @map("superseded_at") /// 被新版本替代时间；新版本发布同事务一次性写入
@@ -1410,6 +1364,27 @@ model PerfResultVersion {
   @@index([participantId, invalidatedAt])
   @@index([invalidatedByRollbackId])
   @@map("perf_result_versions")
+  @@schema("performance")
+}
+
+/// 旧晋升表单答案的只读归档；仅迁移写入，append-only，不进入新版绩效计算或提交链。
+model PerfLegacyPromotionArchive {
+  id              Int                              @id @default(autoincrement()) /// 内部自增主键
+  cycleId         Int                              @map("cycle_id") /// 来源周期；归档历史禁止删除周期
+  participantId   Int                              @map("participant_id") /// 来源参与者；与 cycleId 组成复合归属约束
+  sourceType      PerfLegacyPromotionArchiveSource @map("source_type") /// 旧评估项或历史结果快照
+  sourceRecordId  Int                              @map("source_record_id") /// 来源表主键；与 sourceType 联合唯一保证幂等
+  payload         Json /// 原旧答案及提交上下文，或完整 resultSnapshot.promotion 投影
+  sourceCreatedAt DateTime?                        @map("source_created_at") /// 来源记录原创建时间
+  archivedAt      DateTime                         @default(now()) @map("archived_at") /// 归档写入时间
+
+  cycle       PerfCycle       @relation(fields: [cycleId], references: [id], onDelete: Restrict)
+  participant PerfParticipant @relation(fields: [participantId, cycleId], references: [id, cycleId], onDelete: Restrict)
+
+  @@unique([sourceType, sourceRecordId])
+  @@index([participantId, sourceType])
+  @@index([cycleId])
+  @@map("perf_legacy_promotion_archives")
   @@schema("performance")
 }
 

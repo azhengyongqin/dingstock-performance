@@ -14,6 +14,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import type { SaveManagerEvaluationDto } from './evaluation.dto';
 import { EvaluationSubmissionService } from './evaluation-submission.service';
 import { ManagerStageResultService } from './manager-stage-result.service';
+import { projectHistoricalPromotion } from '../calibration/result-history-projection';
 import { PeerStageResultService } from './peer-stage-result.service';
 import { AiReportService } from '../ai-report/ai-report.service';
 import { ParticipantEvaluationLockService } from '../participant/participant-evaluation-lock.service';
@@ -86,7 +87,6 @@ export class ManagerEvaluationSubmissionService {
         participant: {
           id: participant.id,
           cycleId: participant.cycleId,
-          isPromotionEnabled: participant.isPromotionEnabled,
         },
         cycle,
         employee: null,
@@ -110,7 +110,12 @@ export class ManagerEvaluationSubmissionService {
           in: [PerfEvaluationTaskType.SELF, PerfEvaluationTaskType.MANAGER],
         },
       },
-      include: { items: true },
+      include: {
+        dimensionAnswers: {
+          include: { fields: true },
+          orderBy: { id: 'asc' },
+        },
+      },
     });
     const managerSubmissions = submissions.filter(
       (submission) => submission.stage === PerfEvaluationTaskType.MANAGER,
@@ -181,17 +186,15 @@ export class ManagerEvaluationSubmissionService {
       participant: {
         id: participant.id,
         cycleId: participant.cycleId,
-        isPromotionEnabled: participant.isPromotionEnabled,
       },
       cycle,
       employee,
       task,
       form: {
         formSnapshotId: participant.formSnapshotId,
-        subforms: this.submissionPolicy.selectManagerSubforms(
-          content,
-          participant.isPromotionEnabled,
-        ),
+        subforms: this.submissionPolicy.selectManagerSubforms(content),
+        // 左侧「员工自评」参考区用来解析维度名 / 字段 title
+        selfSubforms: this.submissionPolicy.selectSelfSubforms(content),
       },
       submitted,
       draft,
@@ -201,8 +204,7 @@ export class ManagerEvaluationSubmissionService {
       managerResult,
       history: history.map((version) => ({
         finalLevel: version.finalLevel,
-        promotionResult:
-          (version.resultSnapshot as Record<string, unknown>).promotion ?? null,
+        promotionResult: projectHistoricalPromotion(version.resultSnapshot),
         participant: version.participant,
       })),
     };
@@ -226,17 +228,16 @@ export class ManagerEvaluationSubmissionService {
     if (formSnapshotId === null) {
       throw new ConflictException('参与者缺少表单快照，无法保存上级评估');
     }
-    const resolved = this.submissionPolicy.validateManagerAnswers(
+    const resolved = this.submissionPolicy.validateManagerDimensionAnswers(
       content,
-      participant.isPromotionEnabled,
-      dto.items,
+      dto.dimensions,
     );
     await this.taskAccessService.ensureWritable(
       participant.id,
       PerfEvaluationTaskType.MANAGER,
     );
     const rows = resolved.map((entry) =>
-      this.submissionPolicy.toItemRow(entry, formSnapshotId, null),
+      this.submissionPolicy.toDimensionAnswerRow(entry, formSnapshotId),
     );
 
     return this.prisma.$transaction(async (tx) => {
@@ -274,7 +275,11 @@ export class ManagerEvaluationSubmissionService {
           );
         }
       }
-      await this.submissionPolicy.replaceItems(tx, submission.id, rows);
+      await this.submissionPolicy.replaceDimensionAnswers(
+        tx,
+        submission.id,
+        rows,
+      );
       return submission;
     });
   }
@@ -290,28 +295,41 @@ export class ManagerEvaluationSubmissionService {
     if (formSnapshotId === null) {
       throw new ConflictException('参与者缺少表单快照，无法提交上级评估');
     }
-    const allowedSubforms = this.submissionPolicy.selectManagerSubforms(
+    const managerSubform =
+      this.submissionPolicy.selectManagerSubforms(content)[0];
+    const resolved = this.submissionPolicy.validateManagerDimensionAnswers(
       content,
-      participant.isPromotionEnabled,
+      dto.dimensions,
     );
-    const resolved = this.submissionPolicy.validateManagerAnswers(
-      content,
-      participant.isPromotionEnabled,
-      dto.items,
+    const ratings = this.submissionPolicy.requireUnifiedRatings(participant);
+    const submissionResult =
+      this.submissionPolicy.calculateDimensionStageResult(
+        managerSubform,
+        resolved,
+        ratings,
+        { relationType: 'LEADER', submissionId: `manager:${leaderOpenId}` },
+      );
+    this.submissionPolicy.assertDimensionAnswersComplete(
+      managerSubform,
+      resolved,
+      submissionResult,
     );
-    this.submissionPolicy.assertSubformsComplete(allowedSubforms, resolved);
-    const ratings = this.submissionPolicy.requireRatings(participant);
     await this.taskAccessService.ensureWritable(
       participant.id,
       PerfEvaluationTaskType.MANAGER,
     );
-    const rows = resolved.map((entry) =>
-      this.submissionPolicy.toItemRow(
+    const resultByDimension = new Map(
+      submissionResult.dimensions.map((dimension) => [dimension.id, dimension]),
+    );
+    const rows = resolved.map((entry) => {
+      const dimensionResult = resultByDimension.get(entry.dimension.key);
+      return this.submissionPolicy.toDimensionAnswerRow(
         entry,
         formSnapshotId,
-        this.submissionPolicy.calculationScoreOf(entry, ratings),
-      ),
-    );
+        dimensionResult?.score ?? null,
+        dimensionResult?.level ?? null,
+      );
+    });
     const submittedAt = new Date();
     const result = await this.prisma.$transaction(async (tx) => {
       await this.participantEvaluationLockService.lockHumanWrite(
@@ -362,7 +380,11 @@ export class ManagerEvaluationSubmissionService {
           );
         }
       }
-      await this.submissionPolicy.replaceItems(tx, submission.id, rows);
+      await this.submissionPolicy.replaceDimensionAnswers(
+        tx,
+        submission.id,
+        rows,
+      );
       await tx.perfEvaluationSubmission.deleteMany({
         where: {
           participantId: participant.id,

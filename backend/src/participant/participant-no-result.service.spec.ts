@@ -24,7 +24,6 @@ jest.mock(
     },
     PerfReviewStatus: { SUBMITTED: 'SUBMITTED' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
-    PerfStageResultMode: { DIRECT_RATING: 'DIRECT_RATING' },
     PerfStageResultStatus: { NO_DATA: 'NO_DATA' },
   }),
   { virtual: true },
@@ -41,7 +40,7 @@ describe('ParticipantNoResultService 必交评估与当前周期无绩效结果'
       status: 'ACTIVE',
       deletedAt: null,
       currentConfigVersionId: 88,
-      currentConfigVersion: { id: 88, selfStageMode: 'DIRECT_RATING' },
+      currentConfigVersion: { id: 88 },
     },
   };
   const tx = {

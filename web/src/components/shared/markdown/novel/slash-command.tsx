@@ -18,8 +18,19 @@ type RequestImageUpload = (editor: EditorInstance) => void
 export type EmbedType = 'youtube' | 'twitter'
 type RequestEmbed = (type: EmbedType, editor: EditorInstance) => void
 
+type SlashCommandOptions = {
+  imageUpload?: boolean
+  mediaEmbed?: boolean
+}
+
 /** 从 Novel 示例 slash-command.tsx 移植并本地化的完整内容块命令。 */
-export const createSlashCommand = (requestImageUpload: RequestImageUpload, requestEmbed: RequestEmbed) => {
+export const createSlashCommand = (
+  requestImageUpload: RequestImageUpload,
+  requestEmbed: RequestEmbed,
+  options: SlashCommandOptions = {}
+) => {
+  const { imageUpload = true, mediaEmbed = true } = options
+
   const suggestionItems = createSuggestionItems([
     {
       title: '正文',
@@ -84,36 +95,44 @@ export const createSlashCommand = (requestImageUpload: RequestImageUpload, reque
       icon: <Code2Icon className='size-4' />,
       command: ({ editor, range }) => editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
     },
-    {
-      title: '上传图片',
-      description: '从本地选择一张图片',
-      searchTerms: ['image', 'photo', 'picture', 'media'],
-      icon: <ImageIcon className='size-4' />,
-      command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).run()
-        requestImageUpload(editor)
-      }
-    },
-    {
-      title: 'YouTube',
-      description: '嵌入一个 YouTube 视频',
-      searchTerms: ['video', 'youtube', 'embed'],
-      icon: <VideoIcon className='size-4' />,
-      command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).run()
-        requestEmbed('youtube', editor)
-      }
-    },
-    {
-      title: 'Twitter',
-      description: '嵌入一条 X（Twitter）帖子',
-      searchTerms: ['twitter', 'x', 'tweet', 'embed'],
-      icon: <MessageCircleIcon className='size-4' />,
-      command: ({ editor, range }) => {
-        editor.chain().focus().deleteRange(range).run()
-        requestEmbed('twitter', editor)
-      }
-    }
+    ...(imageUpload
+      ? [
+          {
+            title: '上传图片',
+            description: '从本地选择一张图片',
+            searchTerms: ['image', 'photo', 'picture', 'media'],
+            icon: <ImageIcon className='size-4' />,
+            command: ({ editor, range }: { editor: EditorInstance; range: { from: number; to: number } }) => {
+              editor.chain().focus().deleteRange(range).run()
+              requestImageUpload(editor)
+            }
+          }
+        ]
+      : []),
+    ...(mediaEmbed
+      ? [
+          {
+            title: 'YouTube',
+            description: '嵌入一个 YouTube 视频',
+            searchTerms: ['video', 'youtube', 'embed'],
+            icon: <VideoIcon className='size-4' />,
+            command: ({ editor, range }: { editor: EditorInstance; range: { from: number; to: number } }) => {
+              editor.chain().focus().deleteRange(range).run()
+              requestEmbed('youtube', editor)
+            }
+          },
+          {
+            title: 'Twitter',
+            description: '嵌入一条 X（Twitter）帖子',
+            searchTerms: ['twitter', 'x', 'tweet', 'embed'],
+            icon: <MessageCircleIcon className='size-4' />,
+            command: ({ editor, range }: { editor: EditorInstance; range: { from: number; to: number } }) => {
+              editor.chain().focus().deleteRange(range).run()
+              requestEmbed('twitter', editor)
+            }
+          }
+        ]
+      : [])
   ])
 
   const slashCommand = Command.configure({

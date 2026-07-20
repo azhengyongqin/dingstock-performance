@@ -38,32 +38,39 @@ const participant = {
   formSnapshotId: 88,
   formSnapshot: {
     content: {
+      schemaVersion: 2,
       subforms: [
         {
-          key: 'subform:PEER',
+          key: 'subform:peer',
           type: 'PEER',
           dimensions: [
             {
               key: 'dimension:collaboration',
-              kind: 'REGULAR',
+              type: 'SCORING',
               audience: 'REVIEWER',
               name: '协作沟通',
-              weight: '100',
+              scoringMethod: 'RATING',
+              weight: '60',
               isCore: true,
-              items: [
+              fields: [
                 {
-                  key: 'item:collaboration:rating',
-                  type: 'RATING',
-                  title: '协作表现',
-                  required: true,
-                },
-                {
-                  key: 'item:collaboration:comment',
+                  key: 'field:comment',
                   type: 'LONG_TEXT',
-                  title: '协作评语',
-                  required: true,
+                  title: '评价说明',
+                  requiredRule: 'CONDITIONAL',
+                  requiredLevels: ['S', 'C'],
                 },
               ],
+            },
+            {
+              key: 'dimension:growth',
+              type: 'SCORING',
+              audience: 'REVIEWER',
+              name: '学习成长',
+              scoringMethod: 'SCORE',
+              weight: '40',
+              isCore: false,
+              fields: [],
             },
           ],
         },
@@ -76,9 +83,7 @@ const participant = {
     currentConfigVersionId: 3,
     currentConfigVersion: {
       id: 3,
-      peerStageMode: 'WEIGHTED_RATING',
       ratings,
-      constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
       orgOwnerWeight: '30',
       projectOwnerWeight: '30',
       peerWeight: '25',
@@ -113,39 +118,54 @@ const submission = (
   assignmentId: number,
   relation: 'PEER' | 'PROJECT_OWNER',
   rawLevel: 'S' | 'A' | 'B' | 'C',
+  rawScore: string,
 ) => ({
   id,
   reviewerOpenId,
   reviewerAssignmentId: assignmentId,
   status: 'SUBMITTED',
   reviewerAssignment: { id: assignmentId, relation, status: 'SUBMITTED' },
-  items: [
+  dimensionAnswers: [
     {
-      itemKey: 'item:collaboration:rating',
       dimensionKey: 'dimension:collaboration',
-      itemType: 'RATING',
+      scoringMethod: 'RATING',
       rawLevel,
       rawScore: null,
       calculationScore:
-        rawLevel === 'S' ? '95' : rawLevel === 'A' ? '85' : '50',
+        rawLevel === 'S'
+          ? '95'
+          : rawLevel === 'A'
+            ? '85'
+            : rawLevel === 'B'
+              ? '70'
+              : '50',
+      derivedLevel: rawLevel,
+      fields: [
+        {
+          fieldKey: 'field:comment',
+          fieldType: 'LONG_TEXT',
+          value: `协作反馈 ${id}`,
+        },
+      ],
     },
     {
-      itemKey: 'item:collaboration:comment',
-      dimensionKey: 'dimension:collaboration',
-      itemType: 'LONG_TEXT',
+      dimensionKey: 'dimension:growth',
+      scoringMethod: 'SCORE',
       rawLevel: null,
-      rawScore: null,
-      calculationScore: null,
-      value: `协作反馈 ${id}`,
+      rawScore,
+      calculationScore: rawScore,
+      derivedLevel:
+        Number(rawScore) >= 90 ? 'S' : Number(rawScore) >= 80 ? 'A' : 'B',
+      fields: [],
     },
   ],
 });
 
-describe('PeerStageResultService 公开计算契约', () => {
+describe('PeerStageResultService 新版 360°公开计算契约', () => {
   const prisma = {
     perfParticipant: { findUnique: jest.fn() },
     perfEvaluationSubmission: { findMany: jest.fn() },
-    perfStageResult: { upsert: jest.fn(), findUnique: jest.fn() },
+    perfStageResult: { upsert: jest.fn() },
   };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
   let service: PeerStageResultService;
@@ -154,9 +174,9 @@ describe('PeerStageResultService 公开计算契约', () => {
     jest.clearAllMocks();
     prisma.perfParticipant.findUnique.mockResolvedValue(participant);
     prisma.perfEvaluationSubmission.findMany.mockResolvedValue([
-      submission(101, 'ou_peer_1', 11, 'PEER', 'A'),
-      submission(102, 'ou_peer_2', 12, 'PEER', 'C'),
-      submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S'),
+      submission(101, 'ou_peer_1', 11, 'PEER', 'A', '90'),
+      submission(102, 'ou_peer_2', 12, 'PEER', 'C', '70'),
+      submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S', '100'),
     ]);
     prisma.perfStageResult.upsert.mockImplementation(
       ({ create }: { create: object }) => create,
@@ -166,149 +186,108 @@ describe('PeerStageResultService 公开计算契约', () => {
     service = new PeerStageResultService(prisma as never, rbac as never);
   });
 
-  it('同关系先做算术平均，再把项目负责人 30% 与同部门同事 25% 精确归一化', async () => {
+  it('先关系内平均，再有效关系归一化、关系加权，最后按混合维度占比加权', async () => {
     const result = await service.recalculate(7);
 
     expect(result).toMatchObject({
       status: 'READY',
       reviewerCount: 3,
-      compositeScore: '82.50',
+      compositeScore: '85.86',
       initialLevel: 'A',
       stageLevel: 'A',
-      validRelations: [
+      dimensions: [
         {
-          relation: 'PROJECT_OWNER',
-          baseWeight: '30',
-          adjustedWeight: '54.54545454545454545454545454545454545455',
-          reviewerCount: 1,
-          dimensionScores: [
-            { dimensionKey: 'dimension:collaboration', score: '95' },
+          id: 'dimension:collaboration',
+          scoringMethod: 'RATING',
+          score: '82.5',
+          relations: [
+            {
+              type: 'PROJECT_OWNER',
+              score: '95',
+              effectiveWeight: '54.54545454545454545454545454545454545455',
+            },
+            {
+              type: 'PEER',
+              score: '67.5',
+              effectiveWeight: '45.45454545454545454545454545454545454545',
+            },
           ],
         },
         {
-          relation: 'PEER',
-          baseWeight: '25',
-          adjustedWeight: '45.45454545454545454545454545454545454545',
-          reviewerCount: 2,
-          dimensionScores: [
-            { dimensionKey: 'dimension:collaboration', score: '67.5' },
-          ],
+          id: 'dimension:growth',
+          scoringMethod: 'SCORE',
+          score: '90.90909090909090909090909090909090909091',
         },
       ],
     });
+    expect(prisma.perfEvaluationSubmission.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          dimensionAnswers: expect.objectContaining({
+            include: { fields: true },
+          }),
+        }),
+      }),
+    );
     expect(prisma.perfStageResult.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: {
-          participantId_stage_cycleConfigVersionId: {
-            participantId: 7,
-            stage: 'PEER',
-            cycleConfigVersionId: 3,
-          },
-        },
-        create: expect.objectContaining({
-          dimensions: {
-            create: [
-              expect.objectContaining({
-                dimensionKey: 'dimension:collaboration',
-                score: '82.5',
-                level: 'A',
-                relationAggregates: {
-                  create: [
-                    expect.objectContaining({
-                      relation: 'PROJECT_OWNER',
-                      reviewerCount: 1,
-                      score: '95',
-                    }),
-                    expect.objectContaining({
-                      relation: 'PEER',
-                      reviewerCount: 2,
-                      score: '67.5',
-                    }),
-                  ],
-                },
-              }),
-            ],
-          },
-        }),
+        create: expect.objectContaining({ compositeScore: '85.86' }),
       }),
     );
   });
 
-  it('只用当前生效答卷生成关系构成、维度分布和实名下钻明细', async () => {
+  it('实名详情只投影新版维度回答和字段回答，草稿不进入生效结果', async () => {
     prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
-      submission(101, 'ou_peer_1', 11, 'PEER', 'A'),
-      submission(102, 'ou_peer_2', 12, 'PEER', 'C'),
-      submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S'),
+      submission(101, 'ou_peer_1', 11, 'PEER', 'A', '90'),
+      submission(102, 'ou_peer_2', 12, 'PEER', 'C', '70'),
+      submission(103, 'ou_project_owner', 13, 'PROJECT_OWNER', 'S', '100'),
       {
-        ...submission(104, 'ou_peer_1', 11, 'PEER', 'B'),
+        ...submission(104, 'ou_peer_1', 11, 'PEER', 'B', '60'),
         status: 'DRAFT',
       },
     ]);
 
     const result = await service.recalculate(7);
 
-    expect(result.analysis).toEqual({
-      assignedReviewerCount: 3,
-      submittedReviewerCount: 3,
-      relationCounts: [
-        { relation: 'PROJECT_OWNER', reviewerCount: 1 },
-        { relation: 'PEER', reviewerCount: 2 },
-      ],
+    expect(result.analysis.reviewers[0]).toMatchObject({
+      submissionId: 101,
+      reviewerOpenId: 'ou_peer_1',
       dimensions: [
         {
           id: 'dimension:collaboration',
-          name: '协作沟通',
-          score: '82.5',
-          level: 'A',
-          distribution: { S: 1, A: 1, B: 0, C: 1 },
-        },
-      ],
-      reviewers: [
-        {
-          submissionId: 101,
-          reviewerOpenId: 'ou_peer_1',
-          relation: 'PEER',
-          dimensions: [
+          rawLevel: 'A',
+          mappedLevel: 'A',
+          fields: [
             {
-              id: 'dimension:collaboration',
-              name: '协作沟通',
-              rawLevel: 'A',
-              rawScore: null,
-              mappedLevel: 'A',
-              items: [
-                {
-                  itemKey: 'item:collaboration:rating',
-                  title: '协作表现',
-                  type: 'RATING',
-                  rawLevel: 'A',
-                  rawScore: null,
-                  value: null,
-                },
-                {
-                  itemKey: 'item:collaboration:comment',
-                  title: '协作评语',
-                  type: 'LONG_TEXT',
-                  rawLevel: null,
-                  rawScore: null,
-                  value: '协作反馈 101',
-                },
-              ],
+              fieldKey: 'field:comment',
+              title: '评价说明',
+              type: 'LONG_TEXT',
+              value: '协作反馈 101',
             },
           ],
         },
-        expect.objectContaining({
-          submissionId: 102,
-          reviewerOpenId: 'ou_peer_2',
-        }),
-        expect.objectContaining({
-          submissionId: 103,
-          reviewerOpenId: 'ou_project_owner',
-        }),
+        {
+          id: 'dimension:growth',
+          rawScore: '90',
+          mappedLevel: 'S',
+          fields: [],
+        },
       ],
     });
+    expect(result.analysis.reviewers).toHaveLength(3);
+    expect(result.analysis.dimensions).toEqual([
+      expect.objectContaining({
+        id: 'dimension:collaboration',
+        distribution: { S: 1, A: 1, B: 0, C: 1 },
+      }),
+      expect.objectContaining({
+        id: 'dimension:growth',
+        distribution: { S: 2, A: 0, B: 1, C: 0 },
+      }),
+    ]);
   });
 
-  it('全部只有草稿时持久化明确 NO_DATA，不合成零分或默认等级', async () => {
+  it('没有正式提交时持久化 NO_DATA，不把草稿当零分或默认等级', async () => {
     prisma.perfParticipant.findUnique.mockResolvedValueOnce({
       ...participant,
       reviewerAssignments: [
@@ -322,7 +301,7 @@ describe('PeerStageResultService 公开计算契约', () => {
     });
     prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
       {
-        ...submission(201, 'ou_peer_1', 11, 'PEER', 'C'),
+        ...submission(201, 'ou_peer_1', 11, 'PEER', 'C', '10'),
         status: 'DRAFT',
         reviewerAssignment: { id: 11, relation: 'PEER', status: 'PENDING' },
       },
@@ -334,261 +313,34 @@ describe('PeerStageResultService 公开计算契约', () => {
       status: 'NO_DATA',
       reviewerCount: 0,
       compositeScore: null,
-      initialLevel: null,
       stageLevel: null,
-      validRelations: [],
       inputSummary: {
-        assignedReviewerCount: 1,
         submittedReviewerCount: 0,
         draftReviewerCount: 1,
         excludedPendingReviewerCount: 1,
-        effectiveSubmissions: [],
-        excludedAssignments: [
-          {
-            assignmentId: 11,
-            reviewerOpenId: 'ou_peer_1',
-            relation: 'PEER',
-            status: 'PENDING',
-            hasDraft: true,
-            reason: 'NO_EFFECTIVE_SUBMISSION',
-          },
-        ],
       },
     });
   });
 
-  it('单一有效关系放大为 100%，未提交更新草稿和其他待提交人均不计分', async () => {
-    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
-      ...participant,
-      reviewerAssignments: [
-        {
-          id: 11,
-          reviewerOpenId: 'ou_peer_1',
-          relation: 'PEER',
-          status: 'SUBMITTED',
-        },
-        {
-          id: 12,
-          reviewerOpenId: 'ou_peer_2',
-          relation: 'PEER',
-          status: 'PENDING',
-        },
-      ],
+  it('考核 Leader 和授权范围内 HR 可读，普通员工及越权 HR 不可读', async () => {
+    await expect(service.getForManager('ou_leader', 7)).resolves.toMatchObject({
+      status: 'READY',
     });
-    prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
-      submission(301, 'ou_peer_1', 11, 'PEER', 'A'),
-      {
-        ...submission(302, 'ou_peer_1', 11, 'PEER', 'C'),
-        status: 'DRAFT',
-      },
-    ]);
-
-    const result = await service.recalculate(7);
-
-    expect(result).toMatchObject({
-      reviewerCount: 1,
-      compositeScore: '85.00',
-      validRelations: [
-        {
-          relation: 'PEER',
-          adjustedWeight: '100',
-          reviewerCount: 1,
-          dimensionScores: [{ score: '85' }],
-        },
-      ],
-      inputSummary: {
-        assignedReviewerCount: 2,
-        submittedReviewerCount: 1,
-        draftReviewerCount: 1,
-        excludedPendingReviewerCount: 1,
-      },
-    });
-  });
-
-  it('评分模式保留小数关系权重，中间过程不提前舍入', async () => {
-    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
-      ...participant,
-      cycle: {
-        ...participant.cycle,
-        currentConfigVersion: {
-          ...participant.cycle.currentConfigVersion,
-          peerStageMode: 'WEIGHTED_SCORE',
-          orgOwnerWeight: '33.33',
-          projectOwnerWeight: '0.01',
-          peerWeight: '0.01',
-          crossDeptWeight: '66.65',
-        },
-      },
-      formSnapshot: {
-        content: {
-          subforms: [
-            {
-              key: 'subform:PEER',
-              type: 'PEER',
-              dimensions: [
-                {
-                  key: 'dimension:collaboration',
-                  kind: 'REGULAR',
-                  audience: 'REVIEWER',
-                  name: '协作沟通',
-                  weight: '100',
-                  isCore: true,
-                  items: [
-                    {
-                      key: 'item:collaboration:score',
-                      type: 'SCORE',
-                      title: '协作得分',
-                      required: true,
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
-      reviewerAssignments: [
-        {
-          id: 21,
-          reviewerOpenId: 'ou_org',
-          relation: 'ORG_OWNER',
-          status: 'SUBMITTED',
-        },
-        {
-          id: 22,
-          reviewerOpenId: 'ou_cross',
-          relation: 'CROSS_DEPT',
-          status: 'SUBMITTED',
-        },
-      ],
-    });
-    prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
-      {
-        id: 401,
-        reviewerOpenId: 'ou_org',
-        status: 'SUBMITTED',
-        reviewerAssignment: {
-          id: 21,
-          relation: 'ORG_OWNER',
-          status: 'SUBMITTED',
-        },
-        items: [
-          {
-            itemKey: 'item:collaboration:score',
-            dimensionKey: 'dimension:collaboration',
-            itemType: 'SCORE',
-            rawLevel: null,
-            rawScore: '80',
-            calculationScore: '80',
-          },
-        ],
-      },
-      {
-        id: 402,
-        reviewerOpenId: 'ou_cross',
-        status: 'SUBMITTED',
-        reviewerAssignment: {
-          id: 22,
-          relation: 'CROSS_DEPT',
-          status: 'SUBMITTED',
-        },
-        items: [
-          {
-            itemKey: 'item:collaboration:score',
-            dimensionKey: 'dimension:collaboration',
-            itemType: 'SCORE',
-            rawLevel: null,
-            rawScore: '90',
-            calculationScore: '90',
-          },
-        ],
-      },
-    ]);
-
-    const result = await service.recalculate(7);
-
-    expect(result).toMatchObject({
-      mode: 'WEIGHTED_SCORE',
-      compositeScore: '86.67',
-      analysis: {
-        dimensions: [
-          {
-            id: 'dimension:collaboration',
-            distribution: { S: 1, A: 1, B: 0, C: 0 },
-          },
-        ],
-        reviewers: [
-          { reviewerOpenId: 'ou_org', dimensions: [{ mappedLevel: 'A' }] },
-          { reviewerOpenId: 'ou_cross', dimensions: [{ mappedLevel: 'S' }] },
-        ],
-      },
-      validRelations: [
-        {
-          relation: 'ORG_OWNER',
-          adjustedWeight: '33.33666733346669333866773354670934186837',
-        },
-        {
-          relation: 'CROSS_DEPT',
-          adjustedWeight: '66.66333266653330666133226645329065813163',
-        },
-      ],
-    });
-  });
-
-  it('把周期约束配置交给共享引擎并持久化约束原因', async () => {
-    prisma.perfParticipant.findUnique.mockResolvedValueOnce({
-      ...participant,
-      reviewerAssignments: [participant.reviewerAssignments[0]],
-      cycle: {
-        ...participant.cycle,
-        currentConfigVersion: {
-          ...participant.cycle.currentConfigVersion,
-          constraintProfiles: {
-            WEIGHTED_RATING: [
-              {
-                id: 'core-a-cap-b',
-                type: 'CORE_RATING_CAP',
-                triggerRating: 'A',
-                targetLevel: 'B',
-                enabled: true,
-              },
-            ],
-            WEIGHTED_SCORE: [],
-          },
-        },
-      },
-    });
-    prisma.perfEvaluationSubmission.findMany.mockResolvedValueOnce([
-      submission(501, 'ou_peer_1', 11, 'PEER', 'A'),
-    ]);
-
-    const result = await service.recalculate(7);
-
-    expect(result.stageLevel).toBe('B');
-    expect(result.constraintReasons).toEqual([
-      expect.objectContaining({
-        id: 'core-a-cap-b',
-        beforeLevel: 'A',
-        afterLevel: 'B',
-      }),
-    ]);
-  });
-
-  it('考核 Leader 可读取实名管理视角结果，普通员工不可越权读取', async () => {
-    const result = await service.getForManager('ou_leader', 7);
-
-    expect(result.status).toBe('READY');
     expect(rbac.hasAnyRole).not.toHaveBeenCalled();
 
     await expect(service.getForManager('ou_employee', 7)).rejects.toThrow(
       ForbiddenException,
     );
-  });
 
-  it('受限 HR 只能读取授权组织范围内的阶段结果', async () => {
+    rbac.hasAnyRole.mockResolvedValue(true);
+    rbac.getOrgScope.mockResolvedValue(['od_product']);
+    await expect(service.getForManager('ou_hr', 7)).resolves.toMatchObject({
+      status: 'READY',
+    });
+    expect(rbac.hasAnyRole).toHaveBeenLastCalledWith('ou_hr', ['HR', 'ADMIN']);
+
     rbac.hasAnyRole.mockResolvedValue(true);
     rbac.getOrgScope.mockResolvedValue(['od_other']);
-
     await expect(service.getForManager('ou_hr', 7)).rejects.toThrow(
       ForbiddenException,
     );

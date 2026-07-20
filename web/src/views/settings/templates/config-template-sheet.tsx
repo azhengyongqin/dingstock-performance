@@ -45,11 +45,7 @@ import {
 
 import { ConfigTemplateNav, type ConfigNavDestination } from './config-template-nav'
 import { CONFIG_TEMPLATE_STATUS_LABEL } from './config-template-table-columns'
-import {
-  getConfigTemplateActions,
-  issueSectionForPath,
-  mergeConfigTemplateIssues
-} from './config-template-utils'
+import { getConfigTemplateActions, issueSectionForPath, mergeConfigTemplateIssues } from './config-template-utils'
 
 const readIssues = (error: unknown): ConfigTemplateValidationIssue[] => {
   if (!(error instanceof ApiError) || !error.body || typeof error.body !== 'object') return []
@@ -147,9 +143,7 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
       const saved = await updatePerfConfigTemplateVersion(detail.id, {
         name: detail.name.trim(),
         description: detail.description,
-        stageModes: detail.stageModes,
         ratings: detail.ratings,
-        constraintProfiles: detail.constraintProfiles,
         reviewerRelationWeights: detail.reviewerRelationWeights,
         formTemplateVersionIds: detail.formTemplateVersionIds,
         schedulePreset: detail.schedulePreset,
@@ -211,7 +205,11 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
     } catch (error) {
       const nextIssues = readIssues(error)
 
-      setIssues(nextIssues.length ? nextIssues : [{ code: 'PUBLISH_FAILED', message: error instanceof Error ? error.message : '发布失败' }])
+      setIssues(
+        nextIssues.length
+          ? nextIssues
+          : [{ code: 'PUBLISH_FAILED', message: error instanceof Error ? error.message : '发布失败' }]
+      )
       setPublishOpen(false)
       toast.error('发布校验未通过，请修正全部问题后重试')
     } finally {
@@ -275,7 +273,8 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
 
           {loading || !detail ? (
             <div className='text-muted-foreground flex flex-1 items-center justify-center gap-2'>
-              <Loader2Icon className='size-4 animate-spin' />正在加载模板版本…
+              <Loader2Icon className='size-4 animate-spin' />
+              正在加载模板版本…
             </div>
           ) : (
             <>
@@ -284,7 +283,9 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
                   <div className='flex flex-wrap items-center gap-2'>
                     <Badge>{CONFIG_TEMPLATE_STATUS_LABEL[detail.status]}</Badge>
                     {detail.sourceVersionId && <Badge variant='outline'>来源版本 #{detail.sourceVersionId}</Badge>}
-                    {(detail.available === false || detail.isUsable === false) && <Badge variant='destructive'>当前不可用</Badge>}
+                    {(detail.available === false || detail.isUsable === false) && (
+                      <Badge variant='destructive'>当前不可用</Badge>
+                    )}
                     {!actions?.canEdit && <span className='text-muted-foreground text-sm'>当前版本只读</span>}
                   </div>
 
@@ -298,10 +299,11 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
                             <Button
                               key={`${issue.code}-${issue.path ?? index}`}
                               variant='ghost'
-                              className='text-destructive h-auto justify-start whitespace-normal px-2 py-1 text-left'
+                              className='text-destructive h-auto justify-start px-2 py-1 text-left whitespace-normal'
                               onClick={() => locateIssue(issue)}
                             >
-                              {index + 1}. {issue.message}{issue.path ? `（${issue.path}）` : ''}
+                              {index + 1}. {issue.message}
+                              {issue.path ? `（${issue.path}）` : ''}
                             </Button>
                           ))}
                         </div>
@@ -328,11 +330,36 @@ const ConfigTemplateSheet = ({ selected, candidates, isAdmin, onClose, onChanged
 
               {isAdmin && actions && (actions.canEdit || actions.canCreateDraft || actions.canArchive) && (
                 <div className='flex flex-wrap justify-end gap-2 border-t px-6 py-3'>
-                  {actions.canEdit && <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}><SaveIcon />保存草稿</Button>}
-                  {actions.canValidate && <Button variant='outline' disabled={saving} onClick={() => void handleValidate()}><CheckCircle2Icon />发布校验</Button>}
-                  {actions.canPublish && <Button disabled={saving} onClick={() => setPublishOpen(true)}><SendIcon />发布版本</Button>}
-                  {actions.canCreateDraft && <Button disabled={saving} onClick={() => void handleCreateDraft()}><CopyPlusIcon />创建新草稿</Button>}
-                  {actions.canArchive && <Button variant='destructive' disabled={saving} onClick={() => setArchiveOpen(true)}><ArchiveIcon />归档版本</Button>}
+                  {actions.canEdit && (
+                    <Button variant='outline' disabled={saving} onClick={() => void saveDraft()}>
+                      <SaveIcon />
+                      保存草稿
+                    </Button>
+                  )}
+                  {actions.canValidate && (
+                    <Button variant='outline' disabled={saving} onClick={() => void handleValidate()}>
+                      <CheckCircle2Icon />
+                      发布校验
+                    </Button>
+                  )}
+                  {actions.canPublish && (
+                    <Button disabled={saving} onClick={() => setPublishOpen(true)}>
+                      <SendIcon />
+                      发布版本
+                    </Button>
+                  )}
+                  {actions.canCreateDraft && (
+                    <Button disabled={saving} onClick={() => void handleCreateDraft()}>
+                      <CopyPlusIcon />
+                      创建新草稿
+                    </Button>
+                  )}
+                  {actions.canArchive && (
+                    <Button variant='destructive' disabled={saving} onClick={() => setArchiveOpen(true)}>
+                      <ArchiveIcon />
+                      归档版本
+                    </Button>
+                  )}
                 </div>
               )}
             </>
@@ -384,10 +411,18 @@ const ConfirmDialog = ({
 }) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
-      <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
+      <DialogHeader>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
+      </DialogHeader>
       <DialogFooter>
-        <Button variant='outline' onClick={() => onOpenChange(false)}>取消</Button>
-        <Button variant={destructive ? 'destructive' : 'default'} disabled={saving} onClick={onConfirm}>{saving && <Loader2Icon className='animate-spin' />}{confirmLabel}</Button>
+        <Button variant='outline' onClick={() => onOpenChange(false)}>
+          取消
+        </Button>
+        <Button variant={destructive ? 'destructive' : 'default'} disabled={saving} onClick={onConfirm}>
+          {saving && <Loader2Icon className='animate-spin' />}
+          {confirmLabel}
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

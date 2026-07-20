@@ -1,9 +1,10 @@
 import type {
   FormSnapshotContent,
   FormSnapshotDimension,
-  FormSnapshotItem,
+  FormSnapshotField,
   FormSnapshotSubform,
 } from './evaluation.service-types';
+import { isFormFieldValueCompatible } from './form-field-value-compatibility';
 
 export type HumanEvaluationStage = 'SELF' | 'PEER' | 'MANAGER';
 export type CycleFormChangeCategory =
@@ -17,19 +18,21 @@ export type CycleFormChangeDetail = {
     | 'DIMENSION_ADDED'
     | 'DIMENSION_REMOVED'
     | 'DIMENSION_MOVED'
-    | 'DIMENSION_KIND_CHANGED'
-    | 'ITEM_ADDED'
-    | 'ITEM_REMOVED'
-    | 'ITEM_MOVED'
-    | 'ITEM_TYPE_CHANGED'
-    | 'ITEM_REQUIRED_CHANGED'
-    | 'ITEM_CONFIG_CHANGED'
+    | 'DIMENSION_TYPE_CHANGED'
+    | 'DIMENSION_SCORING_METHOD_CHANGED'
     | 'DIMENSION_CALCULATION_CHANGED'
+    | 'FIELD_ADDED'
+    | 'FIELD_REMOVED'
+    | 'FIELD_MOVED'
+    | 'FIELD_TYPE_CHANGED'
+    | 'FIELD_REQUIRED_RULE_CHANGED'
+    | 'FIELD_REQUIRED_LEVELS_CHANGED'
+    | 'FIELD_CONFIG_CHANGED'
     | 'COPY_CHANGED';
   stage: HumanEvaluationStage;
   subformKey?: string;
   dimensionKey?: string;
-  itemKey?: string;
+  fieldKey?: string;
   message: string;
 };
 
@@ -46,13 +49,13 @@ type LocatedDimension = {
   stage: HumanEvaluationStage;
 };
 
-type LocatedItem = LocatedDimension & { item: FormSnapshotItem };
+type LocatedField = LocatedDimension & { field: FormSnapshotField };
 
 const stageOrder: HumanEvaluationStage[] = ['SELF', 'PEER', 'MANAGER'];
 
 /**
- * 比较完整周期表单快照并输出管理端可解释分类。
- * 优先级为 STRUCTURAL > CALCULATION > COPY_ONLY，混合修改不会被较轻分类掩盖。
+ * 按稳定业务 key 比较完整周期表单快照。身份与兼容性分开：改名、
+ * 排序不改身份，计分方式、字段类型和必填规则变更则明确标记结构影响。
  */
 export function classifyCycleFormChange(
   before: FormSnapshotContent,
@@ -63,8 +66,8 @@ export function classifyCycleFormChange(
   const afterSubforms = mapByKey(after.subforms);
   const beforeDimensions = flattenDimensions(before);
   const afterDimensions = flattenDimensions(after);
-  const beforeItems = flattenItems(before);
-  const afterItems = flattenItems(after);
+  const beforeFields = flattenFields(before);
+  const afterFields = flattenFields(after);
 
   if (copyFingerprint(before) !== copyFingerprint(after)) {
     changes.push(detail('COPY_CHANGED', 'SELF', '表单名称或说明发生变化', {}));
@@ -83,7 +86,7 @@ export function classifyCycleFormChange(
         detail(
           'SUBFORM_TYPE_CHANGED',
           stageOf(subform),
-          `子表单 ${key} 的类型发生变化`,
+          `子表单 ${key} 的评估阶段发生变化`,
           { subformKey: key },
         ),
       );
@@ -113,7 +116,7 @@ export function classifyCycleFormChange(
     const next = afterDimensions.get(key);
     if (!next) {
       changes.push(
-        detail('DIMENSION_REMOVED', located.stage, `删除维度 ${key}`, {
+        detail('DIMENSION_REMOVED', located.stage, `删除评估维度 ${key}`, {
           subformKey: located.subform.key,
           dimensionKey: key,
         }),
@@ -122,35 +125,49 @@ export function classifyCycleFormChange(
     }
     if (
       located.subform.key !== next.subform.key ||
-      located.dimension.audience !== next.dimension.audience ||
       located.stage !== next.stage
     ) {
       changes.push(
         detail(
           'DIMENSION_MOVED',
           located.stage,
-          `维度 ${key} 的子表单或填写角色发生变化`,
-          {
-            subformKey: located.subform.key,
-            dimensionKey: key,
-          },
+          `评估维度 ${key} 的子表单或填写角色发生变化`,
+          { subformKey: located.subform.key, dimensionKey: key },
         ),
       );
       if (next.stage !== located.stage) {
         changes.push(
-          detail('DIMENSION_MOVED', next.stage, `维度 ${key} 移入该评估阶段`, {
-            subformKey: next.subform.key,
-            dimensionKey: key,
-          }),
+          detail(
+            'DIMENSION_MOVED',
+            next.stage,
+            `评估维度 ${key} 移入该评估阶段`,
+            {
+              subformKey: next.subform.key,
+              dimensionKey: key,
+            },
+          ),
         );
       }
     }
-    if (located.dimension.kind !== next.dimension.kind) {
+    if (located.dimension.type !== next.dimension.type) {
       changes.push(
         detail(
-          'DIMENSION_KIND_CHANGED',
+          'DIMENSION_TYPE_CHANGED',
           next.stage,
-          `维度 ${key} 的业务类型发生变化`,
+          `评估维度 ${key} 的计分/非计分类型发生变化`,
+          { subformKey: next.subform.key, dimensionKey: key },
+        ),
+      );
+    }
+    if (
+      normalized(located.dimension.scoringMethod) !==
+      normalized(next.dimension.scoringMethod)
+    ) {
+      changes.push(
+        detail(
+          'DIMENSION_SCORING_METHOD_CHANGED',
+          next.stage,
+          `评估维度 ${key} 的计分方式发生变化，旧计分值将失效`,
           { subformKey: next.subform.key, dimensionKey: key },
         ),
       );
@@ -164,11 +181,8 @@ export function classifyCycleFormChange(
         detail(
           'DIMENSION_CALCULATION_CHANGED',
           next.stage,
-          `维度 ${key} 的权重或核心标记发生变化`,
-          {
-            subformKey: next.subform.key,
-            dimensionKey: key,
-          },
+          `评估维度 ${key} 的占比或核心标记发生变化`,
+          { subformKey: next.subform.key, dimensionKey: key },
         ),
       );
     }
@@ -179,7 +193,7 @@ export function classifyCycleFormChange(
         detail(
           'COPY_CHANGED',
           next.stage,
-          `维度 ${key} 的文案或展示顺序发生变化`,
+          `评估维度 ${key} 的文案或展示顺序发生变化`,
           {
             subformKey: next.subform.key,
             dimensionKey: key,
@@ -191,7 +205,7 @@ export function classifyCycleFormChange(
   for (const [key, located] of afterDimensions) {
     if (!beforeDimensions.has(key)) {
       changes.push(
-        detail('DIMENSION_ADDED', located.stage, `新增维度 ${key}`, {
+        detail('DIMENSION_ADDED', located.stage, `新增评估维度 ${key}`, {
           subformKey: located.subform.key,
           dimensionKey: key,
         }),
@@ -199,15 +213,15 @@ export function classifyCycleFormChange(
     }
   }
 
-  for (const [key, located] of beforeItems) {
-    const next = afterItems.get(key);
+  for (const [key, located] of beforeFields) {
+    const next = afterFields.get(key);
     if (!next) {
       changes.push(
         detail(
-          'ITEM_REMOVED',
+          'FIELD_REMOVED',
           located.stage,
-          `删除评估项 ${key}`,
-          location(located),
+          `删除表单字段 ${key}`,
+          fieldLocation(located),
         ),
       );
       continue;
@@ -215,80 +229,92 @@ export function classifyCycleFormChange(
     if (
       located.subform.key !== next.subform.key ||
       located.dimension.key !== next.dimension.key ||
-      located.dimension.audience !== next.dimension.audience ||
       located.stage !== next.stage
     ) {
       changes.push(
         detail(
-          'ITEM_MOVED',
+          'FIELD_MOVED',
           located.stage,
-          `评估项 ${key} 的维度或填写角色发生变化`,
-          location(located),
+          `表单字段 ${key} 移至其他评估维度或填写角色`,
+          fieldLocation(located),
         ),
       );
       if (next.stage !== located.stage) {
         changes.push(
           detail(
-            'ITEM_MOVED',
+            'FIELD_MOVED',
             next.stage,
-            `评估项 ${key} 移入该评估阶段`,
-            location(next),
+            `表单字段 ${key} 移入该评估阶段`,
+            fieldLocation(next),
           ),
         );
       }
     }
-    if (located.item.type !== next.item.type) {
+    if (located.field.type !== next.field.type) {
       changes.push(
         detail(
-          'ITEM_TYPE_CHANGED',
+          'FIELD_TYPE_CHANGED',
           next.stage,
-          `评估项 ${key} 的输入类型发生变化`,
-          location(next),
+          `表单字段 ${key} 的输入类型发生变化，旧值将失效`,
+          fieldLocation(next),
         ),
       );
     }
-    if (Boolean(located.item.required) !== Boolean(next.item.required)) {
+    if (located.field.requiredRule !== next.field.requiredRule) {
       changes.push(
         detail(
-          'ITEM_REQUIRED_CHANGED',
+          'FIELD_REQUIRED_RULE_CHANGED',
           next.stage,
-          `评估项 ${key} 的必填规则发生变化`,
-          location(next),
+          `表单字段 ${key} 的必填规则发生变化`,
+          fieldLocation(next),
         ),
       );
     }
     if (
-      canonicalJson(located.item.config ?? null) !==
-      canonicalJson(next.item.config ?? null)
+      canonicalJson(located.field.requiredLevels ?? []) !==
+      canonicalJson(next.field.requiredLevels ?? [])
     ) {
       changes.push(
         detail(
-          'ITEM_CONFIG_CHANGED',
+          'FIELD_REQUIRED_LEVELS_CHANGED',
           next.stage,
-          `评估项 ${key} 的受控输入配置发生变化`,
-          location(next),
+          `表单字段 ${key} 的条件必填等级发生变化`,
+          fieldLocation(next),
         ),
       );
     }
-    if (copyFingerprint(located.item) !== copyFingerprint(next.item)) {
+    if (
+      canonicalJson(located.field.config ?? null) !==
+      canonicalJson(next.field.config ?? null)
+    ) {
+      changes.push(
+        detail(
+          'FIELD_CONFIG_CHANGED',
+          next.stage,
+          `表单字段 ${key} 的受控输入配置发生变化`,
+          fieldLocation(next),
+        ),
+      );
+    }
+    if (copyFingerprint(located.field) !== copyFingerprint(next.field)) {
       changes.push(
         detail(
           'COPY_CHANGED',
           next.stage,
-          `评估项 ${key} 的文案或展示顺序发生变化`,
-          location(next),
+          `表单字段 ${key} 的文案或展示顺序发生变化`,
+          fieldLocation(next),
         ),
       );
     }
   }
-  for (const [key, located] of afterItems) {
-    if (!beforeItems.has(key)) {
+  for (const [key, located] of afterFields) {
+    if (!beforeFields.has(key)) {
       changes.push(
         detail(
-          'ITEM_ADDED',
+          'FIELD_ADDED',
           located.stage,
-          `新增评估项 ${key}`,
-          location(located),
+          `新增表单字段 ${key}`,
+          fieldLocation(located),
         ),
       );
     }
@@ -302,9 +328,7 @@ export function classifyCycleFormChange(
           'COPY_CHANGED',
           stageOf(next),
           `子表单 ${key} 的文案或展示顺序发生变化`,
-          {
-            subformKey: key,
-          },
+          { subformKey: key },
         ),
       );
     }
@@ -317,13 +341,15 @@ export function classifyCycleFormChange(
     'DIMENSION_ADDED',
     'DIMENSION_REMOVED',
     'DIMENSION_MOVED',
-    'DIMENSION_KIND_CHANGED',
-    'ITEM_ADDED',
-    'ITEM_REMOVED',
-    'ITEM_MOVED',
-    'ITEM_TYPE_CHANGED',
-    'ITEM_REQUIRED_CHANGED',
-    'ITEM_CONFIG_CHANGED',
+    'DIMENSION_TYPE_CHANGED',
+    'DIMENSION_SCORING_METHOD_CHANGED',
+    'FIELD_ADDED',
+    'FIELD_REMOVED',
+    'FIELD_MOVED',
+    'FIELD_TYPE_CHANGED',
+    'FIELD_REQUIRED_RULE_CHANGED',
+    'FIELD_REQUIRED_LEVELS_CHANGED',
+    'FIELD_CONFIG_CHANGED',
   ]);
   const structural = changes.some((change) => structuralKinds.has(change.kind));
   const calculation = changes.some(
@@ -356,36 +382,94 @@ export function classifyCycleFormChange(
   };
 }
 
-export type ExistingAnswerIdentity = {
-  itemKey: string;
-  itemType: string;
+export type ExistingDimensionAnswer = {
   subformKey: string;
   dimensionKey: string;
+  scoringMethod: string | null;
+  rawLevel: 'S' | 'A' | 'B' | 'C' | null;
+  rawScore: { toString(): string } | number | string | null;
+  fields: readonly ExistingFieldAnswer[];
 };
 
-/** 为单份答卷输出稳定 key 迁移计划；只保留新结构中同类型的项目。 */
+export type ExistingFieldAnswer = {
+  fieldKey: string;
+  fieldType: string;
+  value: unknown;
+};
+
+/**
+ * 稳定 key 只负责匹配身份，值是否可预填由新结构再判断。字段移维度时
+ * 按 fieldKey 改挂新父维度；类型或受控选项不兼容时明确列入失效集。
+ */
 export function buildCycleFormChangePlan(
   after: FormSnapshotContent,
   stage: HumanEvaluationStage,
-  items: readonly ExistingAnswerIdentity[],
+  dimensions: readonly ExistingDimensionAnswer[],
 ) {
-  const nextItems = flattenItems(after);
-  const compatibleItems: Array<ExistingAnswerIdentity> = [];
-  const incompatibleItemKeys: string[] = [];
-  for (const item of items) {
-    const next = nextItems.get(item.itemKey);
-    if (!next || next.stage !== stage || next.item.type !== item.itemType) {
-      incompatibleItemKeys.push(item.itemKey);
-      continue;
+  const nextDimensions = flattenDimensions(after);
+  const nextFields = flattenFields(after);
+  const compatibleDimensionAnswers: Array<{
+    subformKey: string;
+    dimensionKey: string;
+    scoringMethod: 'RATING' | 'SCORE';
+    rawLevel: ExistingDimensionAnswer['rawLevel'];
+    rawScore: ExistingDimensionAnswer['rawScore'];
+  }> = [];
+  const compatibleFieldAnswers: Array<{
+    subformKey: string;
+    dimensionKey: string;
+    fieldKey: string;
+    fieldType: FormSnapshotField['type'];
+    value: unknown;
+  }> = [];
+  const incompatibleAnswerKeys: string[] = [];
+
+  for (const answer of dimensions) {
+    const next = nextDimensions.get(answer.dimensionKey);
+    const scoringCompatible =
+      next?.stage === stage &&
+      next.dimension.type === 'SCORING' &&
+      (next.dimension.scoringMethod === 'RATING' ||
+        next.dimension.scoringMethod === 'SCORE') &&
+      next.dimension.scoringMethod === answer.scoringMethod;
+    const hasScoringValue = answer.rawLevel != null || answer.rawScore != null;
+    if (scoringCompatible && hasScoringValue) {
+      compatibleDimensionAnswers.push({
+        subformKey: next.subform.key,
+        dimensionKey: next.dimension.key,
+        scoringMethod: next.dimension.scoringMethod!,
+        rawLevel: answer.rawLevel,
+        rawScore: answer.rawScore,
+      });
+    } else if (hasScoringValue) {
+      incompatibleAnswerKeys.push(`dimension:${answer.dimensionKey}:scoring`);
     }
-    compatibleItems.push({
-      ...item,
-      itemType: next.item.type,
-      subformKey: next.subform.key,
-      dimensionKey: next.dimension.key,
-    });
+
+    for (const fieldAnswer of answer.fields) {
+      const nextField = nextFields.get(fieldAnswer.fieldKey);
+      if (
+        !nextField ||
+        nextField.stage !== stage ||
+        nextField.field.type !== fieldAnswer.fieldType ||
+        !isFormFieldValueCompatible(nextField.field, fieldAnswer.value)
+      ) {
+        incompatibleAnswerKeys.push(`field:${fieldAnswer.fieldKey}`);
+        continue;
+      }
+      compatibleFieldAnswers.push({
+        subformKey: nextField.subform.key,
+        dimensionKey: nextField.dimension.key,
+        fieldKey: nextField.field.key,
+        fieldType: nextField.field.type,
+        value: fieldAnswer.value,
+      });
+    }
   }
-  return { compatibleItems, incompatibleItemKeys };
+  return {
+    compatibleDimensionAnswers,
+    compatibleFieldAnswers,
+    incompatibleAnswerKeys,
+  };
 }
 
 function flattenDimensions(content: FormSnapshotContent) {
@@ -395,18 +479,18 @@ function flattenDimensions(content: FormSnapshotContent) {
       result.set(dimension.key, {
         subform,
         dimension,
-        stage: stageOf(subform, dimension),
+        stage: stageOf(subform),
       });
     }
   }
   return result;
 }
 
-function flattenItems(content: FormSnapshotContent) {
-  const result = new Map<string, LocatedItem>();
+function flattenFields(content: FormSnapshotContent) {
+  const result = new Map<string, LocatedField>();
   for (const located of flattenDimensions(content).values()) {
-    for (const item of located.dimension.items) {
-      result.set(item.key, { ...located, item });
+    for (const field of located.dimension.fields ?? []) {
+      result.set(field.key, { ...located, field });
     }
   }
   return result;
@@ -416,32 +500,28 @@ function mapByKey<T extends { key: string }>(items: readonly T[]) {
   return new Map(items.map((item) => [item.key, item]));
 }
 
-function stageOf(
-  subform: FormSnapshotSubform,
-  dimension?: FormSnapshotDimension,
-): HumanEvaluationStage {
-  if (subform.type === 'PEER') return 'PEER';
-  if (subform.type === 'MANAGER') return 'MANAGER';
-  if (subform.type === 'PROMOTION') {
-    return dimension?.audience === 'LEADER' ? 'MANAGER' : 'SELF';
-  }
-  return 'SELF';
+function stageOf(subform: FormSnapshotSubform): HumanEvaluationStage {
+  return subform.type === 'PEER'
+    ? 'PEER'
+    : subform.type === 'MANAGER'
+      ? 'MANAGER'
+      : 'SELF';
 }
 
 function detail(
   kind: CycleFormChangeDetail['kind'],
   stage: HumanEvaluationStage,
   message: string,
-  rest: Pick<CycleFormChangeDetail, 'subformKey' | 'dimensionKey' | 'itemKey'>,
+  rest: Pick<CycleFormChangeDetail, 'subformKey' | 'dimensionKey' | 'fieldKey'>,
 ): CycleFormChangeDetail {
   return { kind, stage, message, ...rest };
 }
 
-function location(located: LocatedItem) {
+function fieldLocation(located: LocatedField) {
   return {
     subformKey: located.subform.key,
     dimensionKey: located.dimension.key,
-    itemKey: located.item.key,
+    fieldKey: located.field.key,
   };
 }
 
@@ -477,7 +557,7 @@ function explanationOf(category: CycleFormChangeCategory) {
     return '结构性变更会改变答卷完整性或计算语义；已有正式提交时必须先整体退回 DRAFT，受影响答卷需要重新提交。';
   }
   if (category === 'CALCULATION') {
-    return '非结构性计算规则变更应继续使用活动周期配置版本与重算流程，不在表单结构变更中直接应用。';
+    return '维度占比或核心标记变更应使用活动周期配置版本与统一重算流程。';
   }
   if (category === 'COPY_ONLY') {
     return '纯文案或展示顺序变更不会改变答卷状态，已有评估无需重新提交。';

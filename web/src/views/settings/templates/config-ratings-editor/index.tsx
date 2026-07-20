@@ -6,26 +6,15 @@ import { ChevronDownIcon, ChevronUpIcon, EyeIcon } from 'lucide-react'
 
 import type { PerfConfigTemplateRating, PerfPerformanceLevel } from '@/lib/perf-api'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 
-import {
-  ConfigRuleSectionChrome,
-  ConfigRuleTable,
-  configRuleNestedRowClassName
-} from '../config-rule-table'
+import { ConfigRuleSectionChrome, ConfigRuleTable, configRuleNestedRowClassName } from '../config-rule-table'
 import { ConfigRatingsPreviewDialog } from './preview-dialog'
 import { RatingScoreBar } from './score-bar'
-import {
-  applyBoundary,
-  clampScore,
-  getRatingColor,
-  patchRatingBySymbol,
-  sortRatingsAscending
-} from './utils'
+import { applyBoundary, clampScore, getRatingColor, patchRatingBySymbol, sortRatingsAscending } from './utils'
 
-const RATINGS_GRID = 'grid-cols-[12rem_4rem_minmax(0,1fr)_5rem_4.5rem]'
+const RATINGS_GRID = 'grid-cols-[12rem_4rem_minmax(0,1fr)_5rem]'
 
 type Props = {
   ratings: PerfConfigTemplateRating[]
@@ -54,7 +43,7 @@ const ScoreStepper = ({
         disabled={disabled}
         onChange={event => onChange(clampScore(Number(event.target.value)))}
         className={cn(
-          'text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
+          '[appearance:textfield] text-center [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
           !disabled && 'pr-7',
           disabled && 'text-muted-foreground bg-muted/60'
         )}
@@ -86,7 +75,7 @@ const ScoreStepper = ({
 }
 
 /**
- * 配置模板 S/A/B/C 评级编辑：色条调边界 + 行内精编（含映射分、评语必填）。
+ * 配置模板 S/A/B/C 评级编辑：色条调边界 + 行内精编（含映射分）。
  * 符号与档位数固定，连续性由边界联动保证。
  */
 export const ConfigRatingsEditor = ({ ratings, editable, onChange }: Props) => {
@@ -122,12 +111,12 @@ export const ConfigRatingsEditor = ({ ratings, editable, onChange }: Props) => {
           </>,
           '代号',
           '等级名称',
-          '映射分',
-          '评语必填'
+          '映射分'
         ]}
       >
         {sorted.map((rating, index) => {
           const isLast = index === sorted.length - 1
+
           const color = getRatingColor({
             minScore: Number(rating.minScore),
             maxScore: Number(rating.maxScore)
@@ -138,9 +127,7 @@ export const ConfigRatingsEditor = ({ ratings, editable, onChange }: Props) => {
               <div className={configRuleNestedRowClassName(RATINGS_GRID)}>
                 <div className='flex items-center gap-2'>
                   <ScoreStepper value={Number(rating.minScore)} disabled onChange={() => {}} />
-                  <span className='text-muted-foreground shrink-0 text-sm'>
-                    ≤ 分数 {isLast ? '≤' : '<'}
-                  </span>
+                  <span className='text-muted-foreground shrink-0 text-sm'>≤ 分数 {isLast ? '≤' : '<'}</span>
                   <ScoreStepper
                     value={Number(rating.maxScore)}
                     disabled={!editable || isLast}
@@ -172,17 +159,6 @@ export const ConfigRatingsEditor = ({ ratings, editable, onChange }: Props) => {
                   disabled={!editable}
                   onChange={event => patch(rating.symbol, { mappingScore: event.target.value })}
                 />
-
-                <label className='flex items-center justify-start'>
-                  <Checkbox
-                    checked={rating.commentRequired}
-                    disabled={!editable}
-                    onCheckedChange={checked =>
-                      patch(rating.symbol, { commentRequired: Boolean(checked) })
-                    }
-                  />
-                  <span className='sr-only'>{rating.symbol} 评语必填</span>
-                </label>
               </div>
 
               <Input
@@ -197,11 +173,7 @@ export const ConfigRatingsEditor = ({ ratings, editable, onChange }: Props) => {
         })}
       </ConfigRuleTable>
 
-      <ConfigRatingsPreviewDialog
-        open={previewOpen}
-        onOpenChange={setPreviewOpen}
-        ratings={ratings}
-      />
+      <ConfigRatingsPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} ratings={ratings} />
     </section>
   )
 }

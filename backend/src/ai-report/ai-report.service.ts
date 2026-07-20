@@ -81,7 +81,6 @@ export class AiReportService {
       summary: null,
       highlights: Prisma.DbNull,
       improvements: Prisma.DbNull,
-      promotionSummary: null,
       riskFlags: Prisma.DbNull,
       errorMessage: null,
       generatedAt: null,
@@ -155,7 +154,6 @@ export class AiReportService {
           summary: output.summary,
           highlights: output.highlights ?? Prisma.DbNull,
           improvements: output.improvements ?? Prisma.DbNull,
-          promotionSummary: output.promotionSummary ?? null,
           riskFlags: output.riskFlags ?? Prisma.DbNull,
           errorMessage: null,
           generatedAt,
@@ -292,7 +290,6 @@ export class AiReportService {
         summary: null,
         highlights: Prisma.DbNull,
         improvements: Prisma.DbNull,
-        promotionSummary: null,
         riskFlags: Prisma.DbNull,
         generatedAt: null,
       },
@@ -361,7 +358,6 @@ export class AiReportService {
     summary?: unknown;
     highlights?: unknown;
     improvements?: unknown;
-    promotionSummary?: unknown;
     riskFlags?: unknown;
     inputRevision?: unknown;
     errorMessage?: unknown;
@@ -377,7 +373,6 @@ export class AiReportService {
       summary: report.summary ?? null,
       highlights: report.highlights ?? null,
       improvements: report.improvements ?? null,
-      promotionSummary: report.promotionSummary ?? null,
       riskFlags: report.riskFlags ?? null,
       inputRevision: report.inputRevision ?? null,
       errorMessage: report.errorMessage ?? null,

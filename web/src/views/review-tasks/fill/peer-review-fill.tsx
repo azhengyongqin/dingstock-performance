@@ -22,9 +22,10 @@ import {
 } from '@/lib/perf-api'
 import EvaluationForm from '@/views/self-review/evaluation-form'
 import {
-  buildDraftPayloadItems,
-  buildSubmitPayload,
-  toEvaluationAnswers,
+  buildDraftPayloadDimensions,
+  buildDimensionSubmitPayload,
+  subformsForStage,
+  toDimensionEvaluationAnswers,
   type EvaluationAnswers,
   type EvaluationItemAnswer
 } from '@/views/self-review/evaluation-form-types'
@@ -51,7 +52,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
   const [context, setContext] = useState<PerfPeerEvaluationContext | null>(previewContext ?? null)
 
   const [answers, setAnswers] = useState<EvaluationAnswers>(() =>
-    toEvaluationAnswers(previewContext?.draft?.items ?? previewContext?.submitted?.items ?? [])
+    toDimensionEvaluationAnswers(previewContext?.draft?.dimensionAnswers ?? previewContext?.submitted?.dimensionAnswers ?? [])
   )
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -74,10 +75,10 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
 
     try {
       const data = await getPeerEvaluationContext(assignmentId)
-      const currentItems = data.draft?.items ?? data.submitted?.items ?? []
+      const currentDimensions = data.draft?.dimensionAnswers ?? data.submitted?.dimensionAnswers ?? []
 
       setContext(data)
-      setAnswers(toEvaluationAnswers(currentItems))
+      setAnswers(toDimensionEvaluationAnswers(currentDimensions))
 
       // 首次草稿或已有更新草稿直接进入编辑；仅“只有生效提交”先只读展示。
       setEditing(data.state !== 'EFFECTIVE')
@@ -121,7 +122,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
 
       await savePeerEvaluationDraft({
         assignmentId,
-        items: buildDraftPayloadItems(context.form.subforms, answers)
+        dimensions: buildDraftPayloadDimensions(subformsForStage(context.form.subforms, 'PEER'), answers)
       })
       setContext(previous => (previous?.submitted ? { ...previous, state: 'PENDING_RESUBMIT' } : previous))
       if (!silent) toast.success('360°评估草稿已保存')
@@ -138,12 +139,12 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
 
   const submit = async () => {
     if (!context?.form) return
-    const result = buildSubmitPayload(context.form.subforms, answers)
+    const result = buildDimensionSubmitPayload(subformsForStage(context.form.subforms, 'PEER'), answers, ratings)
 
     setErrors(result.errors)
 
     if (Object.keys(result.errors).length > 0) {
-      toast.error('请先完成所有必填评估项')
+      toast.error('请先完成所有必填评估维度与表单字段')
 
       return
     }
@@ -159,7 +160,7 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
         return
       }
 
-      await submitPeerEvaluation({ assignmentId, items: result.items })
+      await submitPeerEvaluation({ assignmentId, dimensions: result.dimensions })
       toast.success(context.submitted ? '360°评估已重新提交并生效' : '360°评估已提交')
       router.push('/review-tasks')
     } catch (caught) {
@@ -244,14 +245,15 @@ const PeerReviewFill = ({ assignmentId, previewContext }: PeerReviewFillProps) =
                 }
                 employee={context.employee}
                 relation={context.assignment?.relation}
-                selfItems={context.selfEvaluation?.items ?? []}
+                selfDimensionAnswers={context.selfEvaluation?.dimensionAnswers ?? []}
+                selfSubforms={context.form.selfSubforms}
                 collapsed={referenceCollapsed}
                 onCollapsedChange={setReferenceCollapsed}
               />
             }
             right={
               <EvaluationForm
-                subforms={context.form.subforms}
+                subforms={subformsForStage(context.form.subforms, 'PEER')}
                 answers={answers}
                 onAnswerChange={updateAnswer}
                 errors={errors}

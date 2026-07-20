@@ -13,8 +13,9 @@ import {
   avatarUrlOf,
   type PerfConfigReviewerRelation,
   type PerfPeerSafeEmployeeProfile,
-  type ParticipantOkrSnapshot,
-  type PerfEvaluationItemResult
+  type PerfEvalFormSubform,
+  type PerfEvaluationDimensionAnswer,
+  type ParticipantOkrSnapshot
 } from '@/lib/perf-api'
 
 import SelfReviewReferenceContent from './self-review-reference-content'
@@ -24,7 +25,8 @@ export type PeerReferencePanelProps = {
   okrPreviewData?: ParticipantOkrSnapshot
   employee: PerfPeerSafeEmployeeProfile | null
   relation?: PerfConfigReviewerRelation | null
-  selfItems: PerfEvaluationItemResult[]
+  selfDimensionAnswers: PerfEvaluationDimensionAnswer[]
+  selfSubforms?: PerfEvalFormSubform[]
   collapsed: boolean
   onCollapsedChange: (collapsed: boolean) => void
 }
@@ -34,7 +36,8 @@ const PeerReferencePanel = ({
   participantId,
   okrPreviewData,
   relation,
-  selfItems,
+  selfDimensionAnswers,
+  selfSubforms,
   collapsed,
   onCollapsedChange
 }: PeerReferencePanelProps) => {
@@ -72,7 +75,8 @@ const PeerReferencePanel = ({
 
           <TabsContent value='self' className='px-4 py-4'>
             <SelfReviewReferenceContent
-              selfItems={selfItems}
+              selfDimensionAnswers={selfDimensionAnswers}
+              selfSubforms={selfSubforms}
               notice='仅展示员工已生效自评摘要，供填写 360° 时对照参考。'
             />
           </TabsContent>

@@ -2,7 +2,7 @@
 
 import { AdvancedEditor } from './novel/advanced-editor'
 import { uploadImageWithNovelFallback } from './novel/image-upload'
-import type { ImageUploadHandler } from './novel/types'
+import type { ImageUploadHandler, MarkdownEditorFeatures } from './novel/types'
 import MarkdownContent from './markdown-content'
 
 export type MarkdownEditorProps = {
@@ -16,6 +16,9 @@ export type MarkdownEditorProps = {
   disabled?: boolean
   invalid?: boolean
   className?: string
+
+  /** 可选能力开关；缺省全部开启 */
+  features?: MarkdownEditorFeatures
 }
 
 /** Novel 源码编辑器的项目入口，保持业务表单原有 Markdown 字符串协议。 */
@@ -27,7 +30,8 @@ const MarkdownEditor = ({
   placeholder = '请输入内容，或输入 / 选择内容块…',
   disabled,
   invalid,
-  className
+  className,
+  features
 }: MarkdownEditorProps) => {
   // 已提交或无编辑权限时走纯展示组件，不挂载任何编辑器交互。
   if (disabled) return <MarkdownContent content={value} className={className} />
@@ -41,6 +45,7 @@ const MarkdownEditor = ({
       placeholder={placeholder}
       invalid={invalid}
       className={className}
+      features={features}
     />
   )
 }

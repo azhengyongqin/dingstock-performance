@@ -60,24 +60,6 @@ describe('validateConfigTemplatePublication', () => {
     ).toHaveLength(3);
   });
 
-  it('一次返回所有非法阶段模式，不在首个问题处短路', () => {
-    const value = validConfig() as unknown as {
-      stageModes: Record<string, string>;
-    };
-    value.stageModes = {
-      SELF: 'WEIGHTED_SCORE',
-      PEER: 'DIRECT_RATING',
-      MANAGER: 'DIRECT_RATING',
-      AI: 'WEIGHTED_RATING',
-    };
-
-    expect(
-      codes(value as unknown as ConfigTemplateVersionContract).filter(
-        (code) => code === 'STAGE_MODE_INVALID',
-      ),
-    ).toHaveLength(4);
-  });
-
   it('拒绝修改 S/A/B/C 固定顺序并报告评级数量问题', () => {
     const value = validConfig();
     (value as unknown as { ratings: unknown[] }).ratings = [
@@ -170,20 +152,28 @@ describe('validateConfigTemplatePublication', () => {
     );
   });
 
-  it('逐个前缀校验 PEER/MANAGER 计分题型与阶段模式兼容', () => {
+  it('允许同一子表单的维度独立选择评分或打分', () => {
     const value = validConfig();
     const bindings = structuredClone(value.formBindings);
     const dPeer = bindings[0].subforms.find((item) => item.type === 'PEER')!;
     const dManager = bindings[0].subforms.find(
       (item) => item.type === 'MANAGER',
     )!;
-    (dPeer.dimensions[0].items[0] as { type: string }).type = 'SCORE';
-    (dManager.dimensions[0].items[0] as { type: string }).type = 'RATING';
+    dPeer.dimensions[0].scoringMethod = 'SCORE';
+    dManager.dimensions[0].scoringMethod = 'RATING';
     (value as { formBindings: typeof bindings }).formBindings = bindings;
 
-    expect(
-      codes(value).filter((code) => code === 'SCORING_ITEM_INCOMPATIBLE'),
-    ).toHaveLength(2);
+    expect(codes(value)).not.toContain('SCORING_METHOD_REQUIRED');
+  });
+
+  it('逐个维度拒绝缺失的计分方式', () => {
+    const value = validConfig();
+    const bindings = structuredClone(value.formBindings);
+    const peer = bindings[0].subforms.find((item) => item.type === 'PEER')!;
+    (peer.dimensions[0] as { scoringMethod: unknown }).scoringMethod = null;
+    (value as { formBindings: typeof bindings }).formBindings = bindings;
+
+    expect(codes(value)).toContain('SCORING_METHOD_REQUIRED');
   });
 
   it('重新校验加权子表单核心维度数量和维度权重总和', () => {
@@ -201,52 +191,6 @@ describe('validateConfigTemplatePublication', () => {
       expect.arrayContaining([
         'CORE_DIMENSION_COUNT_INVALID',
         'DIMENSION_WEIGHT_TOTAL_INVALID',
-      ]),
-    );
-  });
-
-  it('拒绝未知、重复、跨模式和超过两位小数的约束', () => {
-    const value = validConfig();
-    const ratingRules = value.constraintProfiles.WEIGHTED_RATING.map(
-      (rule) => ({ ...rule }),
-    );
-    (ratingRules[1] as { type: string }).type = 'CORE_RATING_FORCE';
-    const scoreRules = value.constraintProfiles.WEIGHTED_SCORE.map((rule) => ({
-      ...rule,
-    }));
-    scoreRules[0] = { ...scoreRules[0], threshold: '60.001' };
-    (scoreRules[1] as { type: string }).type = 'CORE_RATING_CAP';
-    (value as { constraintProfiles: unknown }).constraintProfiles = {
-      WEIGHTED_RATING: ratingRules,
-      WEIGHTED_SCORE: scoreRules,
-    };
-    const result = codes(value);
-
-    expect(result).toEqual(
-      expect.arrayContaining([
-        'CONSTRAINT_TYPE_DUPLICATE',
-        'CONSTRAINT_THRESHOLD_PRECISION_INVALID',
-        'CONSTRAINT_TYPE_INVALID',
-      ]),
-    );
-  });
-
-  it('要求同一计算模式内的约束使用非空且唯一的稳定标识', () => {
-    const value = validConfig();
-    const rules = value.constraintProfiles.WEIGHTED_RATING.map((rule) => ({
-      ...rule,
-    }));
-    rules[0].id = '';
-    rules[2].id = rules[1].id;
-    (value as { constraintProfiles: unknown }).constraintProfiles = {
-      ...value.constraintProfiles,
-      WEIGHTED_RATING: rules,
-    };
-
-    expect(codes(value)).toEqual(
-      expect.arrayContaining([
-        'CONSTRAINT_ID_REQUIRED',
-        'CONSTRAINT_ID_DUPLICATE',
       ]),
     );
   });

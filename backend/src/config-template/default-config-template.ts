@@ -10,13 +10,7 @@ export function buildDefaultConfigTemplate(
 ): ConfigTemplateVersionContract {
   return {
     name: '标准半年度绩效配置',
-    description: '标准 S/A/B/C 评级、默认阶段模式和 360°关系权重',
-    stageModes: {
-      SELF: 'DIRECT_RATING',
-      PEER: 'WEIGHTED_RATING',
-      MANAGER: 'WEIGHTED_SCORE',
-      AI: 'DIRECT_RATING',
-    },
+    description: '标准 S/A/B/C 评级、统一维度计算和 360°关系权重',
     ratings: [
       {
         symbol: 'S',
@@ -25,7 +19,6 @@ export function buildDefaultConfigTemplate(
         minScore: '90',
         maxScore: '100',
         mappingScore: '95',
-        commentRequired: true,
       },
       {
         symbol: 'A',
@@ -34,7 +27,6 @@ export function buildDefaultConfigTemplate(
         minScore: '80',
         maxScore: '90',
         mappingScore: '85',
-        commentRequired: false,
       },
       {
         symbol: 'B',
@@ -43,7 +35,6 @@ export function buildDefaultConfigTemplate(
         minScore: '60',
         maxScore: '80',
         mappingScore: '70',
-        commentRequired: false,
       },
       {
         symbol: 'C',
@@ -52,57 +43,8 @@ export function buildDefaultConfigTemplate(
         minScore: '0',
         maxScore: '60',
         mappingScore: '50',
-        commentRequired: true,
       },
     ],
-    constraintProfiles: {
-      WEIGHTED_RATING: [
-        {
-          id: 'default-core-rating-force-c',
-          type: 'CORE_RATING_FORCE',
-          enabled: true,
-          triggerRating: 'C',
-          targetLevel: 'C',
-        },
-        {
-          id: 'default-core-rating-cap-b',
-          type: 'CORE_RATING_CAP',
-          enabled: true,
-          triggerRating: 'B',
-          targetLevel: 'B',
-        },
-        {
-          id: 'default-any-rating-cap-b',
-          type: 'ANY_RATING_CAP',
-          enabled: true,
-          triggerRating: 'C',
-          targetLevel: 'B',
-        },
-      ],
-      WEIGHTED_SCORE: [
-        {
-          id: 'default-core-score-force-c',
-          type: 'CORE_SCORE_FORCE',
-          enabled: true,
-          threshold: '60',
-          targetLevel: 'C',
-        },
-        {
-          id: 'default-core-score-cap-b',
-          type: 'CORE_SCORE_CAP',
-          enabled: true,
-          threshold: '80',
-          targetLevel: 'B',
-        },
-        {
-          id: 'default-any-score-cap-b',
-          type: 'ANY_SCORE_CAP',
-          enabled: true,
-          threshold: '60',
-          targetLevel: 'B',
-        },
-      ],
-    },
     reviewerRelationWeights: {
       ORG_OWNER: '30',
       PROJECT_OWNER: '30',

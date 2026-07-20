@@ -1,13 +1,13 @@
+import { StageCalculationError } from '../calculation/stage-result-calculator';
 import {
-  calculateStageResult,
-  StageCalculationError,
-  type StageResult,
-} from '../calculation/stage-result-calculator';
+  calculateUnifiedStageResult,
+  type UnifiedScoringMethod,
+  type UnifiedStageResult,
+} from '../calculation/unified-stage-result-calculator';
 import {
   PERFORMANCE_LEVELS,
   REVIEWER_RELATIONS,
   type ConfigStage,
-  type ConfigStageMode,
   type ConfigTemplatePublicationIssue,
   type ConfigTemplateVersionContract,
   type ReviewerRelation,
@@ -15,13 +15,14 @@ import {
 import { validateConfigTemplatePublication } from './publication-validator';
 
 export type CalculationPreviewRelationInput = {
-  relation: ReviewerRelation | 'LEADER';
+  relation: ReviewerRelation | 'LEADER' | 'DIRECT';
   rawValues: readonly string[];
 };
 
 export type CalculationPreviewDimensionInput = {
   id: string;
   name: string;
+  scoringMethod: UnifiedScoringMethod;
   weight: string;
   isCore: boolean;
   relations: readonly CalculationPreviewRelationInput[];
@@ -44,10 +45,10 @@ export type ConfigCalculationPreview =
       status: 'READY';
       stage: ConfigStage;
       jobLevelPrefix: 'D' | 'M';
-      mode: ConfigStageMode;
       formTemplateVersionId?: number;
       result:
-        { type: 'DIRECT_RATING'; level: 'S' | 'A' | 'B' | 'C' } | StageResult;
+        | { type: 'AI_DIRECT_RATING'; level: 'S' | 'A' | 'B' | 'C' }
+        | UnifiedStageResult;
     };
 
 function previewIssue(
@@ -69,7 +70,6 @@ export function previewConfigCalculation(
     return { status: 'UNAVAILABLE', issues: publicationIssues };
   }
 
-  const mode = input.config.stageModes[input.stage];
   const binding = input.config.formBindings.find(
     (candidate) => candidate.jobLevelPrefix === input.jobLevelPrefix,
   );
@@ -86,7 +86,8 @@ export function previewConfigCalculation(
     };
   }
 
-  if (mode === 'DIRECT_RATING') {
+  // AI 建议仍直接产生等级，但它不是人工阶段，也不对管理员暴露“阶段模式”。
+  if (input.stage === 'AI') {
     if (!input.directLevel || !PERFORMANCE_LEVELS.includes(input.directLevel)) {
       return {
         status: 'UNAVAILABLE',
@@ -103,11 +104,7 @@ export function previewConfigCalculation(
       status: 'READY',
       stage: input.stage,
       jobLevelPrefix: input.jobLevelPrefix,
-      mode,
-      ...(input.stage === 'SELF'
-        ? { formTemplateVersionId: binding.formTemplateVersionId }
-        : {}),
-      result: { type: 'DIRECT_RATING', level: input.directLevel },
+      result: { type: 'AI_DIRECT_RATING', level: input.directLevel },
     };
   }
 
@@ -117,6 +114,7 @@ export function previewConfigCalculation(
   const engineDimensions = dimensions.map((dimension, dimensionIndex) => ({
     id: dimension.id,
     name: dimension.name,
+    scoringMethod: dimension.scoringMethod,
     weight: dimension.weight,
     isCore: dimension.isCore,
     relations: dimension.relations.flatMap((relation, relationIndex) => {
@@ -124,7 +122,9 @@ export function previewConfigCalculation(
       const allowed =
         input.stage === 'PEER'
           ? REVIEWER_RELATIONS.includes(relation.relation as ReviewerRelation)
-          : relation.relation === 'LEADER';
+          : input.stage === 'SELF'
+            ? relation.relation === 'DIRECT'
+            : relation.relation === 'LEADER';
       if (!allowed) {
         relationIssues.push(
           previewIssue(
@@ -132,7 +132,9 @@ export function previewConfigCalculation(
             `${relationPath}.relation`,
             input.stage === 'PEER'
               ? 'PEER 预览只接受四类 360°关系'
-              : 'MANAGER 预览只接受 LEADER 关系',
+              : input.stage === 'SELF'
+                ? 'SELF 预览只接受员工本人直接填写关系'
+                : 'MANAGER 预览只接受直属 Leader 填写关系',
           ),
         );
         return [];
@@ -148,17 +150,18 @@ export function previewConfigCalculation(
         return [];
       }
       const weight =
-        input.stage === 'MANAGER'
-          ? '100'
-          : relationWeights[relation.relation as ReviewerRelation];
+        input.stage === 'PEER'
+          ? relationWeights[relation.relation as ReviewerRelation]
+          : '100';
       return [
         {
           type: relation.relation,
           weight,
           items: relation.rawValues.map((rawValue, valueIndex) => ({
-            itemId: `${dimension.id}-scoring-item`,
             submissionId: `${dimension.id}-${relation.relation}-${valueIndex + 1}`,
-            rawValue,
+            ...(dimension.scoringMethod === 'RATING'
+              ? { rawLevel: rawValue as 'S' | 'A' | 'B' | 'C' }
+              : { rawScore: rawValue }),
           })),
         },
       ];
@@ -169,28 +172,8 @@ export function previewConfigCalculation(
     return { status: 'UNAVAILABLE', issues: relationIssues };
   }
 
-  const profile = input.config.constraintProfiles[mode];
-  const constraints = profile
-    .filter((rule) => rule.enabled)
-    .map((rule) =>
-      'triggerRating' in rule
-        ? {
-            id: rule.id,
-            type: rule.type,
-            triggerRating: rule.triggerRating,
-            targetLevel: rule.targetLevel,
-          }
-        : {
-            id: rule.id,
-            type: rule.type,
-            threshold: rule.threshold,
-            targetLevel: rule.targetLevel,
-          },
-    );
-
   try {
-    const result = calculateStageResult({
-      mode,
+    const result = calculateUnifiedStageResult({
       ratings: input.config.ratings.map((rating) => ({
         symbol: rating.symbol,
         minScore: rating.minScore,
@@ -198,14 +181,12 @@ export function previewConfigCalculation(
         mappingScore: rating.mappingScore,
       })),
       dimensions: engineDimensions,
-      constraints,
       confirmedRedLine: null,
     });
     return {
       status: 'READY',
       stage: input.stage,
       jobLevelPrefix: input.jobLevelPrefix,
-      mode,
       formTemplateVersionId: binding.formTemplateVersionId,
       result,
     };

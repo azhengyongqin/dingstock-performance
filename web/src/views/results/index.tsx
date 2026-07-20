@@ -40,12 +40,10 @@ type DimensionResult = {
   score: string
 }
 
-type VisibleAnswer = {
-  itemKey: string
+type VisibleFieldAnswer = {
+  fieldKey: string
   title: string
   type: string
-  rawLevel?: string | null
-  rawScore?: string | null
   value?: unknown
 }
 
@@ -71,10 +69,10 @@ type CurrentResult = {
         compositeScore?: string | null
         level?: string | null
         dimensions: DimensionResult[]
-        comments: VisibleAnswer[]
+        fields: VisibleFieldAnswer[]
       }
-      self: { level?: string | null; items: VisibleAnswer[] }
-      promotion?: { visible: true; items: VisibleAnswer[] } | null
+      self: { level?: string | null; fields: VisibleFieldAnswer[] }
+      promotion: null
     }
     publishedAt: string
     confirmedAt?: string | null
@@ -83,14 +81,14 @@ type CurrentResult = {
 }
 
 /** 统一展示发布快照中的可见答案，避免不同结果分区的回退规则漂移。 */
-const renderAnswerItems = (items: VisibleAnswer[]) => (
+const renderFieldAnswers = (fields: VisibleFieldAnswer[]) => (
   <>
-    {items.map(item => (
-      <div key={`${item.itemKey}-${item.title}`} className='rounded-lg border p-4 text-sm'>
-        <p className='font-medium'>{item.title}</p>
+    {fields.map(field => (
+      <div key={`${field.fieldKey}-${field.title}`} className='rounded-lg border p-4 text-sm'>
+        <p className='font-medium'>{field.title}</p>
         <EvaluationAnswerContent
-          type={item.type}
-          value={String(item.value ?? item.rawLevel ?? item.rawScore ?? '')}
+          type={field.type}
+          value={String(field.value ?? '')}
           className='text-muted-foreground mt-1'
         />
       </div>
@@ -323,7 +321,7 @@ const Results = () => {
               </div>
             ))
           )}
-          {renderAnswerItems(result.resultSnapshot.manager.comments)}
+          {renderFieldAnswers(result.resultSnapshot.manager.fields)}
         </CardContent>
       </Card>
 
@@ -334,20 +332,10 @@ const Results = () => {
             {result.resultSnapshot.self.level ? `自评等级：${result.resultSnapshot.self.level}` : '本期正式提交内容'}
           </CardDescription>
         </CardHeader>
-        <CardContent className='flex flex-col gap-3'>{renderAnswerItems(result.resultSnapshot.self.items)}</CardContent>
+        <CardContent className='flex flex-col gap-3'>
+          {renderFieldAnswers(result.resultSnapshot.self.fields)}
+        </CardContent>
       </Card>
-
-      {result.resultSnapshot.promotion?.visible && (
-        <Card>
-          <CardHeader>
-            <CardTitle>晋升评估结论</CardTitle>
-            <CardDescription>仅展示周期配置允许向员工公开的内容</CardDescription>
-          </CardHeader>
-          <CardContent className='flex flex-col gap-3'>
-            {renderAnswerItems(result.resultSnapshot.promotion.items)}
-          </CardContent>
-        </Card>
-      )}
 
       {/* 申诉记录：已发起过申诉时展示 */}
       {appeals.length > 0 && (

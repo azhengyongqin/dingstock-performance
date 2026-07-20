@@ -23,9 +23,7 @@ const toEditorValue = (snapshot: PerfCycleConfigSnapshot): PerfConfigTemplateVer
   version: snapshot.version,
   status: 'PUBLISHED',
   updatedAt: '',
-  stageModes: snapshot.stageModes,
   ratings: snapshot.ratings,
-  constraintProfiles: snapshot.constraintProfiles,
   reviewerRelationWeights: snapshot.reviewerRelationWeights,
   formTemplateVersionIds: snapshot.forms.map(form => form.sourceFormTemplateVersionId),
   schedulePreset: { allowStageOverlap: snapshot.allowStageOverlap, stages: [] },
@@ -34,7 +32,7 @@ const toEditorValue = (snapshot: PerfCycleConfigSnapshot): PerfConfigTemplateVer
 
 /** 保存后用内容指纹重建本地草稿，避免在 effect 中同步派生状态。 */
 const advancedConfigKey = (snapshot: PerfCycleConfigSnapshot) =>
-  JSON.stringify([snapshot.id, snapshot.ratings, snapshot.constraintProfiles, snapshot.reviewerRelationWeights])
+  JSON.stringify([snapshot.id, snapshot.ratings, snapshot.reviewerRelationWeights])
 
 const CycleAdvancedConfigSheet = ({
   open,
@@ -55,10 +53,10 @@ const CycleAdvancedConfigSheet = ({
 }) => {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side='right' className='w-full gap-0 p-0 sm:max-w-5xl'>
+      <SheetContent side='right' className='w-full gap-0 p-0 data-[side=right]:sm:max-w-5xl'>
         <SheetHeader className='border-b px-6 py-4'>
           <SheetTitle>高级配置</SheetTitle>
-          <SheetDescription>调整周期自己的评级、约束和关系权重；不会回写来源模板或 D/M 表单。</SheetDescription>
+          <SheetDescription>调整周期自己的评级区间和关系权重；不会回写来源模板或 D/M 表单。</SheetDescription>
         </SheetHeader>
         <ScrollArea className='min-h-0 flex-1'>
           <div className='flex flex-col gap-5 p-6'>
@@ -142,14 +140,14 @@ const AdvancedConfigEditor = ({
         value={draft}
         candidates={[]}
         editable={editable}
-        visibleSections={['ratings', 'constraints', 'relations']}
+        visibleSections={['ratings', 'relations']}
         onChange={setDraft}
       />
       {active && dimensions.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle>维度计算配置</CardTitle>
-            <CardDescription>只调整稳定维度的权重和核心标记；不会增删维度或评估项。</CardDescription>
+            <CardDescription>只调整稳定维度的权重和核心标记；不会增删评估维度或表单字段。</CardDescription>
           </CardHeader>
           <CardContent className='space-y-3'>
             {dimensions.map((dimension, index) => (

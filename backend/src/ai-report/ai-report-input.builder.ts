@@ -26,7 +26,6 @@ export class AiReportInputBuilder {
         id: true,
         cycleId: true,
         employeeOpenId: true,
-        isPromotionEnabled: true,
         cycle: {
           select: { deletedAt: true, currentConfigVersionId: true },
         },
@@ -41,7 +40,12 @@ export class AiReportInputBuilder {
         stage: { in: [...HUMAN_STAGES] },
         status: PerfReviewStatus.SUBMITTED,
       },
-      include: { items: { orderBy: { id: 'asc' } } },
+      include: {
+        dimensionAnswers: {
+          include: { fields: { orderBy: { id: 'asc' } } },
+          orderBy: { id: 'asc' },
+        },
+      },
       orderBy: [{ stage: 'asc' }, { id: 'asc' }],
     });
     if (
@@ -67,7 +71,6 @@ export class AiReportInputBuilder {
         id: participant.id,
         cycleId: participant.cycleId,
         employeeOpenId: participant.employeeOpenId,
-        isPromotionEnabled: participant.isPromotionEnabled,
       },
       submissions: submissions.map((submission) => ({
         id: submission.id,
@@ -76,14 +79,21 @@ export class AiReportInputBuilder {
         formSnapshotId: submission.formSnapshotId,
         submittedAt: submission.submittedAt?.toISOString() ?? null,
         updatedAt: submission.updatedAt.toISOString(),
-        items: submission.items.map((item) => ({
-          id: item.id,
-          itemKey: item.itemKey,
-          itemType: item.itemType,
-          rawLevel: item.rawLevel,
-          rawScore: item.rawScore?.toString() ?? null,
-          calculationScore: item.calculationScore?.toString() ?? null,
-          value: item.value,
+        dimensionAnswers: submission.dimensionAnswers.map((dimension) => ({
+          id: dimension.id,
+          subformKey: dimension.subformKey,
+          dimensionKey: dimension.dimensionKey,
+          scoringMethod: dimension.scoringMethod,
+          rawLevel: dimension.rawLevel,
+          rawScore: dimension.rawScore?.toString() ?? null,
+          calculationScore: dimension.calculationScore?.toString() ?? null,
+          derivedLevel: dimension.derivedLevel,
+          fields: dimension.fields.map((field) => ({
+            id: field.id,
+            fieldKey: field.fieldKey,
+            fieldType: field.fieldType,
+            value: field.value,
+          })),
         })),
       })),
       stageResults: stageResults.map((result) => ({

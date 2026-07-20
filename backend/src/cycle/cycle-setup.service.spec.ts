@@ -41,12 +41,7 @@ describe('CycleSetupService', () => {
     status: 'PUBLISHED',
     name: '标准配置',
     version: 2,
-    selfStageMode: 'DIRECT_RATING',
-    peerStageMode: 'WEIGHTED_RATING',
-    managerStageMode: 'WEIGHTED_SCORE',
-    aiStageMode: 'DIRECT_RATING',
     ratings: [{ symbol: 'S', mappingScore: '95' }],
-    constraintProfiles: {},
     orgOwnerWeight: 30,
     projectOwnerWeight: 30,
     peerWeight: 25,
@@ -107,26 +102,37 @@ describe('CycleSetupService', () => {
             sortOrder: 0,
             dimensions: [
               {
+                businessKey: 'dimension:self:delivery',
                 audience: 'EMPLOYEE',
-                kind: 'REGULAR',
+                type: 'SCORING',
+                scoringMethod: 'RATING',
                 name: '业绩',
                 description: null,
                 weight: 100,
                 isCore: true,
                 sortOrder: 0,
-                items: [
+                fields: [
                   {
-                    type: 'RATING',
-                    title: '评级',
-                    description: null,
-                    placeholder: null,
-                    required: true,
+                    businessKey: 'field:self:comment',
+                    type: 'LONG_TEXT',
+                    title: '评价说明',
+                    description: '请说明事实依据',
+                    placeholder: '请输入评价说明',
+                    requiredRule: 'CONDITIONAL',
+                    requiredLevels: ['S', 'C'],
                     sortOrder: 0,
-                    config: null,
+                    config: { maxLength: 2000 },
                   },
                 ],
               },
             ],
+          },
+          {
+            type: 'PROMOTION',
+            title: '旧晋升表单',
+            description: '只读历史',
+            sortOrder: 3,
+            dimensions: [],
           },
         ],
       },
@@ -198,16 +204,11 @@ describe('CycleSetupService', () => {
       'endDate',
     );
     const snapshotData = tx.perfCycleConfigVersion.create.mock.calls[0][0].data;
-    // 阶段模式、评级、约束、四个关系权重、日程预设、通知规则均须与来源模板版本一致地复制到周期快照。
+    // 新版快照只复制评级、关系权重、日程和通知。
     expect(snapshotData).toMatchObject({
       cycle: { connect: { id: 9 } },
       sourceConfigVersion: { connect: { id: 30 } },
-      selfStageMode: 'DIRECT_RATING',
-      peerStageMode: 'WEIGHTED_RATING',
-      managerStageMode: 'WEIGHTED_SCORE',
-      aiStageMode: 'DIRECT_RATING',
       ratings: [{ symbol: 'S', mappingScore: '95' }],
-      constraintProfiles: {},
       orgOwnerWeight: 30,
       projectOwnerWeight: 30,
       peerWeight: 25,
@@ -220,7 +221,7 @@ describe('CycleSetupService', () => {
       jobLevelPrefix: 'D',
       sourceFormVersion: { connect: { id: 100 } },
       content: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         name: 'D 表单',
         jobLevelPrefix: 'D',
         subforms: [
@@ -229,16 +230,20 @@ describe('CycleSetupService', () => {
             title: '自评',
             dimensions: [
               expect.objectContaining({
-                kind: 'REGULAR',
+                key: 'dimension:self:delivery',
+                type: 'SCORING',
                 audience: 'EMPLOYEE',
                 name: '业绩',
+                scoringMethod: 'RATING',
                 weight: '100',
                 isCore: true,
-                items: [
+                fields: [
                   expect.objectContaining({
-                    type: 'RATING',
-                    title: '评级',
-                    required: true,
+                    key: 'field:self:comment',
+                    type: 'LONG_TEXT',
+                    title: '评价说明',
+                    requiredRule: 'CONDITIONAL',
+                    requiredLevels: ['S', 'C'],
                   }),
                 ],
               }),
@@ -255,6 +260,14 @@ describe('CycleSetupService', () => {
         name: 'M 表单',
       }),
     });
+    expect(
+      snapshotData.formSnapshots.create.flatMap(
+        (snapshot: { content: { subforms: Array<{ type: string }> } }) =>
+          snapshot.content.subforms.map(
+            (subform: { type: string }) => subform.type,
+          ),
+      ),
+    ).toEqual(['SELF', 'SELF']);
     expect(tx.perfCycle.update).toHaveBeenCalledWith({
       where: { id: 9 },
       data: { currentConfigVersionId: 19 },
@@ -374,12 +387,7 @@ describe('CycleSetupService', () => {
       currentConfigVersion: {
         id: 19,
         cycleId: 9,
-        selfStageMode: 'DIRECT_RATING',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
-        aiStageMode: 'DIRECT_RATING',
         ratings: [],
-        constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
         orgOwnerWeight: 30,
         projectOwnerWeight: 30,
         peerWeight: 25,
@@ -493,12 +501,7 @@ describe('CycleSetupService', () => {
           version: 2,
         },
         version: 3,
-        selfStageMode: 'DIRECT_RATING',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
-        aiStageMode: 'DIRECT_RATING',
         ratings: source.ratings,
-        constraintProfiles: source.constraintProfiles,
         orgOwnerWeight: 30,
         projectOwnerWeight: 30,
         peerWeight: 25,
@@ -552,12 +555,7 @@ describe('CycleSetupService', () => {
         cycle: { connect: { id: 9 } },
         version: 3,
         sourceConfigVersion: { connect: { id: 30 } },
-        selfStageMode: 'DIRECT_RATING',
-        peerStageMode: 'WEIGHTED_RATING',
-        managerStageMode: 'WEIGHTED_SCORE',
-        aiStageMode: 'DIRECT_RATING',
         ratings: [{ symbol: 'S', mappingScore: '95' }],
-        constraintProfiles: {},
         orgOwnerWeight: 30,
         projectOwnerWeight: 30,
         peerWeight: 25,
@@ -703,12 +701,7 @@ describe('CycleSetupService', () => {
       sourceConfigTemplateVersionId: 30,
       sourceConfigVersion: { id: 30, templateId: 3, name: '标准配置' },
       version: 1,
-      selfStageMode: 'DIRECT_RATING',
-      peerStageMode: 'WEIGHTED_RATING',
-      managerStageMode: 'WEIGHTED_SCORE',
-      aiStageMode: 'DIRECT_RATING',
       ratings: source.ratings,
-      constraintProfiles: source.constraintProfiles,
       orgOwnerWeight: 30,
       projectOwnerWeight: 30,
       peerWeight: 25,

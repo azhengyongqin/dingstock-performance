@@ -20,8 +20,9 @@ test('周期 schema 使用四态生命周期并保存独立配置与表单快照
     schema,
     /enum PerfCycleStatus\s*{[^}]*(PENDING|SELF_REVIEW|REVIEWING|AI_ANALYZING|CALIBRATING|CONFIRMING)/s,
   );
-  assert.match(schema, /startDate\s+DateTime\?/);
-  assert.match(schema, /endDate\s+DateTime\?/);
+  // 最终契约只保留单一计划启动锚点；历史起止日期已由后续迁移删除。
+  assert.doesNotMatch(schema, /\bstartDate\b/);
+  assert.doesNotMatch(schema, /\bendDate\b/);
   assert.match(schema, /plannedStartAt\s+DateTime\?/);
   assert.match(schema, /currentConfigVersionId\s+Int\?\s+@unique/);
   assert.match(schema, /model PerfCycleConfigVersion\s*{/);

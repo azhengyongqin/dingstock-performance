@@ -19,7 +19,7 @@ import type { ExportTaskRow } from './export-task-columns'
 const REPORT_TYPES = [
   { name: '周期结果总表', description: '全员绩效等级、综合评分与校准记录' },
   { name: '部门维度汇总', description: '按部门统计的等级分布与完成率' },
-  { name: '360° 评估明细', description: '各评估任务的打分与评语明细（脱敏）' },
+  { name: '360° 评估明细', description: '各评估任务的维度作答与字段作答明细（脱敏）' },
   { name: '申诉与面谈记录', description: '申诉处理过程与面谈结论归档' }
 ]
 

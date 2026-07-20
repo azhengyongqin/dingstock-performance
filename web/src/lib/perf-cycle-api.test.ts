@@ -94,14 +94,7 @@ describe('绩效周期四步创建 API', () => {
     const input = {
       expectedConfigVersionId: 31,
       dimensionOverrides: [],
-      stageModes: {
-        SELF: 'DIRECT_RATING' as const,
-        PEER: 'WEIGHTED_RATING' as const,
-        MANAGER: 'WEIGHTED_SCORE' as const,
-        AI: 'DIRECT_RATING' as const
-      },
       ratings: [],
-      constraintProfiles: { WEIGHTED_RATING: [], WEIGHTED_SCORE: [] },
       reviewerRelationWeights: { ORG_OWNER: '30', PROJECT_OWNER: '30', PEER: '25', CROSS_DEPT: '15' }
     }
 
