@@ -15,7 +15,7 @@ import { ChevronRightIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
 import type { MenuGroupSubItem, MenuItem, MenuSubItem } from '@/configs/navConfig'
 
 // Component Imports
-import LogoSvg from '@/assets/svg/logo'
+import { BRAND_LOGO_SRC } from '@/components/shared/Logo'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Sidebar,
@@ -271,10 +271,10 @@ const SidebarLayout = () => {
           <SidebarMenuItem>
             <SidebarMenuButton
               size='lg'
-              className='gap-2.5 bg-transparent! [&>svg]:size-8'
+              className='gap-2.5 bg-transparent! [&>img]:size-8'
               render={<Link href={`${themeConfig.homePageUrl}`} />}
             >
-              <LogoSvg className='[&_rect]:fill-sidebar [&_rect:first-child]:fill-primary' />
+              <img src={BRAND_LOGO_SRC} alt={themeConfig.templateName} className='size-8 rounded-md' />
               <div className='flex flex-col items-start'>
                 <span className='text-lg font-semibold text-nowrap'>{themeConfig.templateName}</span>
                 <span className='text-xs font-light text-nowrap'>员工绩效系统</span>

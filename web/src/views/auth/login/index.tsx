@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { LoaderCircleIcon } from 'lucide-react'
 
 // Component Imports
-import Logo from '@/components/shared/Logo'
+import Logo, { LARK_LOGIN_LOGO_SRC } from '@/components/shared/Logo'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import DevQuickLogin from './dev-quick-login'
@@ -67,7 +67,11 @@ const Login = () => {
 
           {/* 飞书 OAuth 登录按钮 */}
           <Button className='w-full' size='lg' onClick={handleLarkLogin} disabled={loading}>
-            {loading && <LoaderCircleIcon className='animate-spin' />}
+            {loading ? (
+              <LoaderCircleIcon className='animate-spin' />
+            ) : (
+              <img src={LARK_LOGIN_LOGO_SRC} alt='' className='size-5 rounded-sm bg-white' />
+            )}
             {loading ? '正在跳转飞书授权…' : '使用飞书登录'}
           </Button>
 
