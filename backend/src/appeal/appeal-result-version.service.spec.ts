@@ -20,7 +20,6 @@ jest.mock(
   () => ({
     PerfAppealStatus: {
       PENDING: 'PENDING',
-      IN_INTERVIEW: 'IN_INTERVIEW',
       RESOLVED: 'RESOLVED',
     },
     PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
@@ -218,11 +217,12 @@ describe('AppealService 结果版本申诉链', () => {
   });
 
   it('变级处理发布新版本并进入再次确认；并发第二次处理被条件更新拒绝', async () => {
+    // 历史 IN_INTERVIEW 已迁移为 PENDING；结案只认两态
     tx.perfAppeal.findUnique.mockResolvedValue({
       id: 51,
       participantId: 7,
       resultVersionId: 41,
-      status: 'IN_INTERVIEW',
+      status: 'PENDING',
       participant: {
         id: 7,
         cycleId: 1,
@@ -254,6 +254,80 @@ describe('AppealService 结果版本申诉链', () => {
         expectedCalibrationRevision: 33,
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('申诉列表仅两态，并由关联未取消面谈推导 inInterview', async () => {
+    rbac.hasAnyRole.mockResolvedValue(true);
+    rbac.getOrgScope.mockResolvedValue(null);
+    prisma.perfAppeal.findMany.mockResolvedValue([
+      {
+        id: 51,
+        status: 'PENDING',
+        handlerOpenId: null,
+        participant: {
+          employeeOpenId: 'ou_employee',
+          cycleId: 1,
+          cycle: { id: 1, name: '2026 上半年' },
+          resultVersions: [{ id: 41, version: 1, finalLevel: 'B' }],
+        },
+        interviews: [
+          {
+            id: 61,
+            status: 'SCHEDULED',
+            scheduledStartAt: new Date('2026-07-22T10:00:00.000Z'),
+            scheduledEndAt: new Date('2026-07-22T11:00:00.000Z'),
+            calendarId: 'primary',
+            calendarEventId: 'evt_1',
+          },
+        ],
+      },
+      {
+        id: 52,
+        status: 'PENDING',
+        handlerOpenId: null,
+        participant: {
+          employeeOpenId: 'ou_other',
+          cycleId: 1,
+          cycle: { id: 1, name: '2026 上半年' },
+          resultVersions: [{ id: 42, version: 1, finalLevel: 'A' }],
+        },
+        interviews: [],
+      },
+    ]);
+
+    const listed = await service.list('ou_admin', { cycleId: 1 });
+    expect(listed.items[0]).toMatchObject({
+      id: 51,
+      status: 'PENDING',
+      inInterview: true,
+    });
+    expect(listed.items[1]).toMatchObject({
+      id: 52,
+      status: 'PENDING',
+      inInterview: false,
+    });
+    expect(listed.items.every((item) => item.status !== 'IN_INTERVIEW')).toBe(
+      true,
+    );
+  });
+
+  it('遗留 addInterview 不再把申诉推进到 IN_INTERVIEW', async () => {
+    tx.perfAppeal.findUnique.mockResolvedValue({
+      id: 51,
+      participantId: 7,
+      status: 'PENDING',
+      invalidatedAt: null,
+      participant: {
+        leaderOpenIdSnapshot: 'ou_leader',
+        departmentIdSnapshot: 'od_product',
+        cycle: { status: 'ACTIVE' },
+      },
+    });
+
+    await service.addInterview('ou_leader', 51, { content: '沟通要点' });
+
+    expect(tx.perfInterview.create).toHaveBeenCalled();
+    expect(tx.perfAppeal.update).not.toHaveBeenCalled();
   });
 
   it('旧 Leader 和越过组织范围的 HR 都不能处理申诉', async () => {

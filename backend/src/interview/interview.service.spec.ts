@@ -20,6 +20,7 @@ jest.mock(
       CANCELLED: 'CANCELLED',
     },
     PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
+    PerfAppealStatus: { PENDING: 'PENDING', RESOLVED: 'RESOLVED' },
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfParticipantStatus: {
       ACTIVE: 'ACTIVE',
@@ -40,6 +41,7 @@ describe('InterviewService 面谈工作台主闭环', () => {
   const tx = {
     $queryRaw: jest.fn(),
     perfParticipant: { findUnique: jest.fn() },
+    perfAppeal: { findUnique: jest.fn(), update: jest.fn() },
     perfInterview: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -55,6 +57,7 @@ describe('InterviewService 面谈工作台主闭环', () => {
       findUnique: jest.fn(),
     },
     perfParticipant: { findUnique: jest.fn() },
+    perfAppeal: { findUnique: jest.fn() },
     larkUser: { findMany: jest.fn() },
   };
   const audit = { record: jest.fn() };
@@ -373,5 +376,113 @@ describe('InterviewService 面谈工作台主闭环', () => {
         scheduledEndAt: endAt.toISOString(),
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('完成/取消关联面谈也不改申诉状态', async () => {
+    prisma.perfInterview.findUnique.mockResolvedValue({
+      id: 12,
+      participantId: 7,
+      appealId: 51,
+      status: 'SCHEDULED',
+      organizerOpenId: 'ou_leader',
+      calendarId: 'primary',
+      calendarEventId: 'evt_2',
+      participantOpenIds: ['ou_employee', 'ou_leader'],
+      participant: {
+        id: 7,
+        employeeOpenId: 'ou_employee',
+        leaderOpenIdSnapshot: 'ou_leader',
+        departmentIdSnapshot: 'od_product',
+        cycle: { status: 'ACTIVE' },
+      },
+    });
+    tx.perfInterview.update.mockResolvedValue({
+      id: 12,
+      status: 'COMPLETED',
+      appealId: 51,
+      resultNotes: '纪要',
+    });
+
+    await service.complete('ou_leader', 12, '纪要');
+    expect(tx.perfAppeal.update).not.toHaveBeenCalled();
+
+    prisma.perfInterview.findUnique.mockResolvedValue({
+      id: 13,
+      participantId: 7,
+      appealId: 51,
+      status: 'SCHEDULED',
+      organizerOpenId: 'ou_leader',
+      calendarId: 'primary',
+      calendarEventId: 'evt_3',
+      participantOpenIds: ['ou_employee', 'ou_leader'],
+      participant: {
+        id: 7,
+        employeeOpenId: 'ou_employee',
+        leaderOpenIdSnapshot: 'ou_leader',
+        departmentIdSnapshot: 'od_product',
+        cycle: { status: 'ACTIVE' },
+      },
+    });
+    tx.perfInterview.update.mockResolvedValue({
+      id: 13,
+      status: 'CANCELLED',
+      appealId: 51,
+    });
+    await service.cancel('ou_leader', 13);
+    expect(tx.perfAppeal.update).not.toHaveBeenCalled();
+  });
+
+  it('可选关联申诉：写入 appealId 且不改申诉状态', async () => {
+    prisma.perfAppeal.findUnique.mockResolvedValue({
+      id: 51,
+      participantId: 7,
+      status: 'PENDING',
+      invalidatedAt: null,
+    });
+    tx.perfAppeal.findUnique.mockResolvedValue({
+      id: 51,
+      participantId: 7,
+      status: 'PENDING',
+      invalidatedAt: null,
+    });
+    tx.perfInterview.create.mockResolvedValue({
+      id: 12,
+      participantId: 7,
+      appealId: 51,
+      status: 'SCHEDULED',
+      calendarEventId: 'evt_2',
+    });
+
+    const created = await service.schedule('ou_leader', {
+      participantId: 7,
+      scheduledStartAt: startAt.toISOString(),
+      scheduledEndAt: endAt.toISOString(),
+      appealId: 51,
+    });
+
+    expect(created).toMatchObject({ appealId: 51 });
+    expect(tx.perfInterview.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ appealId: 51 }),
+    });
+    expect(tx.perfAppeal.update).not.toHaveBeenCalled();
+  });
+
+  it('关联申诉必须属于同一参与者且未结案', async () => {
+    prisma.perfAppeal.findUnique.mockResolvedValue({
+      id: 99,
+      participantId: 8,
+      status: 'PENDING',
+      invalidatedAt: null,
+    });
+
+    await expect(
+      service.schedule('ou_leader', {
+        participantId: 7,
+        scheduledStartAt: startAt.toISOString(),
+        scheduledEndAt: endAt.toISOString(),
+        appealId: 99,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(calendar.createEvent).not.toHaveBeenCalled();
   });
 });

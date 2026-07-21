@@ -250,6 +250,20 @@ export class ResultService {
       publishedAt: current.publishedAt,
       confirmedAt: current.confirmedAt,
     };
+    // 申诉进度只读：不含面谈纪要与内部处理人字段
+    const appeals = await this.prisma.perfAppeal.findMany({
+      where: { participantId: participant.id, invalidatedAt: null },
+      select: {
+        id: true,
+        status: true,
+        reason: true,
+        conclusion: true,
+        resultAdjusted: true,
+        resolvedAt: true,
+        createdAt: true,
+      },
+      orderBy: { id: 'desc' },
+    });
     return {
       participant: {
         id: participant.id,
@@ -257,6 +271,7 @@ export class ResultService {
         cycle: participant.cycle,
       },
       result,
+      appeals,
     };
   }
 

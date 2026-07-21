@@ -26,16 +26,22 @@ Status: resolved
 
 ## 申诉弱关联与结果闭环
 
+Status: resolved
+
 **What to build:** 面谈与申诉分开但可挂可选关联；面谈动作不再推动申诉状态。申诉只保留待处理/已处理，界面「面谈中」由关联面谈推导。申诉队列负责指派与结案，并深链到面谈工作台。结案必须先校准再 resolve；员工在结果确认页只能看到自己的预约时间与飞书日程入口。
 
 **Blocked by:** 面谈工作台主闭环
 
-- [ ] 预约/编辑面谈时可设置可选 `appealId`；无关联亦为合法普通绩效面谈；创建/完成/取消面谈不自动改申诉状态
-- [ ] 申诉主状态仅为 `PENDING` / `RESOLVED`；历史 `IN_INTERVIEW` 完成迁移；列表可用关联面谈推导「面谈中」
-- [ ] 业务不再按 `APPEAL` / `OPTIONAL` 分流（关联只看是否有 `appealId`）；申诉列表可深链到面谈工作台创建或查看
-- [ ] 申诉结案 UI/契约使用 `expectedCalibrationRevision`；改判须先追加校准决定，禁止用直传目标等级代替校准
-- [ ] 员工结果确认页只读展示本人面谈预约与日程入口，不展示纪要；申诉进度只读回显可用
-- [ ] 在既有申诉结案缝补齐两态与 resolve 不变量测试；遵守每人每周期一次申诉（ADR-0003）
+- [x] 预约/编辑面谈时可设置可选 `appealId`；无关联亦为合法普通绩效面谈；创建/完成/取消面谈不自动改申诉状态
+- [x] 申诉主状态仅为 `PENDING` / `RESOLVED`；历史 `IN_INTERVIEW` 完成迁移；列表可用关联面谈推导「面谈中」
+- [x] 业务不再按 `APPEAL` / `OPTIONAL` 分流（关联只看是否有 `appealId`）；申诉列表可深链到面谈工作台创建或查看
+- [x] 申诉结案 UI/契约使用 `expectedCalibrationRevision`；改判须先追加校准决定，禁止用直传目标等级代替校准
+- [x] 员工结果确认页只读展示本人面谈预约与日程入口，不展示纪要；申诉进度只读回显可用
+- [x] 在既有申诉结案缝补齐两态与 resolve 不变量测试；遵守每人每周期一次申诉（ADR-0003）
+
+## Answer
+
+2026-07-21：申诉两态迁移 `20260721120000_appeal_two_state_status`；`InterviewService` 校验/链接 `appealId` 且不 mutate 申诉；遗留 `addInterview` 停推进状态；申诉列表 `inInterview` 推导；结案 UI 改 `expectedCalibrationRevision` + 深链 `/interviews`；结果页接 `/interviews/mine`。后端全量 475 测通过；前端 results 单测与 build 通过。
 
 ## 通知与旧模型收缩
 

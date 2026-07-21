@@ -46,6 +46,7 @@ describe('ResultService 不可变结果版本', () => {
   const prisma = {
     perfParticipant: { findMany: jest.fn(), findFirst: jest.fn() },
     perfResultVersion: { findFirst: jest.fn() },
+    perfAppeal: { findMany: jest.fn() },
     $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
       callback(tx),
     ),
@@ -195,6 +196,7 @@ describe('ResultService 不可变结果版本', () => {
       notifications as never,
     );
     prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }]);
+    prisma.perfAppeal.findMany.mockResolvedValue([]);
     tx.$queryRaw.mockResolvedValue([{ id: 7 }]);
     tx.perfParticipant.findUnique.mockResolvedValue(participant);
     tx.perfResultVersion.findFirst.mockResolvedValue(null);
@@ -564,8 +566,9 @@ describe('ResultService 不可变结果版本', () => {
         },
       }),
     );
+    expect(response).toMatchObject({ appeals: [] });
     expect(JSON.stringify(response)).not.toMatch(
-      /appeals|aiReport|peer|reviewer|calibration|relation|内部敏感/i,
+      /aiReport|peer|reviewer|calibration|relation|内部敏感|resultNotes/i,
     );
   });
 

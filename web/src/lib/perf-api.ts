@@ -21,7 +21,7 @@ export type PerfParticipantStatus =
 export type PerfCycleType = 'SEMI_ANNUAL' | 'QUARTERLY' | 'ANNUAL'
 export type PerfRole = 'EMPLOYEE' | 'REVIEWER' | 'LEADER' | 'HR' | 'ADMIN'
 export type PerfReviewStatus = 'DRAFT' | 'SUBMITTED'
-export type PerfAppealStatus = 'PENDING' | 'IN_INTERVIEW' | 'RESOLVED'
+export type PerfAppealStatus = 'PENDING' | 'RESOLVED'
 export type PerfInterviewStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED'
 export type PerfFormTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type PerfJobLevelPrefix = 'D' | 'M'
@@ -98,8 +98,31 @@ export const CYCLE_TYPE_LABEL: Record<PerfCycleType, string> = {
 
 export const APPEAL_STATUS_LABEL: Record<PerfAppealStatus, string> = {
   PENDING: '待处理',
-  IN_INTERVIEW: '面谈处理中',
   RESOLVED: '已处理'
+}
+
+/** 由关联未取消面谈推导的展示态（非申诉主状态枚举值） */
+export const APPEAL_IN_INTERVIEW_LABEL = '面谈中'
+
+/** 列表展示用：主状态 + 由关联面谈推导的「面谈中」 */
+export function appealDisplayLabel(appeal: {
+  status: PerfAppealStatus
+  inInterview?: boolean
+}): string {
+  if (appeal.status === 'RESOLVED') return APPEAL_STATUS_LABEL.RESOLVED
+  if (appeal.inInterview) return APPEAL_IN_INTERVIEW_LABEL
+
+  return APPEAL_STATUS_LABEL.PENDING
+}
+
+/** 飞书日程详情 Applink（用户侧打开关联日程） */
+export function feishuCalendarEventUrl(calendarId: string, eventId: string): string {
+  const params = new URLSearchParams({
+    calendarId,
+    eventId
+  })
+
+  return `https://applink.feishu.cn/client/calendar/event/detail?${params.toString()}`
 }
 
 export const INTERVIEW_STATUS_LABEL: Record<PerfInterviewStatus, string> = {

@@ -10,13 +10,20 @@ import { Button } from '@/components/ui/button'
 
 // Util Imports
 import type { LarkUserBrief, PerfAppealStatus } from '@/lib/perf-api'
-import { APPEAL_STATUS_LABEL, avatarUrlOf, formatDateTime } from '@/lib/perf-api'
+import {
+  APPEAL_IN_INTERVIEW_LABEL,
+  APPEAL_STATUS_LABEL,
+  appealDisplayLabel,
+  avatarUrlOf,
+  formatDateTime
+} from '@/lib/perf-api'
 
 /** 申诉行 = 后端 GET /appeals 的 item */
 export type AppealRow = {
   id: number
   reason: string
   status: PerfAppealStatus
+  inInterview?: boolean
   conclusion: string | null
   resultAdjusted: boolean
   resolvedAt: string | null
@@ -30,18 +37,23 @@ export type AppealRow = {
   }
 }
 
-/** 状态筛选候选值（中文标签，按处理流程顺序） */
+/** 状态筛选：主状态两态 + 推导「面谈中」 */
 export const APPEAL_STATUS_OPTIONS: string[] = [
   APPEAL_STATUS_LABEL.PENDING,
-  APPEAL_STATUS_LABEL.IN_INTERVIEW,
+  APPEAL_IN_INTERVIEW_LABEL,
   APPEAL_STATUS_LABEL.RESOLVED
 ]
 
-// 状态 Badge 色彩语义：待处理黄、面谈处理中蓝、已处理绿
-const statusBadgeClass: Record<PerfAppealStatus, string> = {
-  PENDING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-  IN_INTERVIEW: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
-  RESOLVED: 'bg-green-500/10 text-green-600 dark:text-green-400'
+const statusBadgeClass = (row: AppealRow): string => {
+  if (row.status === 'RESOLVED') {
+    return 'bg-green-500/10 text-green-600 dark:text-green-400'
+  }
+
+  if (row.inInterview) {
+    return 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+  }
+
+  return 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'
 }
 
 /** 列定义工厂的上下文：行内「处理」按钮回调由页面侧提供（打开处理弹窗） */
@@ -60,7 +72,6 @@ export const buildAppealTableColumns = ({ onHandle }: AppealColumnsContext): Col
 
       return (
         <div className='flex items-center gap-2'>
-          {/* 统一人员头像组件：点击弹出飞书成员名片 */}
           <UserAvatar openId={employee?.open_id} name={employee?.name} avatarUrl={avatarUrlOf(employee)} size='sm' />
           <span className='font-medium whitespace-nowrap'>{employee?.name ?? '-'}</span>
         </div>
@@ -93,14 +104,12 @@ export const buildAppealTableColumns = ({ onHandle }: AppealColumnsContext): Col
   },
   {
     id: 'status',
-
-    // 归一化为中文标签以支持状态筛选（equalsString）
-    accessorFn: row => APPEAL_STATUS_LABEL[row.status],
+    accessorFn: row => appealDisplayLabel(row),
     header: '状态',
     filterFn: 'equalsString',
     enableSorting: false,
     cell: ({ row }) => (
-      <Badge className={statusBadgeClass[row.original.status]}>{APPEAL_STATUS_LABEL[row.original.status]}</Badge>
+      <Badge className={statusBadgeClass(row.original)}>{appealDisplayLabel(row.original)}</Badge>
     )
   },
   {

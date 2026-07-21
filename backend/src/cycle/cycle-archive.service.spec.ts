@@ -6,7 +6,6 @@ jest.mock(
   () => ({
     PerfAppealStatus: {
       PENDING: 'PENDING',
-      IN_INTERVIEW: 'IN_INTERVIEW',
       RESOLVED: 'RESOLVED',
     },
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
@@ -157,7 +156,7 @@ describe('CycleArchiveService 周期归档', () => {
         employeeOpenId: 'ou_appeal',
         status: 'APPEALING',
         resultVersions: [{ ...confirmed.resultVersions[0], confirmedAt: null }],
-        appeals: [{ id: 99, status: 'IN_INTERVIEW' }],
+        appeals: [{ id: 99, status: 'PENDING' }],
       },
       {
         ...confirmed,

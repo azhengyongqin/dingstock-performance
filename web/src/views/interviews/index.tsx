@@ -3,6 +3,9 @@
 // React Imports
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+// Next Imports
+import { useSearchParams } from 'next/navigation'
+
 // Third-party Imports
 import type { ColumnFiltersState, PaginationState, SortingState } from '@tanstack/react-table'
 import {
@@ -31,6 +34,7 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -44,7 +48,7 @@ import { Textarea } from '@/components/ui/textarea'
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
 import type { ListResponse, PerfParticipantStatus } from '@/lib/perf-api'
-import { INTERVIEW_STATUS_LABEL, formatDateTime } from '@/lib/perf-api'
+import { INTERVIEW_STATUS_LABEL, feishuCalendarEventUrl, formatDateTime } from '@/lib/perf-api'
 
 import {
   INTERVIEW_STATUS_OPTIONS,
@@ -74,9 +78,13 @@ type TeamDashboardData = {
 }
 
 /**
- * 绩效面谈工作台：预约（飞书日程）、改期/取消、填写/修改结果纪要。
+ * 绩效面谈工作台：预约（飞书日程）、改期/取消、填写/修改结果纪要；可弱关联申诉。
  */
 const Interviews = () => {
+  const searchParams = useSearchParams()
+  const deepLinkAppealId = searchParams.get('appealId')
+  const deepLinkParticipantId = searchParams.get('participantId')
+
   const [rows, setRows] = useState<InterviewRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -87,11 +95,13 @@ const Interviews = () => {
 
   const [active, setActive] = useState<InterviewRow | null>(null)
   const [notes, setNotes] = useState('')
+  const [editAppealId, setEditAppealId] = useState('')
   const [saving, setSaving] = useState(false)
 
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [participantId, setParticipantId] = useState<string>('')
+  const [appealId, setAppealId] = useState<string>('')
   const [startAt, setStartAt] = useState('')
   const [endAt, setEndAt] = useState('')
   const [extraOpenIds, setExtraOpenIds] = useState<string[]>([])
@@ -164,8 +174,27 @@ const Interviews = () => {
     setCandidates([...map.values()])
   }, [])
 
+  // 从申诉队列深链：预填关联；仅 intent=schedule 时打开预约弹窗（查看路径只落列表）
+  useEffect(() => {
+    if (!deepLinkAppealId && !deepLinkParticipantId) return
+    setAppealId(deepLinkAppealId ?? '')
+    setParticipantId(deepLinkParticipantId ?? '')
+
+    if (searchParams.get('intent') === 'schedule') {
+      setScheduleOpen(true)
+      void loadCandidates()
+    }
+  }, [deepLinkAppealId, deepLinkParticipantId, loadCandidates, searchParams])
+
+  const tableRows = useMemo(() => {
+    if (!deepLinkAppealId) return rows
+
+    return rows.filter(row => String(row.appealId ?? '') === deepLinkAppealId)
+  }, [rows, deepLinkAppealId])
+
   const openSchedule = () => {
-    setParticipantId('')
+    setParticipantId(deepLinkParticipantId ?? '')
+    setAppealId(deepLinkAppealId ?? '')
     setStartAt('')
     setEndAt('')
     setExtraOpenIds([])
@@ -176,15 +205,37 @@ const Interviews = () => {
   const handleOpen = useCallback((row: InterviewRow) => {
     setActive(row)
     setNotes(row.resultNotes ?? '')
+    setEditAppealId(row.appealId != null ? String(row.appealId) : '')
     setRescheduleStart(row.scheduledStartAt ? row.scheduledStartAt.slice(0, 16) : '')
     setRescheduleEnd(row.scheduledEndAt ? row.scheduledEndAt.slice(0, 16) : '')
   }, [])
+
+  const handleLinkAppeal = async () => {
+    if (!active) return
+    setSaving(true)
+
+    try {
+      const nextId = editAppealId.trim() ? Number(editAppealId.trim()) : null
+
+      await apiFetch(`/interviews/${active.id}/appeal`, {
+        method: 'PATCH',
+        body: JSON.stringify({ appealId: nextId })
+      })
+      toast.success(nextId ? `已关联申诉 #${nextId}` : '已取消申诉关联')
+      setActive(null)
+      await fetchList()
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : '更新申诉关联失败')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const columns = useMemo(() => buildInterviewTableColumns({ onOpen: handleOpen }), [handleOpen])
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: rows,
+    data: tableRows,
     columns,
     state: { columnFilters, sorting, pagination },
     onColumnFiltersChange: setColumnFilters,
@@ -213,10 +264,13 @@ const Interviews = () => {
           participantId: Number(participantId),
           scheduledStartAt: new Date(startAt).toISOString(),
           scheduledEndAt: new Date(endAt).toISOString(),
-          extraAttendeeOpenIds: extraOpenIds
+          extraAttendeeOpenIds: extraOpenIds,
+          ...(appealId.trim() ? { appealId: Number(appealId.trim()) } : {})
         })
       })
-      toast.success('已预约面谈并创建飞书日程')
+      toast.success(
+        appealId.trim() ? '已预约面谈并关联申诉（申诉状态不变）' : '已预约面谈并创建飞书日程'
+      )
       setScheduleOpen(false)
       await fetchList()
     } catch (err) {
@@ -314,6 +368,11 @@ const Interviews = () => {
 
       <Card>
         <CardContent className='pt-6'>
+          {deepLinkAppealId ? (
+            <p className='bg-muted/40 mb-4 rounded-md border px-3 py-2 text-xs'>
+              已按申诉 #{deepLinkAppealId} 筛选关联面谈；可点「预约面谈」继续创建关联预约。
+            </p>
+          ) : null}
           {loading ? (
             <div className='text-muted-foreground flex items-center gap-2 text-sm'>
               <Loader2Icon className='size-4 animate-spin' />
@@ -325,6 +384,11 @@ const Interviews = () => {
             <>
               <DataTableToolbar table={table} searchColumn='employee' searchPlaceholder='搜索员工…'>
                 <DataTableColumnFilter column={table.getColumn('status')} label='状态' options={INTERVIEW_STATUS_OPTIONS} />
+                <DataTableColumnFilter
+                  column={table.getColumn('appealLink')}
+                  label='申诉关联'
+                  options={['已关联申诉', '普通面谈']}
+                />
               </DataTableToolbar>
               <DataTable table={table} emptyText='暂无面谈记录' />
               <DataTablePagination table={table} />
@@ -340,6 +404,11 @@ const Interviews = () => {
             <DialogDescription>将以你的身份创建飞书日程，并邀请员工与可选参与人。</DialogDescription>
           </DialogHeader>
           <div className='grid gap-4 py-2'>
+            {appealId ? (
+              <p className='bg-muted/40 rounded-md border px-3 py-2 text-xs'>
+                将关联申诉 #{appealId}（弱关联，不会自动改申诉状态）
+              </p>
+            ) : null}
             <div className='grid gap-2'>
               <Label>员工（结果已推送及之后）</Label>
               <Select
@@ -405,12 +474,22 @@ const Interviews = () => {
           </DialogHeader>
           {active ? (
             <div className='grid gap-4 py-2'>
-              <div className='flex items-center gap-2'>
+              <div className='flex flex-wrap items-center gap-2'>
                 <Badge variant='secondary'>{INTERVIEW_STATUS_LABEL[active.status]}</Badge>
-                {active.calendarEventId ? (
-                  <span className='text-muted-foreground text-xs'>
-                    飞书日程 {active.calendarId}/{active.calendarEventId}
-                  </span>
+                {active.appealId ? (
+                  <Badge variant='outline'>关联申诉 #{active.appealId}</Badge>
+                ) : (
+                  <Badge variant='outline'>普通绩效面谈</Badge>
+                )}
+                {active.calendarId && active.calendarEventId ? (
+                  <a
+                    href={feishuCalendarEventUrl(active.calendarId, active.calendarEventId)}
+                    target='_blank'
+                    rel='noreferrer'
+                    className='text-primary text-xs underline-offset-2 hover:underline'
+                  >
+                    打开飞书日程
+                  </a>
                 ) : null}
               </div>
               <p className='text-sm'>
@@ -419,6 +498,21 @@ const Interviews = () => {
                 {' ~ '}
                 {active.scheduledEndAt ? formatDateTime(active.scheduledEndAt) : '-'}
               </p>
+
+              <div className='grid gap-2'>
+                <Label htmlFor='link-appeal-id'>关联申诉 ID（可选，留空表示普通面谈）</Label>
+                <div className='flex gap-2'>
+                  <Input
+                    id='link-appeal-id'
+                    value={editAppealId}
+                    onChange={e => setEditAppealId(e.target.value)}
+                    placeholder='例如 51'
+                  />
+                  <Button variant='outline' disabled={saving} onClick={() => void handleLinkAppeal()}>
+                    保存关联
+                  </Button>
+                </div>
+              </div>
 
               {active.status === 'SCHEDULED' ? (
                 <>

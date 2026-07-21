@@ -49,7 +49,7 @@ describe('Ticket 14 PostgreSQL 结果版本约束', () => {
     `);
     await pool.query(`
       CREATE TYPE "${schema}"."PerfAppealStatus"
-      AS ENUM ('PENDING', 'IN_INTERVIEW', 'RESOLVED')
+      AS ENUM ('PENDING', 'RESOLVED')
     `);
     await pool.query(`
       CREATE TABLE "${schema}"."perf_cycles" (

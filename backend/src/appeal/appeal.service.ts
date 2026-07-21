@@ -19,7 +19,7 @@ import { CalibrationService } from '../calibration/calibration.service';
 import { ResultService } from '../calibration/result.service';
 import { RbacService } from '../rbac/rbac.service';
 
-/** 申诉与面谈（产品 §5.6/§5.7）：申诉 → 面谈 → 处理结论（可触发再校准）→ 员工再确认 */
+/** 申诉队列：发起 / 指派 / 结案。面谈为独立能力，可通过可选 appealId 弱关联，不推动申诉状态。 */
 @Injectable()
 export class AppealService {
   constructor(
@@ -162,6 +162,23 @@ export class AppealService {
             createdAt: true,
           },
         },
+        // 「面谈中」由关联未取消面谈推导，不占用申诉主状态
+        interviews: {
+          where: {
+            status: {
+              in: [PerfInterviewStatus.SCHEDULED, PerfInterviewStatus.COMPLETED],
+            },
+          },
+          select: {
+            id: true,
+            status: true,
+            scheduledStartAt: true,
+            scheduledEndAt: true,
+            calendarId: true,
+            calendarEventId: true,
+          },
+          orderBy: { id: 'desc' },
+        },
       },
       orderBy: { id: 'desc' },
     });
@@ -184,6 +201,7 @@ export class AppealService {
     return {
       items: appeals.map((appeal) => ({
         ...appeal,
+        inInterview: appeal.interviews.length > 0,
         employee: userMap.get(appeal.participant.employeeOpenId) ?? null,
         handler: appeal.handlerOpenId
           ? (userMap.get(appeal.handlerOpenId) ?? null)
@@ -246,7 +264,7 @@ export class AppealService {
     if (!isOwner)
       await this.assertCanManage(operatorOpenId, appeal.participant);
 
-    // 员工详情必须显式白名单，不能把组织/Leader 快照与内部校准字段整行透出。
+    // 员工详情必须显式白名单，不能把组织/Leader 快照、内部校准与面谈纪要整行透出。
     if (isOwner) {
       return {
         id: appeal.id,
@@ -262,7 +280,15 @@ export class AppealService {
         updatedAt: appeal.updatedAt,
         resultVersion: appeal.resultVersion,
         resolutionCalibration: appeal.resolutionCalibration,
-        interviews: appeal.interviews,
+        interviews: appeal.interviews.map(
+          ({
+            resultNotes: _notes,
+            content: _content,
+            conclusion: _conclusion,
+            employeeFeedback: _feedback,
+            ...rest
+          }) => rest,
+        ),
         participant: {
           id: appeal.participant.id,
           status: appeal.participant.status,
@@ -313,7 +339,10 @@ export class AppealService {
     return updated;
   }
 
-  /** 添加申诉面谈记录；申诉进入面谈处理中 */
+  /**
+   * @deprecated 遗留入口；新预约请走 InterviewService。
+   * 不再推进申诉状态（申诉仅 PENDING/RESOLVED）。
+   */
   async addInterview(
     operatorOpenId: string,
     appealId: number,
@@ -346,7 +375,7 @@ export class AppealService {
       if (appeal.status === PerfAppealStatus.RESOLVED) {
         throw new ConflictException('申诉已处理完成');
       }
-      const created = await tx.perfInterview.create({
+      return tx.perfInterview.create({
         data: {
           participantId: appeal.participantId,
           appealId,
@@ -361,13 +390,6 @@ export class AppealService {
           resultNotes: input.conclusion ?? input.content,
         },
       });
-      if (appeal.status === PerfAppealStatus.PENDING) {
-        await tx.perfAppeal.update({
-          where: { id: appealId },
-          data: { status: PerfAppealStatus.IN_INTERVIEW },
-        });
-      }
-      return created;
     });
     await this.auditService.record({
       operatorOpenId,

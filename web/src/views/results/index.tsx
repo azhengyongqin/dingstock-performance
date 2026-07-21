@@ -48,8 +48,14 @@ import { Textarea } from '@/components/ui/textarea'
 
 // Util Imports
 import { apiFetch } from '@/lib/api'
-import type { PerfAppealStatus, PerfParticipantStatus } from '@/lib/perf-api'
-import { APPEAL_STATUS_LABEL, PARTICIPANT_STATUS_LABEL, formatDateTime } from '@/lib/perf-api'
+import type { ListResponse, PerfAppealStatus, PerfInterviewStatus, PerfParticipantStatus } from '@/lib/perf-api'
+import {
+  APPEAL_STATUS_LABEL,
+  INTERVIEW_STATUS_LABEL,
+  PARTICIPANT_STATUS_LABEL,
+  feishuCalendarEventUrl,
+  formatDateTime
+} from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
 // ===== 后端数据类型（GET /results/current） =====
@@ -101,8 +107,17 @@ type CurrentResult = {
 
 const APPEAL_STATUS_BADGE: Record<PerfAppealStatus, string> = {
   PENDING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-  IN_INTERVIEW: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   RESOLVED: 'bg-green-500/10 text-green-600 dark:text-green-400'
+}
+
+type MyInterview = {
+  id: number
+  status: PerfInterviewStatus
+  scheduledStartAt: string | null
+  scheduledEndAt: string | null
+  calendarId: string | null
+  calendarEventId: string | null
+  participant: { cycle: { id: number; name: string } }
 }
 
 const FieldAnswers = ({ fields }: { fields: VisibleFieldAnswer[] }) => {
@@ -137,6 +152,7 @@ const StatusBadge = ({ confirmedAt }: { confirmedAt?: string | null }) =>
 
 const Results = () => {
   const [data, setData] = useState<CurrentResult | null>(null)
+  const [interviews, setInterviews] = useState<MyInterview[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -154,14 +170,25 @@ const Results = () => {
   // 申诉处理后只能再次确认，不能对同一有效结果链发起第二次申诉。
   const canAppeal = participant?.status === 'RESULT_PUBLISHED'
 
+  const cycleInterviews = interviews.filter(
+    item => !participant || item.participant.cycle.id === participant.cycle.id
+  )
+
   const fetchCurrent = useCallback(async () => {
     setLoading(true)
     setError(null)
 
     try {
-      const res = await apiFetch<CurrentResult>('/results/current')
+      const [res, mine] = await Promise.all([
+        apiFetch<CurrentResult>('/results/current'),
+        apiFetch<ListResponse<MyInterview>>('/interviews/mine').catch(() => ({
+          items: [] as MyInterview[],
+          total: 0
+        }))
+      ])
 
       setData(res)
+      setInterviews(mine.items ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : '无法加载绩效结果，请确认后端服务已启动。')
     } finally {
@@ -354,6 +381,58 @@ const Results = () => {
           }
         ]}
       />
+
+      {cycleInterviews.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>我的面谈预约</CardTitle>
+            <CardDescription>仅展示预约时间与飞书日程入口；面谈纪要对员工不可见</CardDescription>
+          </CardHeader>
+          <CardContent className='flex flex-col gap-3'>
+            {cycleInterviews.map(interview => {
+              const calendarHref =
+                interview.calendarId && interview.calendarEventId
+                  ? feishuCalendarEventUrl(interview.calendarId, interview.calendarEventId)
+                  : null
+
+              return (
+                <div
+                  key={interview.id}
+                  className='flex flex-col gap-1 rounded-lg border p-3 text-sm sm:flex-row sm:items-center sm:justify-between'
+                >
+                  <div className='flex flex-col gap-1'>
+                    <div className='flex items-center gap-2'>
+                      <Badge variant='outline'>
+                        {INTERVIEW_STATUS_LABEL[interview.status] ?? interview.status}
+                      </Badge>
+                      <span>
+                        {interview.scheduledStartAt
+                          ? formatDateTime(interview.scheduledStartAt)
+                          : '时间待定'}
+                        {interview.scheduledEndAt
+                          ? ` ~ ${formatDateTime(interview.scheduledEndAt)}`
+                          : ''}
+                      </span>
+                    </div>
+                  </div>
+                  {calendarHref ? (
+                    <a
+                      href={calendarHref}
+                      target='_blank'
+                      rel='noreferrer'
+                      className='text-primary text-sm underline-offset-2 hover:underline'
+                    >
+                      打开飞书日程
+                    </a>
+                  ) : (
+                    <span className='text-muted-foreground text-xs'>暂无日程入口</span>
+                  )}
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

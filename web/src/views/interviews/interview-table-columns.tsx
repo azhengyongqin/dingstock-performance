@@ -16,6 +16,7 @@ import { INTERVIEW_STATUS_LABEL, avatarUrlOf, formatDateTime } from '@/lib/perf-
 export type InterviewRow = {
   id: number
   status: PerfInterviewStatus
+  appealId: number | null
   scheduledStartAt: string | null
   scheduledEndAt: string | null
   calendarId: string | null
@@ -102,6 +103,19 @@ export const buildInterviewTableColumns = ({
     accessorFn: row => row.organizer?.name ?? '',
     header: '预约人',
     cell: ({ row }) => <span className='whitespace-nowrap'>{row.original.organizer?.name ?? '-'}</span>
+  },
+  {
+    id: 'appealLink',
+    accessorFn: row => (row.appealId ? '已关联申诉' : '普通面谈'),
+    header: '申诉关联',
+    filterFn: 'equalsString',
+    enableSorting: false,
+    cell: ({ row }) =>
+      row.original.appealId ? (
+        <Badge variant='outline'>申诉 #{row.original.appealId}</Badge>
+      ) : (
+        <span className='text-muted-foreground text-sm'>普通面谈</span>
+      )
   },
   {
     id: 'actions',

@@ -3,6 +3,9 @@
 // React Imports
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+// Next Imports
+import Link from 'next/link'
+
 // Third-party Imports
 import type { ColumnFiltersState, PaginationState, SortingState } from '@tanstack/react-table'
 import {
@@ -12,7 +15,7 @@ import {
   getSortedRowModel,
   useReactTable
 } from '@tanstack/react-table'
-import { Loader2Icon, ShieldAlertIcon } from 'lucide-react'
+import { ExternalLinkIcon, Loader2Icon, ShieldAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
@@ -28,55 +31,65 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
-import type { ListResponse } from '@/lib/perf-api'
-import { formatDateTime } from '@/lib/perf-api'
+import type { ListResponse, PerfInterviewStatus } from '@/lib/perf-api'
+import {
+  INTERVIEW_STATUS_LABEL,
+  appealDisplayLabel,
+  feishuCalendarEventUrl,
+  formatDateTime
+} from '@/lib/perf-api'
 
 import { APPEAL_STATUS_OPTIONS, buildAppealTableColumns } from './appeal-table-columns'
 import type { AppealRow } from './appeal-table-columns'
 
-// ===== 后端数据类型（NestJS /appeals 模块） =====
+type LinkedInterview = {
+  id: number
+  status: PerfInterviewStatus
+  scheduledStartAt?: string | null
+  scheduledEndAt?: string | null
+  calendarId?: string | null
+  calendarEventId?: string | null
+  createdAt: string
+  resultNotes?: string | null
+}
 
-/** GET /appeals/:id 响应：列表字段 + 面谈记录 + 等级调整记录 */
+/** GET /appeals/:id：列表字段 + 关联面谈预约事实 + 校准历史（含 revision id） */
 type AppealDetail = AppealRow & {
-  interviews: { id: number; content: string; conclusion?: string | null; createdAt: string }[]
-  calibrations: { beforeLevel: string | null; afterLevel: string; reason: string | null; createdAt: string }[]
+  interviews: LinkedInterview[]
+  calibrations: Array<{
+    id: number
+    beforeLevel: string | null
+    afterLevel: string
+    reason: string | null
+    createdAt: string
+  }>
 }
 
 /**
- * 申诉处理（HR 视角）：申诉 Data Table（filters 变体：状态筛选）。
- * 数据来自 GET /appeals；「处理」弹窗内可添加面谈记录并录入处理结论（可选调整等级）。
+ * 申诉处理（HR 视角）：队列指派与结案；面谈表单深链到 /interviews。
+ * 结案契约：expectedCalibrationRevision；改判须先在校准工作台追加决定。
  */
 const Appeals = () => {
   const [appeals, setAppeals] = useState<AppealRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // 403：需要 HR 权限
   const [forbidden, setForbidden] = useState(false)
 
-  // 列筛选、排序与分页状态
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [sorting, setSorting] = useState<SortingState>([])
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
 
-  // 处理弹窗：目标申诉 + 详情（含面谈/调整记录）
   const [activeAppeal, setActiveAppeal] = useState<AppealRow | null>(null)
   const [detail, setDetail] = useState<AppealDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  // 表单：面谈记录内容 / 处理结论 / 可选等级调整
-  const [interviewContent, setInterviewContent] = useState('')
   const [conclusion, setConclusion] = useState('')
-  const [adjustedLevel, setAdjustedLevel] = useState('')
-  const [adjustReason, setAdjustReason] = useState('')
-  const [savingInterview, setSavingInterview] = useState(false)
   const [resolving, setResolving] = useState(false)
 
   const fetchAppeals = useCallback(async () => {
@@ -102,7 +115,6 @@ const Appeals = () => {
     void fetchAppeals()
   }, [fetchAppeals])
 
-  // 拉取申诉详情（面谈记录 + 等级调整记录）
   const fetchDetail = useCallback(async (appealId: number) => {
     setDetailLoading(true)
 
@@ -117,15 +129,11 @@ const Appeals = () => {
     }
   }, [])
 
-  // 打开处理弹窗：重置表单并拉取详情
   const handleOpen = useCallback(
     (row: AppealRow) => {
       setActiveAppeal(row)
       setDetail(null)
-      setInterviewContent('')
       setConclusion('')
-      setAdjustedLevel('')
-      setAdjustReason('')
       void fetchDetail(row.id)
     },
     [fetchDetail]
@@ -136,7 +144,6 @@ const Appeals = () => {
     setDetail(null)
   }
 
-  // 列定义：行内「处理」按钮回调走工厂注入
   const columns = useMemo(() => buildAppealTableColumns({ onHandle: handleOpen }), [handleOpen])
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -155,41 +162,33 @@ const Appeals = () => {
     enableSortingRemoval: false
   })
 
-  // 添加面谈记录
-  const handleAddInterview = async () => {
-    if (!activeAppeal) return
+  const latestCalibrationId = useMemo(() => {
+    const items = detail?.calibrations ?? []
 
-    if (!interviewContent.trim()) {
-      toast.error('请填写面谈记录内容')
+    if (items.length === 0) return null
 
-      return
-    }
+    return items[items.length - 1]!.id
+  }, [detail?.calibrations])
 
-    setSavingInterview(true)
+  const interviewWorkspaceHref = activeAppeal
+    ? `/interviews?appealId=${activeAppeal.id}&participantId=${activeAppeal.participant.id}&intent=schedule`
+    : '/interviews'
 
-    try {
-      await apiFetch(`/appeals/${activeAppeal.id}/interviews`, {
-        method: 'POST',
-        body: JSON.stringify({ content: interviewContent.trim() })
-      })
-      toast.success('面谈记录已添加')
-      setInterviewContent('')
+  const interviewViewHref = activeAppeal
+    ? `/interviews?appealId=${activeAppeal.id}&participantId=${activeAppeal.participant.id}`
+    : '/interviews'
 
-      // 刷新详情与列表（状态可能推进为「面谈处理中」）
-      await Promise.all([fetchDetail(activeAppeal.id), fetchAppeals()])
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '添加面谈记录失败')
-    } finally {
-      setSavingInterview(false)
-    }
-  }
-
-  // 录入处理结论（可选调整等级）
   const handleResolve = async () => {
     if (!activeAppeal) return
 
     if (!conclusion.trim()) {
       toast.error('请填写处理结论')
+
+      return
+    }
+
+    if (latestCalibrationId == null) {
+      toast.error('缺少校准决定，请先在校准工作台完成校准后再结案')
 
       return
     }
@@ -201,26 +200,44 @@ const Appeals = () => {
         method: 'POST',
         body: JSON.stringify({
           conclusion: conclusion.trim(),
-          ...(adjustedLevel.trim()
-            ? { adjustedLevel: adjustedLevel.trim(), reason: adjustReason.trim() || undefined }
-            : {})
+          expectedCalibrationRevision: latestCalibrationId
         })
       })
       toast.success('申诉已处理完成')
       handleClose()
       await fetchAppeals()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '处理申诉失败')
+      if (err instanceof ApiError) {
+        // Nest ConflictException 对象体可能在根上，也可能嵌在 message 内
+        const body = err.body as
+          | { code?: string; message?: string | { code?: string } }
+          | undefined
+
+        const nested =
+          body?.message && typeof body.message === 'object' ? body.message.code : undefined
+
+        const code = body?.code ?? nested
+
+        if (code === 'APPEAL_ADJUSTMENT_REQUIRES_NEW_CALIBRATION') {
+          toast.error('改判须先在校准工作台追加校准决定，再回到此页结案')
+        } else if (code === 'CALIBRATION_REVISION_STALE') {
+          toast.error('校准决定已变化，请刷新后重试')
+          await fetchDetail(activeAppeal.id)
+        } else {
+          toast.error(err.message)
+        }
+      } else {
+        toast.error('处理申诉失败')
+      }
     } finally {
       setResolving(false)
     }
   }
 
-  // 403：需要 HR 权限
   if (forbidden) {
     return (
       <div className='flex flex-col gap-6'>
-        <PageHeader title='申诉处理' description='员工对绩效结果的申诉记录：安排面谈、记录结论并闭环' />
+        <PageHeader title='申诉处理' description='员工对绩效结果的申诉记录：指派处理人、关联面谈并结案' />
         <Card>
           <CardContent>
             <div className='text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center text-sm'>
@@ -235,11 +252,10 @@ const Appeals = () => {
 
   return (
     <div className='flex flex-col gap-6'>
-      <PageHeader title='申诉处理' description='员工对绩效结果的申诉记录：安排面谈、记录结论并闭环' />
+      <PageHeader title='申诉处理' description='员工对绩效结果的申诉记录：指派处理人、关联面谈并结案' />
 
       <Card>
         <CardContent>
-          {/* 工具栏：状态筛选（待处理 / 面谈处理中 / 已处理） */}
           <DataTableToolbar table={table}>
             <DataTableColumnFilter column={table.getColumn('status')} label='状态' options={APPEAL_STATUS_OPTIONS} />
           </DataTableToolbar>
@@ -264,7 +280,6 @@ const Appeals = () => {
         </CardContent>
       </Card>
 
-      {/* 处理弹窗：申诉详情（面谈记录 / 等级调整记录）+ 添加面谈记录 + 处理结论 */}
       <Dialog open={!!activeAppeal} onOpenChange={open => !open && handleClose()}>
         <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-lg'>
           <DialogHeader>
@@ -272,6 +287,7 @@ const Appeals = () => {
             <DialogDescription>
               {activeAppeal?.employee?.name ?? '-'} · {activeAppeal?.participant.cycle.name ?? '-'} · 当前等级{' '}
               {activeAppeal?.participant.resultVersions[0]?.finalLevel ?? '-'}
+              {activeAppeal ? ` · ${appealDisplayLabel(activeAppeal)}` : ''}
             </DialogDescription>
           </DialogHeader>
 
@@ -282,38 +298,88 @@ const Appeals = () => {
             </div>
           ) : (
             <div className='flex flex-col gap-4'>
-              {/* 申诉理由 */}
               <div className='flex flex-col gap-1'>
                 <span className='text-muted-foreground text-xs'>申诉理由</span>
                 <p className='text-sm whitespace-pre-wrap'>{activeAppeal?.reason ?? '-'}</p>
               </div>
 
-              {/* 面谈记录 */}
               <div className='flex flex-col gap-2'>
-                <span className='text-muted-foreground text-xs'>面谈记录（{detail?.interviews.length ?? 0} 条）</span>
+                <div className='flex items-center justify-between gap-2'>
+                  <span className='text-muted-foreground text-xs'>
+                    关联面谈（{detail?.interviews.length ?? 0} 条）
+                  </span>
+                  <div className='flex flex-wrap gap-2'>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      render={<Link href={interviewViewHref} />}
+                      nativeButton={false}
+                    >
+                      <ExternalLinkIcon className='size-3.5' />
+                      查看关联面谈
+                    </Button>
+                    {activeAppeal?.status !== 'RESOLVED' && (
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        render={<Link href={interviewWorkspaceHref} />}
+                        nativeButton={false}
+                      >
+                        <ExternalLinkIcon className='size-3.5' />
+                        预约关联面谈
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 {detail?.interviews.length ? (
                   <div className='flex flex-col gap-2'>
-                    {detail.interviews.map(interview => (
-                      <div key={interview.id} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
-                        <span className='text-muted-foreground text-xs'>{formatDateTime(interview.createdAt)}</span>
-                        <p className='text-sm whitespace-pre-wrap'>{interview.content}</p>
-                        {interview.conclusion && (
-                          <p className='text-muted-foreground text-xs'>结论：{interview.conclusion}</p>
-                        )}
-                      </div>
-                    ))}
+                    {detail.interviews.map(interview => {
+                      const calendarHref =
+                        interview.calendarId && interview.calendarEventId
+                          ? feishuCalendarEventUrl(interview.calendarId, interview.calendarEventId)
+                          : null
+
+                      return (
+                        <div key={interview.id} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
+                          <div className='flex items-center gap-2'>
+                            <Badge variant='outline'>
+                              {INTERVIEW_STATUS_LABEL[interview.status] ?? interview.status}
+                            </Badge>
+                            <span className='text-muted-foreground text-xs'>
+                              {interview.scheduledStartAt
+                                ? formatDateTime(interview.scheduledStartAt)
+                                : formatDateTime(interview.createdAt)}
+                            </span>
+                          </div>
+                          {calendarHref ? (
+                            <a
+                              href={calendarHref}
+                              target='_blank'
+                              rel='noreferrer'
+                              className='text-primary text-xs underline-offset-2 hover:underline'
+                            >
+                              打开飞书日程
+                            </a>
+                          ) : null}
+                          {interview.resultNotes ? (
+                            <p className='text-muted-foreground text-xs line-clamp-2'>
+                              纪要摘要：{interview.resultNotes}
+                            </p>
+                          ) : null}
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
-                  <span className='text-muted-foreground text-sm'>暂无面谈记录</span>
+                  <span className='text-muted-foreground text-sm'>暂无关联面谈；可前往面谈工作台预约并关联本申诉</span>
                 )}
               </div>
 
-              {/* 等级调整记录 */}
               {detail?.calibrations && detail.calibrations.length > 0 && (
                 <div className='flex flex-col gap-2'>
-                  <span className='text-muted-foreground text-xs'>等级调整记录</span>
-                  {detail.calibrations.map((item, index) => (
-                    <div key={index} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
+                  <span className='text-muted-foreground text-xs'>校准决定（结案将锁定最新一条）</span>
+                  {detail.calibrations.map(item => (
+                    <div key={item.id} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
                       <div className='flex items-center gap-2 text-sm'>
                         <Badge variant='outline'>{item.beforeLevel ?? '-'}</Badge>
                         <span className='text-muted-foreground'>→</span>
@@ -327,8 +393,6 @@ const Appeals = () => {
               )}
 
               {activeAppeal?.status === 'RESOLVED' ? (
-
-                // 已处理：只读展示结论
                 <div className='flex flex-col gap-1'>
                   <span className='text-muted-foreground text-xs'>处理结论（{formatDateTime(detail?.resolvedAt)}）</span>
                   <p className='text-sm whitespace-pre-wrap'>{detail?.conclusion ?? activeAppeal.conclusion ?? '-'}</p>
@@ -342,29 +406,19 @@ const Appeals = () => {
                 <>
                   <Separator />
 
-                  {/* a. 添加面谈记录 */}
-                  <div className='flex flex-col gap-2'>
-                    <Label>添加面谈记录</Label>
-                    <Textarea
-                      value={interviewContent}
-                      onChange={event => setInterviewContent(event.target.value)}
-                      placeholder='记录本次面谈沟通的要点'
-                    />
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      className='self-end'
-                      onClick={handleAddInterview}
-                      disabled={savingInterview}
+                  <div className='bg-muted/40 rounded-md border p-3 text-xs leading-relaxed'>
+                    结案将提交最新校准决定（revision{' '}
+                    {latestCalibrationId ?? '无'}
+                    ）。若需改判，请先到
+                    <Link
+                      href='/calibrations'
+                      className='text-primary mx-1 underline-offset-2 hover:underline'
                     >
-                      {savingInterview && <Loader2Icon className='animate-spin' />}
-                      添加面谈记录
-                    </Button>
+                      校准工作台
+                    </Link>
+                    追加校准决定，再回到此页结案；不可在此直接填写目标等级。
                   </div>
 
-                  <Separator />
-
-                  {/* b. 处理结论（必填），可选同步调整等级 */}
                   <div className='flex flex-col gap-2'>
                     <Label>处理结论（必填）</Label>
                     <Textarea
@@ -374,30 +428,11 @@ const Appeals = () => {
                     />
                   </div>
 
-                  <div className='grid gap-4 sm:grid-cols-2'>
-                    <div className='flex flex-col gap-2'>
-                      <Label>调整等级（可选）</Label>
-                      <Input
-                        value={adjustedLevel}
-                        onChange={event => setAdjustedLevel(event.target.value)}
-                        placeholder='如 A'
-                      />
-                    </div>
-                    <div className='flex flex-col gap-2'>
-                      <Label>调整原因</Label>
-                      <Input
-                        value={adjustReason}
-                        onChange={event => setAdjustReason(event.target.value)}
-                        placeholder='填写调整等级时的依据'
-                      />
-                    </div>
-                  </div>
-
                   <div className='flex justify-end gap-2'>
                     <Button variant='outline' onClick={handleClose}>
                       取消
                     </Button>
-                    <Button onClick={handleResolve} disabled={resolving}>
+                    <Button onClick={() => void handleResolve()} disabled={resolving || latestCalibrationId == null}>
                       {resolving && <Loader2Icon className='animate-spin' />}
                       提交处理结论
                     </Button>

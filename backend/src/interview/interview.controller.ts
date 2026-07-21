@@ -63,6 +63,12 @@ class NotesDto {
   resultNotes!: string;
 }
 
+class LinkAppealDto {
+  @IsOptional()
+  @IsInt()
+  appealId?: number | null;
+}
+
 @ApiTags('面谈')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -148,6 +154,20 @@ export class InterviewController {
       req.user.open_id,
       id,
       dto.resultNotes,
+    );
+  }
+
+  @Patch('interviews/:id/appeal')
+  @ApiOperation({ summary: '设置或清空面谈关联的申诉（不改申诉状态）' })
+  linkAppeal(
+    @Req() req: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LinkAppealDto,
+  ) {
+    return this.interviewService.linkAppeal(
+      req.user.open_id,
+      id,
+      dto.appealId ?? null,
     );
   }
 }

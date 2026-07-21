@@ -490,10 +490,9 @@ enum PerfAiReviewAction {
   @@schema("performance")
 }
 
-/// 申诉状态（产品 §8.17）
+/// 申诉状态：仅待处理 / 已处理；界面「面谈中」由关联未取消面谈推导
 enum PerfAppealStatus {
   PENDING /// 待处理
-  IN_INTERVIEW /// 面谈处理中
   RESOLVED /// 已处理
 
   @@schema("performance")
