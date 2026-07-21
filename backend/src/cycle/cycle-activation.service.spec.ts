@@ -14,6 +14,7 @@ jest.mock('../generated/prisma/enums', () => ({
     AI: 'AI',
   },
   PerfAssignmentStatus: { REPLACED: 'REPLACED' },
+  PerfParticipantStatus: { ACTIVE: 'ACTIVE' },
 }));
 jest.mock('../shared/database/prisma.service', () => ({
   PrismaService: class {},
@@ -322,6 +323,11 @@ describe('CycleActivationService', () => {
 
     expect(tx.perfEvaluationTask.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: expect.objectContaining({
+          openedAt: null,
+          completedAt: null,
+          participant: { status: 'ACTIVE' },
+        }),
         orderBy: { id: 'asc' },
         take: 200,
       }),

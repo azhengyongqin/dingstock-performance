@@ -14,6 +14,7 @@ import {
   Layers3Icon,
   ListChecksIcon,
   PanelLeftIcon,
+  ShieldAlertIcon,
   SlidersHorizontalIcon,
   StarIcon,
   TargetIcon,
@@ -66,12 +67,15 @@ import EvaluationForm from '@/views/self-review/evaluation-form'
 import type { EvaluationAnswers } from '@/views/self-review/evaluation-form-types'
 import { buildDimensionSubmitPayload } from '@/views/self-review/evaluation-form-types'
 import RatingSelectorPreview from './rating-selector-preview'
+import PerformanceLevelBadgePreview from './performance-level-badge-preview'
 import ScoreSelectorPreview from './score-selector-preview'
 import ScrollableTabsListPreview from './scrollable-tabs-list-preview'
 import PeerReviewAnalysisPreview from './peer-review-analysis-preview'
 import EvaluationReferenceSectionPreview from './evaluation-reference-section-preview'
 import OrgMemberMultiSelectPreview from './org-member-multi-select-preview'
 import MarkdownPreview from './markdown-preview'
+import RequestErrorPreview from './request-error-preview'
+import SearchInputPreview from './search-input-preview'
 import FormTemplateEditor, { FormTemplateEditorSection } from '@/views/settings/form-templates/form-template-editor'
 import FormTemplatePreview from '@/views/settings/form-templates/form-template-preview'
 import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-template-utils'
@@ -86,9 +90,11 @@ type ComponentKey =
   | 'buttons'
   | 'form-controls'
   | 'feedback'
+  | 'request-error'
   | 'okr-reference'
   | 'member-picker'
   | 'org-member-multi-select'
+  | 'search-input'
   | 'member-pill'
   | 'form-template'
   | 'config-template'
@@ -99,6 +105,7 @@ type ComponentKey =
   | 'markdown'
   | 'evaluation-form'
   | 'rating-selector'
+  | 'performance-level-badge'
   | 'score-selector'
   | 'scrollable-tabs-list'
   | 'peer-review-analysis'
@@ -138,6 +145,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     icon: Layers3Icon
   },
   {
+    key: 'request-error',
+    title: '请求错误态',
+    description: 'RequestErrorState / EmptyState / unDraw',
+    icon: ShieldAlertIcon
+  },
+  {
     key: 'okr-reference',
     title: 'OKR 参考区',
     description: '缓存刷新 / 骨架 / 空态 / 错误态',
@@ -154,6 +167,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '组织人员多选',
     description: 'LarkOrgMemberMultiSelectDialog',
     icon: UsersIcon
+  },
+  {
+    key: 'search-input',
+    title: '统一搜索框',
+    description: 'SearchInput / 拼音匹配',
+    icon: SlidersHorizontalIcon
   },
   {
     key: 'member-pill',
@@ -213,6 +232,12 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     key: 'rating-selector',
     title: '评分选择器',
     description: 'RatingSelector · 时间轴胶囊',
+    icon: StarIcon
+  },
+  {
+    key: 'performance-level-badge',
+    title: '绩效等级徽章',
+    description: 'PerformanceLevelBadge · 系统色 / Hover',
     icon: StarIcon
   },
   {
@@ -1671,9 +1696,11 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'buttons') return <ButtonsPreview />
   if (activeComponent === 'form-controls') return <FormControlsPreview />
   if (activeComponent === 'feedback') return <FeedbackPreview />
+  if (activeComponent === 'request-error') return <RequestErrorPreview />
   if (activeComponent === 'okr-reference') return <OkrReferencePreview />
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
   if (activeComponent === 'org-member-multi-select') return <OrgMemberMultiSelectPreview />
+  if (activeComponent === 'search-input') return <SearchInputPreview />
   if (activeComponent === 'member-pill') return <MemberPillPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />
@@ -1684,6 +1711,7 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'markdown') return <MarkdownPreview />
   if (activeComponent === 'evaluation-form') return <EvaluationFormPreview />
   if (activeComponent === 'rating-selector') return <RatingSelectorPreview />
+  if (activeComponent === 'performance-level-badge') return <PerformanceLevelBadgePreview />
   if (activeComponent === 'score-selector') return <ScoreSelectorPreview />
   if (activeComponent === 'scrollable-tabs-list') return <ScrollableTabsListPreview />
   if (activeComponent === 'peer-review-analysis') return <PeerReviewAnalysisPreview />

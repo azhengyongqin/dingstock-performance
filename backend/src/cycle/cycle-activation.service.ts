@@ -5,6 +5,7 @@ import {
   PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfAssignmentStatus,
+  PerfParticipantStatus,
 } from '../generated/prisma/enums';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -402,8 +403,11 @@ export class CycleActivationService {
       const due = await tx.perfEvaluationTask.findMany({
         where: {
           openedAt: null,
+          completedAt: null,
           startAt: { not: null, lte: now },
           cycle: { status: PerfCycleStatus.ACTIVE, deletedAt: null },
+          // 中途退出后保留历史任务，但这些任务不得再次开放或产生通知。
+          participant: { status: PerfParticipantStatus.ACTIVE },
           type: { not: PerfEvaluationTaskType.AI },
         },
         orderBy: { id: 'asc' },
@@ -431,7 +435,12 @@ export class CycleActivationService {
       const opened: typeof due = [];
       for (const task of due) {
         const changed = await tx.perfEvaluationTask.updateMany({
-          where: { id: task.id, openedAt: null },
+          where: {
+            id: task.id,
+            openedAt: null,
+            completedAt: null,
+            participant: { status: PerfParticipantStatus.ACTIVE },
+          },
           data: { openedAt: now },
         });
         if (changed.count === 1) {

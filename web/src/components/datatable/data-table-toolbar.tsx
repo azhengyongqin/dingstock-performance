@@ -6,10 +6,9 @@ import type { ReactNode } from 'react'
 
 // Third-party Imports
 import type { Table as TanstackTable } from '@tanstack/react-table'
-import { SearchIcon } from 'lucide-react'
 
 // Component Imports
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import SearchInput from '@/components/shared/SearchInput'
 import { Label } from '@/components/ui/label'
 
 export interface DataTableToolbarProps<TData> {
@@ -63,18 +62,12 @@ export function DataTableToolbar<TData>({
           <Label htmlFor={`${id}-search`} className='sr-only'>
             搜索
           </Label>
-          <InputGroup>
-            <InputGroupAddon>
-              <SearchIcon />
-            </InputGroupAddon>
-            <InputGroupInput
-              id={`${id}-search`}
-              value={searchValue}
-              onChange={event => handleSearch(event.target.value)}
-              placeholder={searchPlaceholder}
-              type='text'
-            />
-          </InputGroup>
+          <SearchInput
+            id={`${id}-search`}
+            value={searchValue}
+            onChange={handleSearch}
+            placeholder={searchPlaceholder}
+          />
         </div>
       )}
 

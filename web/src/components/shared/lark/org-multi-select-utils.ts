@@ -1,8 +1,13 @@
 /**
  * 组织多选：拼音模糊匹配、关键字高亮区间、已选展开为全量用户。
+ * 拼音匹配实现见 `@/lib/pinyin-search`，此处保留组织场景别名以便既有调用点不变。
  */
 
-import { match as matchPinyin } from 'pinyin-pro'
+import {
+  getPinyinSearchHighlightIndices,
+  indicesToRanges,
+  matchesPinyinSearch
+} from '@/lib/pinyin-search'
 
 export type OrgContactDepartment = {
   open_department_id: string
@@ -38,61 +43,13 @@ export type OrgMultiSelectDepartment = {
 
 export type OrgMultiSelectItem = OrgMultiSelectUser | OrgMultiSelectDepartment
 
-/** 文本是否命中关键字：原文包含（忽略大小写）或拼音 / 首字母模糊匹配 */
-export const matchesOrgSearch = (text: string, keyword: string): boolean => {
-  const q = keyword.trim()
+/** 组织多选场景别名，实现见 matchesPinyinSearch */
+export const matchesOrgSearch = matchesPinyinSearch
 
-  if (!q) return true
-  if (text.toLowerCase().includes(q.toLowerCase())) return true
+/** 组织多选场景别名，实现见 getPinyinSearchHighlightIndices */
+export const getOrgSearchHighlightIndices = getPinyinSearchHighlightIndices
 
-  return matchPinyin(text, q) != null
-}
-
-/**
- * 返回需要高亮的字符下标（原文子串优先，否则用拼音匹配下标）。
- * 用于把「zs」「zhang」映射回「张三」中的汉字位置。
- */
-export const getOrgSearchHighlightIndices = (text: string, keyword: string): number[] => {
-  const q = keyword.trim()
-
-  if (!q || !text) return []
-
-  const lowerText = text.toLowerCase()
-  const lowerQ = q.toLowerCase()
-  const literalIndex = lowerText.indexOf(lowerQ)
-
-  if (literalIndex >= 0) {
-    return Array.from({ length: q.length }, (_, offset) => literalIndex + offset)
-  }
-
-  return matchPinyin(text, q) ?? []
-}
-
-/** 将字符下标合并为连续区间 [start, end) */
-export const indicesToRanges = (indices: number[]): Array<[number, number]> => {
-  if (indices.length === 0) return []
-
-  const sorted = [...new Set(indices)].sort((a, b) => a - b)
-  const ranges: Array<[number, number]> = []
-  let start = sorted[0]
-  let end = sorted[0] + 1
-
-  for (let i = 1; i < sorted.length; i++) {
-    const index = sorted[i]
-
-    if (index === end) {
-      end = index + 1
-    } else {
-      ranges.push([start, end])
-      start = index
-      end = index + 1
-    }
-  }
-
-  ranges.push([start, end])
-
-  return ranges
-}
+export { indicesToRanges }
 
 const parseJsonField = <T,>(value: string | T | undefined | null): T | undefined => {
   if (value === undefined || value === null) return undefined

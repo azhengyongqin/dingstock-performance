@@ -11,8 +11,8 @@ import { Loader2Icon } from 'lucide-react'
 // Component Imports
 import { DataTable, DataTablePagination } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
+import { RequestErrorState } from '@/components/shared/RequestErrorState'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -57,7 +57,7 @@ const TaskTable = ({ data, emptyText }: { data: ReviewTask[]; emptyText: string 
 const ReviewTasks = () => {
   const [tasks, setTasks] = useState<ReviewTaskItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   const fetchTasks = useCallback(async () => {
     setLoading(true)
@@ -68,7 +68,7 @@ const ReviewTasks = () => {
 
       setTasks(data.items ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法加载评审任务')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -95,11 +95,9 @@ const ReviewTasks = () => {
 
   if (error) {
     return (
-      <div className='text-destructive flex flex-col items-center gap-3 py-24 text-sm'>
-        {error}
-        <Button variant='outline' size='sm' onClick={() => void fetchTasks()}>
-          重试
-        </Button>
+      <div className='flex flex-col gap-6'>
+        <PageHeader title='评审任务' description='分配给我的 360° 评估与上级评估任务' />
+        <RequestErrorState error={error} size='page' onRetry={() => void fetchTasks()} />
       </div>
     )
   }

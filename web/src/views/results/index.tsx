@@ -1,15 +1,35 @@
 'use client'
 
+/**
+ * 结果确认（员工视角，真实后端 /results/current）：
+ * Alert 状态条 + StatsCards 摘要 + Tabs 结果明细（维度 / 上级评语 / 自评 / 申诉）。
+ * participant.status 为 RESULT_PUBLISHED / RE_CONFIRMING 时可确认或发起申诉。
+ */
+
 // React Imports
 import { useCallback, useEffect, useState } from 'react'
 
 // Third-party Imports
-import { Loader2Icon } from 'lucide-react'
+import {
+  AlertCircleIcon,
+  AwardIcon,
+  CheckCircle2Icon,
+  GaugeIcon,
+  HashIcon,
+  Loader2Icon
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
 import { EvaluationAnswerContent } from '@/components/shared/markdown'
+import {
+  isPerfPerformanceLevel,
+  PerformanceLevelBadge,
+  RATING_SOFT
+} from '@/components/shared/PerformanceLevelBadge'
+import { StatsCards } from '@/components/shared/StatsCards'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,16 +43,17 @@ import {
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 // Util Imports
 import { apiFetch } from '@/lib/api'
 import type { PerfAppealStatus, PerfParticipantStatus } from '@/lib/perf-api'
 import { APPEAL_STATUS_LABEL, PARTICIPANT_STATUS_LABEL, formatDateTime } from '@/lib/perf-api'
+import { cn } from '@/lib/utils'
 
 // ===== 后端数据类型（GET /results/current） =====
 
-/** 发布时冻结的上级评估维度结果 */
 type DimensionResult = {
   dimensionKey: string
   name: string
@@ -47,7 +68,6 @@ type VisibleFieldAnswer = {
   value?: unknown
 }
 
-/** 我的申诉记录 */
 type AppealItem = {
   id: number
   status: PerfAppealStatus
@@ -55,7 +75,6 @@ type AppealItem = {
   conclusion?: string | null
 }
 
-/** 当前周期结果上下文 */
 type CurrentResult = {
   participant: { id: number; status: PerfParticipantStatus; cycle: { id: number; name: string } } | null
   result: {
@@ -80,44 +99,47 @@ type CurrentResult = {
   appeals?: AppealItem[]
 }
 
-/** 统一展示发布快照中的可见答案，避免不同结果分区的回退规则漂移。 */
-const renderFieldAnswers = (fields: VisibleFieldAnswer[]) => (
-  <>
-    {fields.map(field => (
-      <div key={`${field.fieldKey}-${field.title}`} className='rounded-lg border p-4 text-sm'>
-        <p className='font-medium'>{field.title}</p>
-        <EvaluationAnswerContent
-          type={field.type}
-          value={String(field.value ?? '')}
-          className='text-muted-foreground mt-1'
-        />
-      </div>
-    ))}
-  </>
-)
-
-// 申诉状态徽标配色
 const APPEAL_STATUS_BADGE: Record<PerfAppealStatus, string> = {
   PENDING: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
   IN_INTERVIEW: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
   RESOLVED: 'bg-green-500/10 text-green-600 dark:text-green-400'
 }
 
-/**
- * 结果确认（员工视角，真实后端 /results/current）：
- * 绩效等级展示卡 + 各维度结果 + 确认/申诉操作 + 申诉记录。
- * participant.status 为 RESULT_PUBLISHED / RE_CONFIRMING 时可确认或发起申诉。
- */
+const FieldAnswers = ({ fields }: { fields: VisibleFieldAnswer[] }) => {
+  if (fields.length === 0) {
+    return <p className='text-muted-foreground py-4 text-center text-sm'>暂无内容</p>
+  }
+
+  return (
+    <div className='flex flex-col gap-3'>
+      {fields.map(field => (
+        <div key={`${field.fieldKey}-${field.title}`} className='space-y-1'>
+          <p className='text-sm font-medium'>{field.title}</p>
+          <EvaluationAnswerContent
+            type={field.type}
+            value={String(field.value ?? '')}
+            className='text-muted-foreground text-sm'
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const StatusBadge = ({ confirmedAt }: { confirmedAt?: string | null }) =>
+  confirmedAt ? (
+    <Badge className='bg-green-500/10 text-green-600 dark:text-green-400'>
+      已确认 · {formatDateTime(confirmedAt)}
+    </Badge>
+  ) : (
+    <Badge className='bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'>待确认</Badge>
+  )
+
 const Results = () => {
-  // 结果数据
   const [data, setData] = useState<CurrentResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  // 操作中状态
   const [confirming, setConfirming] = useState(false)
-
-  // 申诉弹窗
   const [appealOpen, setAppealOpen] = useState(false)
   const [appealReason, setAppealReason] = useState('')
   const [appealSubmitting, setAppealSubmitting] = useState(false)
@@ -125,11 +147,8 @@ const Results = () => {
   const participant = data?.participant ?? null
   const result = data?.result ?? null
   const appeals = data?.appeals ?? []
-
-  // 可操作：结果已发布待确认 / 申诉处理后待再次确认
   const actionable = participant?.status === 'RESULT_PUBLISHED' || participant?.status === 'RE_CONFIRMING'
 
-  // 拉取当前周期结果
   const fetchCurrent = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -145,14 +164,12 @@ const Results = () => {
     }
   }, [])
 
-  // 首次加载（放入宏任务，避免在 effect 中同步 setState）
   useEffect(() => {
     const initialLoad = setTimeout(() => void fetchCurrent(), 0)
 
     return () => clearTimeout(initialLoad)
   }, [fetchCurrent])
 
-  // 确认结果
   const handleConfirm = async () => {
     if (!participant || !result) return
 
@@ -172,7 +189,6 @@ const Results = () => {
     }
   }
 
-  // 提交申诉（理由必填）
   const handleAppeal = async () => {
     if (!participant) return
 
@@ -199,8 +215,6 @@ const Results = () => {
       setAppealSubmitting(false)
     }
   }
-
-  // ===== 三态：加载 / 错误 / 无周期或结果未发布 =====
 
   if (loading) {
     return (
@@ -242,133 +256,173 @@ const Results = () => {
     )
   }
 
+  const dims = result.resultSnapshot.manager.dimensions
+  const composite = result.resultSnapshot.manager.compositeScore
+  const finalLevelColor = isPerfPerformanceLevel(result.finalLevel) ? RATING_SOFT[result.finalLevel] : null
+
   return (
-    <div className='flex flex-col gap-6'>
+    <div className='flex flex-col gap-6 pb-8'>
       <PageHeader
         title='结果确认'
-        description={`${participant.cycle.name} · 我的状态：${PARTICIPANT_STATUS_LABEL[participant.status] ?? participant.status}`}
-        actions={
-          result.confirmedAt ? (
-            <Badge className='bg-green-500/10 text-green-600 dark:text-green-400'>
-              已确认{result.confirmedAt ? ` · ${formatDateTime(result.confirmedAt)}` : ''}
-            </Badge>
-          ) : (
-            <Badge className='bg-yellow-500/10 text-yellow-600 dark:text-yellow-400'>待确认</Badge>
-          )
-        }
+        description={participant.cycle.name}
+        actions={<StatusBadge confirmedAt={result.confirmedAt} />}
       />
 
-      {/* 绩效等级展示卡 */}
-      <Card>
-        <CardContent className='flex flex-wrap items-center justify-between gap-6'>
-          <div className='flex items-center gap-6'>
-            <div className='bg-primary/10 text-primary flex size-20 items-center justify-center rounded-2xl text-4xl font-bold'>
-              {result.finalLevel}
-            </div>
-            <div className='flex flex-col gap-1'>
-              <span className='text-lg font-semibold'>绩效等级：{result.finalLevel}</span>
-              <span className='text-muted-foreground text-sm'>
-                版本 V{result.version} · 发布于 {formatDateTime(result.publishedAt)}
-              </span>
-              {result.employeeExplanation && (
-                <span className='text-muted-foreground text-sm'>{result.employeeExplanation}</span>
-              )}
-              {result.previousFinalLevel && result.previousFinalLevel !== result.finalLevel && (
-                <span className='text-muted-foreground text-sm'>
-                  等级变化：{result.previousFinalLevel} → {result.finalLevel}
-                </span>
-              )}
-            </div>
+      {actionable ? (
+        <Alert className='border-amber-500/30 bg-amber-500/5'>
+          <AlertCircleIcon />
+          <AlertTitle>请确认本周期绩效结果</AlertTitle>
+          <AlertDescription>
+            等级 {result.finalLevel}
+            {composite ? ` · 综合分 ${composite}` : ''}
+            。确认后进入面谈闭环；有异议可发起申诉。
+          </AlertDescription>
+          <div className='col-span-full mt-3 flex justify-end gap-2'>
+            <Button variant='outline' disabled={confirming} onClick={() => setAppealOpen(true)}>
+              发起申诉
+            </Button>
+            <Button disabled={confirming} onClick={() => void handleConfirm()}>
+              {confirming && <Loader2Icon className='size-4 animate-spin' />}
+              确认结果
+            </Button>
           </div>
-          {/* 确认 / 申诉操作：仅待确认或待再次确认时可用 */}
-          {actionable && (
-            <div className='flex items-center gap-3'>
-              <Button variant='outline' disabled={confirming} onClick={() => setAppealOpen(true)}>
-                发起申诉
-              </Button>
-              <Button disabled={confirming} onClick={() => void handleConfirm()}>
-                {confirming && <Loader2Icon className='size-4 animate-spin' />}
-                确认结果
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 各维度结果 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>各维度结果</CardTitle>
-          <CardDescription>按评估维度拆解的结果与评语</CardDescription>
-        </CardHeader>
-        <CardContent className='flex flex-col gap-4'>
-          {result.resultSnapshot.manager.compositeScore && (
-            <p className='text-sm font-medium'>上级评估综合分：{result.resultSnapshot.manager.compositeScore}</p>
-          )}
-          {result.resultSnapshot.manager.dimensions.length === 0 ? (
-            <p className='text-muted-foreground py-6 text-center text-sm'>暂无维度结果明细</p>
-          ) : (
-            result.resultSnapshot.manager.dimensions.map(dimension => (
-              <div key={dimension.dimensionKey} className='flex flex-col gap-2 rounded-lg border p-4'>
-                <div className='flex flex-wrap items-center justify-between gap-2'>
-                  <div className='flex items-center gap-2'>
-                    <span className='font-medium'>{dimension.name}</span>
-                    <Badge variant='outline'>等级 {dimension.level}</Badge>
-                  </div>
-                  <span className='text-primary text-lg font-semibold'>{dimension.score} 分</span>
-                </div>
-                <Progress value={Number(dimension.score)} className='h-2' />
-              </div>
-            ))
-          )}
-          {renderFieldAnswers(result.resultSnapshot.manager.fields)}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>我的自评</CardTitle>
-          <CardDescription>
-            {result.resultSnapshot.self.level ? `自评等级：${result.resultSnapshot.self.level}` : '本期正式提交内容'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className='flex flex-col gap-3'>
-          {renderFieldAnswers(result.resultSnapshot.self.fields)}
-        </CardContent>
-      </Card>
-
-      {/* 申诉记录：已发起过申诉时展示 */}
-      {appeals.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>我的申诉</CardTitle>
-            <CardDescription>本周期发起的申诉与处理进展</CardDescription>
-          </CardHeader>
-          <CardContent className='flex flex-col gap-3'>
-            {appeals.map(appeal => (
-              <div key={appeal.id} className='flex flex-col gap-2 rounded-lg border p-4'>
-                <div className='flex items-center gap-2'>
-                  <Badge className={APPEAL_STATUS_BADGE[appeal.status]}>
-                    {APPEAL_STATUS_LABEL[appeal.status] ?? appeal.status}
-                  </Badge>
-                </div>
-                <p className='text-sm'>申诉理由：{appeal.reason}</p>
-                {appeal.conclusion && <p className='text-muted-foreground text-sm'>处理结论：{appeal.conclusion}</p>}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+        </Alert>
+      ) : (
+        <Alert>
+          <CheckCircle2Icon />
+          <AlertTitle>结果已确认</AlertTitle>
+          <AlertDescription>
+            {result.confirmedAt ? `确认于 ${formatDateTime(result.confirmedAt)}` : '本周期结果已处理完毕'}
+            {result.employeeExplanation ? ` · ${result.employeeExplanation}` : ''}
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* 确认说明 */}
+      <StatsCards
+        items={[
+          {
+            label: '绩效等级',
+            value: <PerformanceLevelBadge level={result.finalLevel} size='md' variant='plain' />,
+            description:
+              result.previousFinalLevel && result.previousFinalLevel !== result.finalLevel
+                ? `${result.previousFinalLevel} → ${result.finalLevel}`
+                : PARTICIPANT_STATUS_LABEL[participant.status],
+            icon: <AwardIcon className='size-4' />,
+            iconClassName: finalLevelColor
+              ? cn(finalLevelColor.bg, finalLevelColor.text)
+              : 'bg-primary/10 text-primary'
+          },
+          {
+            label: '综合分',
+            value: composite ?? '—',
+            description: '上级评估综合分',
+            icon: <GaugeIcon className='size-4' />,
+            iconClassName: 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+          },
+          {
+            label: '版本',
+            value: `V${result.version}`,
+            description: `发布于 ${formatDateTime(result.publishedAt)}`,
+            icon: <HashIcon className='size-4' />,
+            iconClassName: 'bg-violet-500/10 text-violet-600 dark:text-violet-400'
+          },
+          {
+            label: '我的状态',
+            value: PARTICIPANT_STATUS_LABEL[participant.status] ?? participant.status,
+            description: result.employeeExplanation ?? '当前周期参评状态',
+            icon: <CheckCircle2Icon className='size-4' />,
+            iconClassName: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+          }
+        ]}
+      />
+
       <Card>
-        <CardContent className='text-muted-foreground text-sm'>
-          确认结果后进入面谈闭环阶段；若对结果有异议，请在确认窗口内点击「发起申诉」，HR
-          将安排申诉面谈。逾期未操作视为默认确认。
+        <CardHeader>
+          <CardTitle>结果明细</CardTitle>
+          <CardDescription>按 Tab 查看维度评分、评语与自评</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue='dimensions'>
+            <TabsList>
+              <TabsTrigger value='dimensions'>各维度</TabsTrigger>
+              <TabsTrigger value='manager'>上级评语</TabsTrigger>
+              <TabsTrigger value='self'>我的自评</TabsTrigger>
+              {appeals.length > 0 && <TabsTrigger value='appeals'>申诉</TabsTrigger>}
+            </TabsList>
+
+            <TabsContent value='dimensions' className='mt-4 space-y-3'>
+              {dims.length === 0 ? (
+                <p className='text-muted-foreground py-6 text-center text-sm'>暂无维度结果明细</p>
+              ) : (
+                dims.map(dimension => {
+                  const levelColor = isPerfPerformanceLevel(dimension.level)
+                    ? RATING_SOFT[dimension.level]
+                    : null
+
+                  return (
+                    <Card key={dimension.dimensionKey} size='sm'>
+                      <CardContent className='flex flex-col gap-2'>
+                        <div className='flex flex-wrap items-center justify-between gap-2'>
+                          <div className='flex items-center gap-2'>
+                            <span className='font-medium'>{dimension.name}</span>
+                            <PerformanceLevelBadge level={dimension.level} />
+                          </div>
+                          <span
+                            className={cn(
+                              'text-lg font-semibold tabular-nums',
+                              levelColor?.text ?? 'text-primary'
+                            )}
+                          >
+                            {dimension.score} 分
+                          </span>
+                        </div>
+                        <Progress value={Number(dimension.score) || 0} className='h-2' />
+                      </CardContent>
+                    </Card>
+                  )
+                })
+              )}
+            </TabsContent>
+
+            <TabsContent value='manager' className='mt-4'>
+              <FieldAnswers fields={result.resultSnapshot.manager.fields} />
+            </TabsContent>
+
+            <TabsContent value='self' className='mt-4 space-y-3'>
+              {result.resultSnapshot.self.level && (
+                <div className='flex items-center gap-2 text-sm'>
+                  <span className='text-muted-foreground'>自评等级</span>
+                  <PerformanceLevelBadge level={result.resultSnapshot.self.level} />
+                </div>
+              )}
+              <FieldAnswers fields={result.resultSnapshot.self.fields} />
+            </TabsContent>
+
+            {appeals.length > 0 && (
+              <TabsContent value='appeals' className='mt-4'>
+                <div className='flex flex-col gap-3'>
+                  {appeals.map(appeal => (
+                    <div key={appeal.id} className='rounded-lg border p-3 text-sm'>
+                      <Badge className={APPEAL_STATUS_BADGE[appeal.status]}>
+                        {APPEAL_STATUS_LABEL[appeal.status] ?? appeal.status}
+                      </Badge>
+                      <p className='mt-2'>{appeal.reason}</p>
+                      {appeal.conclusion && (
+                        <p className='text-muted-foreground mt-1'>结论：{appeal.conclusion}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+            )}
+          </Tabs>
         </CardContent>
       </Card>
 
-      {/* 申诉弹窗：理由必填 */}
+      <p className='text-muted-foreground text-center text-xs'>
+        确认结果后进入面谈闭环；若对结果有异议，请在确认窗口内点击「发起申诉」。逾期未操作视为默认确认。
+      </p>
+
       <Dialog open={appealOpen} onOpenChange={setAppealOpen}>
         <DialogContent>
           <DialogHeader>

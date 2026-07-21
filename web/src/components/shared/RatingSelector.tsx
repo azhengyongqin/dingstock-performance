@@ -5,115 +5,17 @@
  * 选中用等级浅色；hover 白底介绍面板展示规则配置中的区间/映射/说明。
  * 等级间距：min 2px，随父级可用宽度拉伸，整体上限限制最大间距。
  */
-import { Badge } from '@/components/ui/badge'
+import {
+  RATING_SOFT,
+  RatingHoverPanel,
+  resolveRating
+} from '@/components/shared/PerformanceLevelBadge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { PerfConfigTemplateRating, PerfPerformanceLevel } from '@/lib/perf-api'
 import { cn } from '@/lib/utils'
 
 /** 低→高时间轴，对齐飞书参考交互 */
 const ASCENDING_SYMBOLS: PerfPerformanceLevel[] = ['C', 'B', 'A', 'S']
-
-const FALLBACK_RATING: Record<PerfPerformanceLevel, Omit<PerfConfigTemplateRating, 'symbol'>> = {
-  S: {
-    name: '卓越',
-    description: '工作结果、成长速度等方面有重大突破和创新',
-    minScore: '90',
-    maxScore: '100',
-    mappingScore: '95'
-  },
-  A: {
-    name: '优秀',
-    description: '整体表现超出预期',
-    minScore: '80',
-    maxScore: '90',
-    mappingScore: '85'
-  },
-  B: {
-    name: '良好',
-    description: '整体表现符合预期',
-    minScore: '60',
-    maxScore: '80',
-    mappingScore: '70'
-  },
-  C: {
-    name: '不符预期',
-    description: '绩效目标、工作态度或价值观表现不符合预期',
-    minScore: '0',
-    maxScore: '60',
-    mappingScore: '50'
-  }
-}
-
-type RatingSoftColor = {
-  bg: string
-  text: string
-  border: string
-  ring: string
-}
-
-/** 与配置模板 getRatingColor 浅色一致 */
-const RATING_SOFT: Record<PerfPerformanceLevel, RatingSoftColor> = {
-  S: {
-    bg: 'bg-purple-100',
-    text: 'text-purple-700',
-    border: 'border-purple-200',
-    ring: 'ring-purple-300/60'
-  },
-  A: {
-    bg: 'bg-green-100',
-    text: 'text-green-700',
-    border: 'border-green-200',
-    ring: 'ring-green-300/60'
-  },
-  B: {
-    bg: 'bg-amber-100',
-    text: 'text-amber-700',
-    border: 'border-amber-200',
-    ring: 'ring-amber-300/60'
-  },
-  C: {
-    bg: 'bg-red-100',
-    text: 'text-red-700',
-    border: 'border-red-200',
-    ring: 'ring-red-300/60'
-  }
-}
-
-function resolveRating(symbol: PerfPerformanceLevel, ratings?: PerfConfigTemplateRating[]): PerfConfigTemplateRating {
-  const fromConfig = ratings?.find(item => item.symbol === symbol)
-  const fallback = FALLBACK_RATING[symbol]
-
-  return {
-    symbol,
-    name: fromConfig?.name || fallback.name,
-    description: fromConfig?.description ?? fallback.description,
-    minScore: fromConfig?.minScore ?? fallback.minScore,
-    maxScore: fromConfig?.maxScore ?? fallback.maxScore,
-    mappingScore: fromConfig?.mappingScore ?? fallback.mappingScore
-  }
-}
-
-function RatingHoverPanel({ rating, color }: { rating: PerfConfigTemplateRating; color: RatingSoftColor }) {
-  return (
-    <div className='flex w-full gap-3 text-left'>
-      <Badge
-        variant='outline'
-        className={cn('h-fit min-w-11 shrink-0 justify-center border bg-white/90 shadow-xs', color.text, color.border)}
-      >
-        {rating.symbol}
-      </Badge>
-      <div className='min-w-0 flex-1'>
-        <div className='flex flex-wrap items-baseline gap-x-2 gap-y-0.5'>
-          <span className={cn('text-sm font-semibold', color.text)}>{rating.name}</span>
-          <span className='text-foreground/60 text-xs font-normal'>
-            {rating.minScore}–{rating.maxScore} · 映射 {rating.mappingScore}
-          </span>
-        </div>
-        <p className='text-foreground/75 mt-1.5 text-sm leading-relaxed'>{rating.description || '未配置说明'}</p>
-      </div>
-    </div>
-  )
-}
 
 export type RatingSelectorProps = {
   value: PerfPerformanceLevel | null | undefined

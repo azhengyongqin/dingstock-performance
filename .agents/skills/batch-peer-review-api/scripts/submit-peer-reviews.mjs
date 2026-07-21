@@ -8,10 +8,12 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// 复用 backend 的 pg，避免在 skill 目录单独装依赖
-const require = createRequire(
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../backend/package.json'),
+// 复用 backend 的 pg，避免在 skill 目录单独装依赖；线上可设 PERF_BACKEND_PACKAGE
+const defaultBackendPackage = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../backend/package.json',
 )
+const require = createRequire(process.env.PERF_BACKEND_PACKAGE || defaultBackendPackage)
 const { Client } = require('pg')
 
 const DEFAULT_BASE = 'http://localhost:3000'

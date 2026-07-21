@@ -411,6 +411,24 @@ input[type='number']::-webkit-outer-spin-button {
   --spacing: 0.262222rem;
 }
 
+/* 请求错误态插画：切换 kind / 重试时的轻浮起反馈 */
+@keyframes request-error-float {
+  0% {
+    transform: translateY(6px) scale(0.98);
+    opacity: 0.7;
+  }
+
+  60% {
+    transform: translateY(-2px) scale(1.02);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
 /* 评估表单模板换序：关闭整页淡入淡出，保留具名元素的位移动画 */
 ::view-transition-old(root),
 ::view-transition-new(root) {

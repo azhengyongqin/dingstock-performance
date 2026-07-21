@@ -11,8 +11,8 @@ import { Loader2Icon } from 'lucide-react'
 // Component Imports
 import { DataTable } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
+import { EmptyState, RequestErrorState } from '@/components/shared/RequestErrorState'
 import { StatsCards } from '@/components/shared/StatsCards'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 // Util Imports
@@ -38,7 +38,7 @@ type TeamDashboardData = {
 const TeamReview = () => {
   const [data, setData] = useState<TeamDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   // 排序状态（360° 进度列可排序）
   const [sorting, setSorting] = useState<SortingState>([])
@@ -52,7 +52,7 @@ const TeamReview = () => {
 
       setData(result)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法加载团队看板，请确认后端服务已启动。')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -104,11 +104,9 @@ const TeamReview = () => {
 
   if (error) {
     return (
-      <div className='text-destructive flex flex-col items-center gap-3 py-24 text-sm'>
-        {error}
-        <Button variant='outline' size='sm' onClick={() => void fetchDashboard()}>
-          重试
-        </Button>
+      <div className='flex flex-col gap-6'>
+        <PageHeader title='团队看板' description='当前周期团队成员的评审进度总览' />
+        <RequestErrorState error={error} size='page' onRetry={() => void fetchDashboard()} />
       </div>
     )
   }
@@ -120,9 +118,11 @@ const TeamReview = () => {
         <PageHeader title='团队看板' description='当前周期团队成员的评审进度总览' />
         <Card>
           <CardContent>
-            <div className='text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center text-sm'>
-              <span>暂无进行中的周期或你名下没有团队成员</span>
-            </div>
+            <EmptyState
+              title='暂无团队数据'
+              description='暂无进行中的周期，或你名下没有团队成员'
+              size='card'
+            />
           </CardContent>
         </Card>
       </div>

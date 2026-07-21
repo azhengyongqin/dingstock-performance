@@ -20,11 +20,15 @@ import {
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
+import { EmptyState, RequestErrorState } from '@/components/shared/RequestErrorState'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+
+// Context Imports
+import { useAuth, type NavRole } from '@/contexts/authContext'
 
 // Util Imports
 import { apiFetch } from '@/lib/api'
@@ -41,14 +45,19 @@ const CYCLE_STAGES = [
   { label: '面谈闭环', done: false }
 ]
 
-// 快捷入口
-const QUICK_LINKS = [
+// 快捷入口：roles 与 navConfig / ROUTE_ROLES 对齐；未声明 = 所有登录用户可见
+const QUICK_LINKS: {
+  icon: typeof FilePenIcon
+  label: string
+  href: string
+  roles?: NavRole[]
+}[] = [
   { icon: FilePenIcon, label: '员工自评', href: '/self-review' },
   { icon: ListTodoIcon, label: '评审任务', href: '/review-tasks' },
-  { icon: UsersIcon, label: '团队看板', href: '/team-review' },
-  { icon: SlidersHorizontalIcon, label: '绩效校准', href: '/calibrations' },
-  { icon: CalendarRangeIcon, label: '周期管理', href: '/cycles' },
-  { icon: BarChart3Icon, label: '绩效看板', href: '/dashboard' }
+  { icon: UsersIcon, label: '团队看板', href: '/team-review', roles: ['LEADER', 'HR', 'ADMIN'] },
+  { icon: SlidersHorizontalIcon, label: '绩效校准', href: '/calibrations', roles: ['HR', 'ADMIN'] },
+  { icon: CalendarRangeIcon, label: '周期管理', href: '/cycles', roles: ['HR', 'ADMIN'] },
+  { icon: BarChart3Icon, label: '绩效看板', href: '/dashboard', roles: ['HR', 'ADMIN'] }
 ]
 
 // ===== 后端数据类型（GET /workbench/todos） =====
@@ -118,10 +127,15 @@ const buildTodoCards = (todos: WorkbenchTodos): TodoCard[] => {
  * 工作台：按角色的待办任务（真实后端 /workbench/todos）+ 当前周期进度（六阶段步骤条）+ 快捷入口。
  */
 const Workbench = () => {
+  const { hasAccess } = useAuth()
+
   // 待办数量数据
   const [todos, setTodos] = useState<WorkbenchTodos | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
+
+  // 按当前用户角色过滤快捷入口（与侧边栏可见性一致）
+  const quickLinks = QUICK_LINKS.filter(link => hasAccess(link.roles))
 
   // 拉取待办汇总
   const fetchTodos = useCallback(async () => {
@@ -133,7 +147,7 @@ const Workbench = () => {
 
       setTodos(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法加载待办数据，请确认后端服务已启动。')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -213,21 +227,9 @@ const Workbench = () => {
                 <Skeleton className='h-20 w-full' />
               </>
             ) : error ? (
-
-              // 错误态
-              <div className='text-muted-foreground flex flex-col items-center gap-3 rounded-lg border border-dashed p-8 text-center text-sm'>
-                <span>{error}</span>
-                <Button variant='outline' size='sm' onClick={() => void fetchTodos()}>
-                  重试
-                </Button>
-              </div>
+              <RequestErrorState error={error} size='card' onRetry={() => void fetchTodos()} />
             ) : todoCards.length === 0 ? (
-
-              // 空态：所有类型待办均为 0
-              <div className='text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed p-8 text-center text-sm'>
-                <span>无待办</span>
-                <span>当前周期没有需要你处理的事项</span>
-              </div>
+              <EmptyState title='无待办' description='当前周期没有需要你处理的事项' size='card' />
             ) : (
               todoCards.map(task => (
                 <div key={task.title} className='flex items-center justify-between gap-4 rounded-lg border p-4'>
@@ -249,27 +251,29 @@ const Workbench = () => {
           </CardContent>
         </Card>
 
-        {/* 快捷入口 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>快捷入口</CardTitle>
-            <CardDescription>常用功能一键直达</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className='grid grid-cols-2 gap-3'>
-              {QUICK_LINKS.map(link => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className='hover:bg-muted flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors'
-                >
-                  <link.icon className='text-primary size-6' />
-                  <span className='text-sm'>{link.label}</span>
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        {/* 快捷入口：无任何可见项时整卡隐藏 */}
+        {quickLinks.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>快捷入口</CardTitle>
+              <CardDescription>常用功能一键直达</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className='grid grid-cols-2 gap-3'>
+                {quickLinks.map(link => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className='hover:bg-muted flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors'
+                  >
+                    <link.icon className='text-primary size-6' />
+                    <span className='text-sm'>{link.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

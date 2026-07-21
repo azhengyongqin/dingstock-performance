@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 // Component Imports
 import { LarkMemberPickerDialog, UserAvatar, type LarkPickerMember } from '@/components/shared/lark'
 import PageHeader from '@/components/shared/PageHeader'
+import { RequestErrorState } from '@/components/shared/RequestErrorState'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ApiError, apiFetch } from '@/lib/api'
 import type { LarkUserBrief } from '@/lib/perf-api'
 import { avatarUrlOf } from '@/lib/perf-api'
+import { requestErrorMessage } from '@/lib/request-error'
 import {
   groupReviewersByRelation,
   RELATION_LABEL,
@@ -167,7 +169,7 @@ const ReviewerAssign = () => {
   const [leaderOpenId, setLeaderOpenId] = useState<string | null>(null)
   const [knownAssignmentIds, setKnownAssignmentIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [saving, setSaving] = useState(false)
 
   /** 分组直邀弹窗当前作用的关系分组；null = 关闭 */
@@ -179,7 +181,7 @@ const ReviewerAssign = () => {
 
   const fetchData = useCallback(async () => {
     if (!participantId) {
-      setError('缺少 participant_id 参数')
+      setError(new Error('缺少 participant_id 参数'))
       setLoading(false)
 
       return
@@ -215,7 +217,7 @@ const ReviewerAssign = () => {
         }))
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法加载评审员数据')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -285,7 +287,7 @@ const ReviewerAssign = () => {
         toast.error(err.message)
         void fetchData()
       } else {
-        toast.error(err instanceof ApiError ? err.message : '保存失败')
+        toast.error(requestErrorMessage(err, '保存失败'))
       }
     } finally {
       setSaving(false)
@@ -316,7 +318,7 @@ const ReviewerAssign = () => {
       setReplaceReason('')
       await fetchData()
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '替换评审员失败')
+      toast.error(requestErrorMessage(err, '替换评审员失败'))
     } finally {
       setReplacing(false)
     }
@@ -333,11 +335,14 @@ const ReviewerAssign = () => {
 
   if (error) {
     return (
-      <div className='text-destructive flex flex-col items-center gap-3 py-24 text-sm'>
-        {error}
-        <Button variant='outline' size='sm' onClick={() => void fetchData()}>
-          重试
-        </Button>
+      <div className='flex flex-col gap-6'>
+        <PageHeader
+          title='评审人推荐与指定'
+          description='为被评估人指定 360°评估人'
+          backHref='/team-review'
+          backLabel='团队看板'
+        />
+        <RequestErrorState error={error} size='page' onRetry={() => void fetchData()} />
       </div>
     )
   }

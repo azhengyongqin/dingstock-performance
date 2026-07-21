@@ -1,12 +1,14 @@
 ---
 name: test-manager-review
-description: 自动打开浏览器填写上级评估表单并保存草稿，用于测试 Leader 评估页面交互。当用户说「测试上级评估」「填写上级评估」「模拟填写上级评估」「测试 manager review」或给出 review-tasks/fill?type=MANAGER_REVIEW 链接时使用。
+description: 自动打开浏览器填写上级评估表单并保存草稿，用于测试 Leader 评估页面交互。当用户说「测试上级评估」「填写上级评估」「模拟填写上级评估」「测试 manager review」或给出 review-tasks/fill?type=MANAGER_REVIEW 链接时使用。多人批量或明确要求 API 提交时改用 batch-manager-review-api。
 disable-model-invocation: false
 ---
 
 # 测试上级评估
 
 用 Cursor Browser 打开上级评估填写页，按以下顺序填写三个维度（分数 + 评语）并保存草稿。默认只保存草稿，不提交；仅当用户明确要求时才点「提交上级评估」。
+
+多人造数、线上批量、随机 A/B 档分数 → 用 `batch-manager-review-api`（不走浏览器）。
 
 ## URL
 

@@ -24,7 +24,6 @@ import {
   DataTableViewOptions
 } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
-import { LarkMemberSelector, type LarkSelectorOption } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,6 +32,7 @@ import { cn } from '@/lib/utils'
 
 // Util Imports
 import { apiFetch } from '@/lib/api'
+import { matchesPinyinSearch } from '@/lib/pinyin-search'
 
 import { MEMBER_STATUS_OPTIONS, buildMemberTableColumns } from './member-table-columns'
 import type { LarkUser } from './member-table-columns'
@@ -273,14 +273,6 @@ const Organization = () => {
     }
   }
 
-  // 飞书搜索组件选中人员后，以其姓名作为成员表关键字过滤（定位到该成员）
-  const handleSelectMember = (option: LarkSelectorOption) => {
-    const keyword =
-      (typeof option.name === 'string' && option.name) || (typeof option.label === 'string' && option.label) || ''
-
-    if (keyword) setGlobalFilter(keyword)
-  }
-
   // 部门树（memo 避免重复构建）
   const departmentTree = useMemo(() => buildDepartmentTree(departments), [departments])
 
@@ -304,17 +296,21 @@ const Organization = () => {
     onColumnVisibilityChange: setColumnVisibility,
     getRowId: user => user.open_id,
 
-    // 全局搜索：匹配姓名 / 英文名 / 邮箱 / 工号
+    // 全局搜索：姓名/英文名支持拼音与首字母；邮箱/工号走原文包含
     globalFilterFn: (row, _columnId, filterValue) => {
-      const keyword = String(filterValue).trim().toLowerCase()
+      const keyword = String(filterValue).trim()
 
       if (!keyword) return true
 
       const user = row.original
+      const lower = keyword.toLowerCase()
 
-      return [user.name, user.en_name, user.email, user.corehr?.employee_number].some(field =>
-        field?.toLowerCase().includes(keyword)
-      )
+      if (matchesPinyinSearch(user.name ?? '', keyword)) return true
+      if (user.en_name && matchesPinyinSearch(user.en_name, keyword)) return true
+      if (user.email?.toLowerCase().includes(lower)) return true
+      if (user.corehr?.employee_number?.toLowerCase().includes(lower)) return true
+
+      return false
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -413,9 +409,8 @@ const Organization = () => {
               </div>
             ) : (
               <>
-                {/* 工具栏：姓名/邮箱/工号搜索 + 飞书人员搜索定位 + 在职状态筛选 + 列显隐自选 */}
+                {/* 工具栏：统一 SearchInput（支持拼音）+ 在职状态筛选 + 列显隐自选 */}
                 <DataTableToolbar table={table} enableGlobalSearch searchPlaceholder='搜索姓名、邮箱或工号'>
-                  <LarkMemberSelector placeholder='飞书人员搜索' triggerWidth={200} onSelect={handleSelectMember} />
                   <DataTableColumnFilter
                     column={table.getColumn('status')}
                     label='状态'

@@ -4,14 +4,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 // Third-party Imports
-import { ShieldAlertIcon } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 
 // Component Imports
 import PageHeader from '@/components/shared/PageHeader'
+import { EmptyState, RequestErrorState } from '@/components/shared/RequestErrorState'
 import { StatsCards } from '@/components/shared/StatsCards'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -71,7 +70,7 @@ const PerformanceDashboard = () => {
   // 看板数据
   const [data, setData] = useState<HrDashboard | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   // 403：当前登录人不是 HR
   const [forbidden, setForbidden] = useState(false)
@@ -90,7 +89,7 @@ const PerformanceDashboard = () => {
       if (err instanceof ApiError && err.status === 403) {
         setForbidden(true)
       } else {
-        setError(err instanceof Error ? err.message : '无法加载看板数据，请确认后端服务已启动。')
+        setError(err)
       }
     } finally {
       setLoading(false)
@@ -169,10 +168,13 @@ const PerformanceDashboard = () => {
       <div className='flex flex-col gap-6'>
         <PageHeader title='绩效看板' description='当前周期的整体数据概览' />
         <Card>
-          <CardContent className='text-muted-foreground flex flex-col items-center gap-2 py-16 text-sm'>
-            <ShieldAlertIcon className='size-8' />
-            <span className='text-foreground font-medium'>需要 HR 权限</span>
-            <span>绩效看板仅对 HR 角色开放，请联系管理员开通权限</span>
+          <CardContent>
+            <RequestErrorState
+              kind='forbidden'
+              title='需要 HR 权限'
+              description='绩效看板仅对 HR 角色开放，请联系管理员开通权限'
+              size='card'
+            />
           </CardContent>
         </Card>
       </div>
@@ -184,11 +186,8 @@ const PerformanceDashboard = () => {
       <div className='flex flex-col gap-6'>
         <PageHeader title='绩效看板' description='当前周期的整体数据概览' />
         <Card>
-          <CardContent className='text-muted-foreground flex flex-col items-center gap-3 py-16 text-sm'>
-            <span>{error}</span>
-            <Button variant='outline' size='sm' onClick={() => void fetchDashboard()}>
-              重试
-            </Button>
+          <CardContent>
+            <RequestErrorState error={error} size='card' onRetry={() => void fetchDashboard()} />
           </CardContent>
         </Card>
       </div>
@@ -200,9 +199,12 @@ const PerformanceDashboard = () => {
       <div className='flex flex-col gap-6'>
         <PageHeader title='绩效看板' description='当前周期的整体数据概览' />
         <Card>
-          <CardContent className='text-muted-foreground flex flex-col items-center gap-2 py-16 text-sm'>
-            <span>暂无进行中的周期</span>
-            <span>周期启动后，看板将展示各环节的实时数据</span>
+          <CardContent>
+            <EmptyState
+              title='暂无进行中的周期'
+              description='周期启动后，看板将展示各环节的实时数据'
+              size='card'
+            />
           </CardContent>
         </Card>
       </div>

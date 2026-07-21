@@ -85,8 +85,11 @@ export const getParticipantSetupColumns = ({
     header: '操作',
     enableSorting: false,
     meta: { headClassName: 'text-right', cellClassName: 'text-right' },
-    cell: ({ row }) =>
-      action !== 'NONE' ? (
+    cell: ({ row }) => {
+      // 进行中的周期只能让仍在参与的员工中途退出，历史终态仅供查看。
+      const canAct = action === 'REMOVE' || (action === 'WITHDRAW' && row.original.status === 'ACTIVE')
+
+      return canAct ? (
         <Button
           variant='ghost'
           size='icon-sm'
@@ -100,5 +103,6 @@ export const getParticipantSetupColumns = ({
           )}
         </Button>
       ) : null
+    }
   }
 ]

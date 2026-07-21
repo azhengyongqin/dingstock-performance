@@ -8,13 +8,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { Loader2Icon, NetworkIcon, SearchIcon, XIcon } from 'lucide-react'
+import { Loader2Icon, NetworkIcon, XIcon } from 'lucide-react'
 
+import SearchInput from '@/components/shared/SearchInput'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogTitle } from '@/components/ui/dialog'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -342,11 +342,6 @@ const LarkOrgMemberMultiSelectDialog = ({
     setCrumbs(prev => prev.slice(0, index + 1))
   }
 
-  const clearQuery = () => {
-    setQuery('')
-    searchInputRef.current?.focus()
-  }
-
   const handleConfirm = () => {
     onConfirm(selected, resolveExpandedUsers(selected))
     onOpenChange(false)
@@ -365,24 +360,12 @@ const LarkOrgMemberMultiSelectDialog = ({
         <div className='flex min-h-0 flex-1'>
           <div className='flex min-h-0 min-w-0 flex-1 flex-col border-r'>
             <div className='shrink-0 space-y-3 p-4 pb-2'>
-              <InputGroup>
-                <InputGroupAddon>
-                  <SearchIcon />
-                </InputGroupAddon>
-                <InputGroupInput
-                  ref={searchInputRef}
-                  value={query}
-                  placeholder={searchPlaceholder}
-                  onChange={event => setQuery(event.target.value)}
-                />
-                {query.length > 0 && (
-                  <InputGroupAddon align='inline-end'>
-                    <InputGroupButton size='icon-xs' variant='ghost' aria-label='清除搜索' onClick={clearQuery}>
-                      <XIcon />
-                    </InputGroupButton>
-                  </InputGroupAddon>
-                )}
-              </InputGroup>
+              <SearchInput
+                inputRef={searchInputRef}
+                value={query}
+                placeholder={searchPlaceholder}
+                onChange={setQuery}
+              />
 
               {!searching && (
                 <nav className='text-muted-foreground flex flex-wrap items-center gap-1 text-xs'>

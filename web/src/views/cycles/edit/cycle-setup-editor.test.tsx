@@ -240,7 +240,8 @@ describe('CycleSetupEditor', () => {
       ...createProps(),
       status: 'ACTIVE' as const,
       sourceConfigLabel: '标准配置 · v2',
-      participantAction: 'WITHDRAW' as const
+      participantAction: 'WITHDRAW' as const,
+      participants: participants.map(item => (item.id === 102 ? { ...item, status: 'WITHDRAWN' as const } : item))
     }
 
     render(<CycleSetupEditor {...props} />)
@@ -252,6 +253,7 @@ describe('CycleSetupEditor', () => {
     await user.click(screen.getByRole('button', { name: /参与者/ }))
     expect(screen.getByRole('button', { name: '添加参与者' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '中途退出 普通岗员工' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '中途退出 缺失职级员工' })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /计划预览/ }))
 

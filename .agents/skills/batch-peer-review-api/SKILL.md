@@ -116,6 +116,20 @@ node .agents/skills/batch-peer-review-api/scripts/submit-peer-reviews.mjs \
 
 成功标志：stdout 打印每人每维度评级表；退出码 0；库中对应 `perf_reviewer_assignments.status` 与 `perf_evaluation_submissions.status` 为 `SUBMITTED`（`--mode draft` 时 submission 为 `DRAFT`）。
 
+环境变量：`PERF_API_BASE`、`DATABASE_URL`、`PERF_BACKEND_PACKAGE`（`pg` 所在 backend 的 `package.json` 路径；线上 release 目录用）。
+
+## 线上（AI-Service-Center）
+
+服务器 `8.137.151.95`，SSH 别名 `AI-Service-Center`。部署约定见 `deploy-ai-service-center`。
+
+1. 将脚本拷到服务器执行；设置 `PERF_BACKEND_PACKAGE=/root/dingstock/dingstock-performance/current/backend/package.json`。
+2. 从 `shared/backend.prod.yaml` 解析 `database.url`，**禁止**打印连接串与密钥。
+3. API 优先 `http://127.0.0.1:3001`；不通再用 `http://8.137.151.95/performance/backend`。
+4. 用户只给被评人、未给评估人时：先按「查指派」SQL 去掉 `e.name = ANY($reviewers)` 条件，查出该被评人全部未 `REPLACED` 的指派，再把评估人名单传给脚本。
+5. 生产若关闭 `devLogin` 则停下说明，勿擅自改生产 YAML。
+
+上级评估批量见 `batch-manager-review-api`。
+
 ## 汇报格式
 
 向用户输出紧凑表：

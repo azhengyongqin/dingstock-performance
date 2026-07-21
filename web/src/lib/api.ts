@@ -94,10 +94,27 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
     headers.set('Authorization', `Bearer ${token}`)
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers
-  })
+  let response: Response
+
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers
+    })
+  } catch (cause) {
+    // 浏览器对连不上后端的典型报错是 TypeError: Failed to fetch，统一包装为可识别的网络错误
+    if (cause instanceof DOMException && cause.name === 'AbortError') {
+      throw new ApiError(0, '请求已取消', { cause, kind: 'aborted' })
+    }
+
+    const detail = cause instanceof Error ? cause.message : 'Failed to fetch'
+
+    throw new ApiError(0, '无法连接服务器，请确认后端服务已启动或检查网络后重试', {
+      cause,
+      kind: 'network',
+      detail
+    })
+  }
 
   if (!response.ok) {
     // 尽量读取后端返回的错误信息

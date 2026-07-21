@@ -1,12 +1,14 @@
 ---
 name: test-peer-review
-description: 自动打开浏览器填写 360° 评估表单并保存草稿，用于测试环评页面交互。当用户说「测试360」「填写360」「测试360°评估」「模拟填写环评」「测试 peer review」或给出 review-tasks/fill?type=REVIEW 链接时使用。
+description: 自动打开浏览器填写 360° 评估表单并保存草稿，用于测试环评页面交互。当用户说「测试360」「填写360」「测试360°评估」「模拟填写环评」「测试 peer review」或给出 review-tasks/fill?type=REVIEW 链接时使用。多人批量或明确要求 API 提交时改用 batch-peer-review-api。
 disable-model-invocation: false
 ---
 
 # 测试 360° 评估
 
 用 Cursor Browser 打开 360° 评估填写页，按以下顺序填写三个维度（评级 + 评语）并保存草稿。默认只保存草稿，不提交；仅当用户明确要求时才点「提交评估」。
+
+多人造数、线上批量、随机 A/B → 用 `batch-peer-review-api`（不走浏览器）。
 
 ## URL
 

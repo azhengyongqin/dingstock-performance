@@ -20,6 +20,7 @@ import { Loader2Icon, PlusIcon } from 'lucide-react'
 // Component Imports
 import { DataTable, DataTableColumnFilter, DataTablePagination, DataTableToolbar } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
+import { RequestErrorState } from '@/components/shared/RequestErrorState'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 
@@ -37,7 +38,7 @@ import type { CycleRow } from './cycle-table-columns'
 const CycleList = () => {
   const [cycles, setCycles] = useState<CycleRow[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   // 列筛选（周期名搜索 + 状态下拉共用）、排序与分页状态
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -53,7 +54,7 @@ const CycleList = () => {
 
       setCycles(data.items ?? [])
     } catch (err) {
-      setError(err instanceof Error ? err.message : '无法加载周期列表，请确认后端服务已启动。')
+      setError(err)
     } finally {
       setLoading(false)
     }
@@ -107,12 +108,7 @@ const CycleList = () => {
               正在加载周期列表…
             </div>
           ) : error ? (
-            <div className='text-destructive flex flex-col items-center gap-3 py-16 text-sm'>
-              {error}
-              <Button variant='outline' size='sm' onClick={() => void fetchCycles()}>
-                重试
-              </Button>
-            </div>
+            <RequestErrorState error={error} size='card' onRetry={() => void fetchCycles()} />
           ) : (
             <DataTable table={table} emptyText='还没有绩效周期，点击右上角「新建周期」开始' />
           )}

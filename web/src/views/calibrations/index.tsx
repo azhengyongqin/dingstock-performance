@@ -12,7 +12,7 @@ import {
   getSortedRowModel,
   useReactTable
 } from '@tanstack/react-table'
-import { CheckIcon, Loader2Icon, SendIcon, ShieldAlertIcon } from 'lucide-react'
+import { CheckIcon, Loader2Icon, SendIcon } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 
@@ -25,6 +25,7 @@ import {
   DataTableToolbar
 } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
+import { EmptyState, RequestErrorState } from '@/components/shared/RequestErrorState'
 import { StatsCards } from '@/components/shared/StatsCards'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -45,6 +46,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ApiError, apiFetch } from '@/lib/api'
 import type { EvaluationRating, ListResponse, PerfCycle } from '@/lib/perf-api'
 import { CYCLE_STATUS_LABEL } from '@/lib/perf-api'
+import { requestErrorMessage } from '@/lib/request-error'
 
 import { buildCalibrationTableColumns } from './calibration-table-columns'
 import type { CalibrationRow } from './calibration-table-columns'
@@ -91,7 +93,7 @@ const Calibrations = () => {
   // 校准数据
   const [data, setData] = useState<CalibrationData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
 
   // 403：需要 HR 权限
   const [forbidden, setForbidden] = useState(false)
@@ -136,7 +138,7 @@ const Calibrations = () => {
       if (err instanceof ApiError && err.status === 403) {
         setForbidden(true)
       } else {
-        setError(err instanceof Error ? err.message : '无法加载周期列表，请确认后端服务已启动。')
+        setError(err)
       }
 
       setLoading(false)
@@ -156,7 +158,7 @@ const Calibrations = () => {
       if (err instanceof ApiError && err.status === 403) {
         setForbidden(true)
       } else {
-        setError(err instanceof Error ? err.message : '无法加载校准数据，请确认后端服务已启动。')
+        setError(err)
       }
     } finally {
       setLoading(false)
@@ -273,7 +275,7 @@ const Calibrations = () => {
       setAdjustTarget(null)
       if (selectedCycleId) await fetchCalibrations(selectedCycleId)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '评级调整失败')
+      toast.error(requestErrorMessage(err, '评级调整失败'))
     } finally {
       setAdjusting(false)
     }
@@ -303,7 +305,7 @@ const Calibrations = () => {
       setNoResultTarget(null)
       await fetchCalibrations(selectedCycleId)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : revoking ? '撤销失败' : '标记失败')
+      toast.error(requestErrorMessage(err, revoking ? '撤销失败' : '标记失败'))
     } finally {
       setNoResultSubmitting(false)
     }
@@ -334,7 +336,7 @@ const Calibrations = () => {
       table.resetRowSelection()
       await fetchCalibrations(selectedCycleId)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '批量确认失败')
+      toast.error(requestErrorMessage(err, '批量确认失败'))
     } finally {
       setConfirming(false)
     }
@@ -359,7 +361,7 @@ const Calibrations = () => {
       )
       await fetchCalibrations(selectedCycleId)
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : '推送结果失败')
+      toast.error(requestErrorMessage(err, '推送结果失败'))
     } finally {
       setPushing(false)
     }
@@ -372,10 +374,11 @@ const Calibrations = () => {
         <PageHeader title='绩效校准' description='校准会议工作台：对齐评估尺度，确认绩效评级' />
         <Card>
           <CardContent>
-            <div className='text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center text-sm'>
-              <ShieldAlertIcon className='size-6' />
-              <span>需要 HR 权限，当前账号无权访问校准工作台</span>
-            </div>
+            <RequestErrorState
+              kind='forbidden'
+              description='需要 HR 权限，当前账号无权访问校准工作台'
+              size='card'
+            />
           </CardContent>
         </Card>
       </div>
@@ -422,22 +425,19 @@ const Calibrations = () => {
           正在加载校准数据…
         </div>
       ) : error ? (
-        <div className='text-destructive flex flex-col items-center gap-3 py-24 text-sm'>
-          {error}
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => (selectedCycleId ? void fetchCalibrations(selectedCycleId) : void fetchCycles())}
-          >
-            重试
-          </Button>
-        </div>
+        <RequestErrorState
+          error={error}
+          size='page'
+          onRetry={() => (selectedCycleId ? void fetchCalibrations(selectedCycleId) : void fetchCycles())}
+        />
       ) : !selectedCycleId ? (
         <Card>
           <CardContent>
-            <div className='text-muted-foreground flex flex-col items-center gap-2 rounded-lg border border-dashed p-10 text-center text-sm'>
-              <span>暂无绩效周期，请先到「绩效周期」页面创建并启动周期</span>
-            </div>
+            <EmptyState
+              title='暂无绩效周期'
+              description='请先到「绩效周期」页面创建并启动周期'
+              size='card'
+            />
           </CardContent>
         </Card>
       ) : (
