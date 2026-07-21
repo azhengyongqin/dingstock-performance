@@ -36,7 +36,8 @@ const PagesLayout = ({ children }: Readonly<{ children: ReactNode }>) => {
           <main
             className={cn(
               'mx-auto min-h-0 w-full flex-1 overflow-y-auto px-4 pb-4 sm:px-4',
-              settings.layout === 'compact' ? 'mx-auto max-w-360' : 'w-full'
+              // 与 Header 栏 max-w-348 对齐
+              settings.layout === 'compact' ? 'mx-auto max-w-348' : 'w-full'
             )}
           >
             {children}

@@ -271,7 +271,7 @@ describe('AppealService 结果版本申诉链', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('申诉列表仅两态，并由关联未取消面谈推导 inInterview', async () => {
+  it('申诉列表仅两态，并由关联未取消面谈推导 inInterview；链接计数含已取消', async () => {
     rbac.hasAnyRole.mockResolvedValue(true);
     rbac.getOrgScope.mockResolvedValue(null);
     prisma.perfAppeal.findMany.mockResolvedValue([
@@ -285,16 +285,7 @@ describe('AppealService 结果版本申诉链', () => {
           cycle: { id: 1, name: '2026 上半年' },
           resultVersions: [{ id: 41, version: 1, finalLevel: 'B' }],
         },
-        interviews: [
-          {
-            id: 61,
-            status: 'SCHEDULED',
-            scheduledStartAt: new Date('2026-07-22T10:00:00.000Z'),
-            scheduledEndAt: new Date('2026-07-22T11:00:00.000Z'),
-            calendarId: 'primary',
-            calendarEventId: 'evt_1',
-          },
-        ],
+        interviews: [{ id: 61, status: 'SCHEDULED' }],
       },
       {
         id: 52,
@@ -308,6 +299,18 @@ describe('AppealService 结果版本申诉链', () => {
         },
         interviews: [],
       },
+      {
+        id: 53,
+        status: 'PENDING',
+        handlerOpenId: null,
+        participant: {
+          employeeOpenId: 'ou_cancelled_only',
+          cycleId: 1,
+          cycle: { id: 1, name: '2026 上半年' },
+          resultVersions: [{ id: 43, version: 1, finalLevel: 'A' }],
+        },
+        interviews: [{ id: 62, status: 'CANCELLED' }],
+      },
     ]);
 
     const listed = await service.list('ou_admin', { cycleId: 1 });
@@ -315,15 +318,28 @@ describe('AppealService 结果版本申诉链', () => {
       id: 51,
       status: 'PENDING',
       inInterview: true,
+      linkedInterviewId: 61,
+      linkedInterviewCount: 1,
     });
     expect(listed.items[1]).toMatchObject({
       id: 52,
       status: 'PENDING',
       inInterview: false,
+      linkedInterviewId: null,
+      linkedInterviewCount: 0,
+    });
+    // 仅已取消面谈：不算面谈中，但表格仍显示「面谈 #id」
+    expect(listed.items[2]).toMatchObject({
+      id: 53,
+      status: 'PENDING',
+      inInterview: false,
+      linkedInterviewId: 62,
+      linkedInterviewCount: 1,
     });
     expect(listed.items.every((item) => item.status !== 'IN_INTERVIEW')).toBe(
       true,
     );
+    expect(listed.items.every((item) => !('interviews' in item))).toBe(true);
   });
 
   it('旧 Leader 和越过组织范围的 HR 都不能处理申诉', async () => {

@@ -3,7 +3,9 @@
 /**
  * PROTOTYPE — 浮底变体切换条。仅用于 throwaway UI 原型，生产构建不渲染。
  */
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
+
+import { createPortal } from 'react-dom'
 
 import { ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
@@ -21,11 +23,16 @@ type PrototypeSwitcherProps = {
   className?: string
 }
 
+const subscribeNoop = () => () => undefined
+
 export function PrototypeSwitcher({ variants, paramKey = 'variant', className }: PrototypeSwitcherProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const currentKey = searchParams?.get(paramKey) ?? variants[0]?.key
+
+  // 仅客户端挂载后再 portal，避免 SSR 访问 document
+  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false)
 
   const currentIndex = Math.max(
     0,
@@ -72,12 +79,15 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [currentIndex, go, variants.length])
 
-  if (process.env.NODE_ENV === 'production' || variants.length === 0 || !current) return null
+  if (process.env.NODE_ENV === 'production' || variants.length === 0 || !current || !mounted) return null
 
-  return (
+  return createPortal(
     <div
+      data-prototype-switcher=''
       className={cn(
-        'bg-foreground text-background fixed bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full px-2 py-1.5 shadow-lg',
+
+        // 高于 Dialog/Sheet overlay（z-50），弹层打开后仍可点选变体
+        'bg-foreground text-background fixed bottom-5 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-1 rounded-full px-2 py-1.5 shadow-lg',
         className
       )}
     >
@@ -100,7 +110,8 @@ export function PrototypeSwitcher({ variants, paramKey = 'variant', className }:
       >
         <ChevronRightIcon className='size-4' />
       </button>
-    </div>
+    </div>,
+    document.body
   )
 }
 

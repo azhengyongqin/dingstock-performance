@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
 import type { Table as TanstackTable } from '@tanstack/react-table'
 
 // Component Imports
-import SearchInput from '@/components/shared/SearchInput'
+import SearchInput, { SEARCH_INPUT_PINYIN_PLACEHOLDER } from '@/components/shared/SearchInput'
 import { Label } from '@/components/ui/label'
 
 export interface DataTableToolbarProps<TData> {
@@ -35,7 +35,7 @@ export function DataTableToolbar<TData>({
   table,
   searchColumn,
   enableGlobalSearch = false,
-  searchPlaceholder = '搜索…',
+  searchPlaceholder = SEARCH_INPUT_PINYIN_PLACEHOLDER,
   children
 }: DataTableToolbarProps<TData>) {
   const id = useId()
@@ -53,12 +53,15 @@ export function DataTableToolbar<TData>({
     } else {
       table.setGlobalFilter(value)
     }
+
+    // 搜索后回到第一页，避免过滤结果落在空页
+    table.setPageIndex(0)
   }
 
   return (
     <div className='flex flex-wrap items-center gap-3 pb-4 sm:justify-between'>
       {showSearch && (
-        <div className='w-full max-w-2xs'>
+        <div className='w-full max-w-sm'>
           <Label htmlFor={`${id}-search`} className='sr-only'>
             搜索
           </Label>

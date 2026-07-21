@@ -175,20 +175,11 @@ export class AppealService {
             createdAt: true,
           },
         },
-        // 「面谈中」由关联未取消面谈推导，不占用申诉主状态
+        // 列表带出全部关联面谈状态：inInterview 仅未取消；链接列用 linkedInterviewCount
         interviews: {
-          where: {
-            status: {
-              in: [PerfInterviewStatus.SCHEDULED, PerfInterviewStatus.COMPLETED],
-            },
-          },
           select: {
             id: true,
             status: true,
-            scheduledStartAt: true,
-            scheduledEndAt: true,
-            calendarId: true,
-            calendarEventId: true,
           },
           orderBy: { id: 'desc' },
         },
@@ -210,11 +201,21 @@ export class AppealService {
       select: { open_id: true, name: true, avatar: true },
     });
     const userMap = new Map(users.map((u) => [u.open_id, u]));
+    const activeInterviewStatuses: PerfInterviewStatus[] = [
+      PerfInterviewStatus.SCHEDULED,
+      PerfInterviewStatus.COMPLETED,
+    ];
 
     return {
-      items: appeals.map((appeal) => ({
+      items: appeals.map(({ interviews, ...appeal }) => ({
         ...appeal,
-        inInterview: appeal.interviews.length > 0,
+        // 「面谈中」仍只由未取消面谈推导
+        inInterview: interviews.some((item) =>
+          activeInterviewStatuses.includes(item.status),
+        ),
+        // 表格「面谈 #id」：取最新一条（含已取消），与详情可对上
+        linkedInterviewId: interviews[0]?.id ?? null,
+        linkedInterviewCount: interviews.length,
         employee: userMap.get(appeal.participant.employeeOpenId) ?? null,
         handler: appeal.handlerOpenId
           ? (userMap.get(appeal.handlerOpenId) ?? null)

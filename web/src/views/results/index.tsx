@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner'
 
 // Component Imports
+import FeishuCalendarLinkButton from '@/components/shared/FeishuCalendarLinkButton'
 import PageHeader from '@/components/shared/PageHeader'
 import { EvaluationAnswerContent } from '@/components/shared/markdown'
 import {
@@ -416,14 +417,7 @@ const Results = () => {
                     </div>
                   </div>
                   {calendarHref ? (
-                    <a
-                      href={calendarHref}
-                      target='_blank'
-                      rel='noreferrer'
-                      className='text-primary text-sm underline-offset-2 hover:underline'
-                    >
-                      打开飞书日程
-                    </a>
+                    <FeishuCalendarLinkButton href={calendarHref} />
                   ) : (
                     <span className='text-muted-foreground text-xs'>暂无日程入口</span>
                   )}

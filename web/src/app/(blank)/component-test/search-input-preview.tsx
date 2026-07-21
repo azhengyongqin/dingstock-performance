@@ -6,7 +6,7 @@
 
 import { useMemo, useState } from 'react'
 
-import SearchInput from '@/components/shared/SearchInput'
+import SearchInput, { SEARCH_INPUT_PINYIN_PLACEHOLDER } from '@/components/shared/SearchInput'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { matchesPinyinSearch } from '@/lib/pinyin-search'
 
@@ -31,7 +31,7 @@ const SearchInputPreview = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className='flex flex-col gap-4'>
-          <SearchInput value={query} onChange={setQuery} placeholder='搜索姓名（支持拼音，如 zs / zhang）' />
+          <SearchInput value={query} onChange={setQuery} placeholder={SEARCH_INPUT_PINYIN_PLACEHOLDER} />
           <ul className='text-muted-foreground space-y-1 text-sm'>
             {matched.length === 0 ? (
               <li>无匹配</li>

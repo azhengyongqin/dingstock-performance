@@ -1,5 +1,8 @@
 'use client'
 
+// Next Imports
+import Link from 'next/link'
+
 // Third-party Imports
 import type { ColumnDef } from '@tanstack/react-table'
 
@@ -17,13 +20,22 @@ import {
   avatarUrlOf,
   formatDateTime
 } from '@/lib/perf-api'
+import { matchesPinyinSearch } from '@/lib/pinyin-search'
 
 /** 申诉行 = 后端 GET /appeals 的 item */
 export type AppealRow = {
   id: number
   reason: string
   status: PerfAppealStatus
+
+  /** 由未取消面谈推导的「面谈中」展示态 */
   inInterview?: boolean
+
+  /** 最新关联面谈 id（含已取消），表格展示「面谈 #id」 */
+  linkedInterviewId?: number | null
+
+  /** 关联面谈条数（含已取消） */
+  linkedInterviewCount?: number
   conclusion: string | null
   resultAdjusted: boolean
   resolvedAt: string | null
@@ -67,6 +79,9 @@ export const buildAppealTableColumns = ({ onHandle }: AppealColumnsContext): Col
     id: 'employee',
     accessorFn: row => row.employee?.name ?? '',
     header: '申诉人',
+    // 配合工具栏 SearchInput：支持姓名原文 / 拼音 / 首字母
+    filterFn: (row, _columnId, filterValue) =>
+      matchesPinyinSearch(row.original.employee?.name ?? '', String(filterValue ?? '')),
     cell: ({ row }) => {
       const employee = row.original.employee
 
@@ -111,6 +126,34 @@ export const buildAppealTableColumns = ({ onHandle }: AppealColumnsContext): Col
     cell: ({ row }) => (
       <Badge className={statusBadgeClass(row.original)}>{appealDisplayLabel(row.original)}</Badge>
     )
+  },
+  {
+    id: 'interviewLink',
+
+    // 链接列看全部关联（含已取消）；与详情「面谈 · N」一致，勿只用 inInterview
+    accessorFn: row =>
+      (row.linkedInterviewCount ?? 0) > 0 || row.inInterview ? '已关联面谈' : '无关联面谈',
+    header: '面谈关联',
+    filterFn: 'equalsString',
+    enableSorting: false,
+    cell: ({ row }) => {
+      const appeal = row.original
+      const interviewId = appeal.linkedInterviewId
+
+      // 对齐面谈表「申诉 #N」：有关联则显示「面谈 #id」
+      if (interviewId != null) {
+        return (
+          <Link
+            href={`/interviews?appealId=${appeal.id}&participantId=${appeal.participant.id}`}
+            className='text-primary text-sm font-medium underline-offset-4 hover:underline'
+          >
+            面谈 #{interviewId}
+          </Link>
+        )
+      }
+
+      return <span className='text-muted-foreground text-sm'>无关联面谈</span>
+    }
   },
   {
     id: 'handler',

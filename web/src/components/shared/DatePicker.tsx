@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 // Third-party Imports
 import { format } from 'date-fns'
@@ -41,6 +41,65 @@ const formatDateTimeValue = (date: Date): string => format(date, "yyyy-MM-dd'T'H
 
 /** 统一对外输出为业务表单使用的 'YYYY-MM-DD' 字符串 */
 const formatDateValue = (date: Date): string => format(date, 'yyyy-MM-dd')
+
+const HALF_HOUR_MS = 30 * 60 * 1000
+
+/**
+ * 取「当前时刻之后」最近的半点或整点（:00 / :30）。
+ * 例：21:14 → 21:30；21:45 → 22:00；恰在半点则再往后推一格。
+ */
+export const ceilToNextHalfHour = (date: Date = new Date()): Date => {
+  const next = new Date(date)
+  const minutes = next.getMinutes()
+
+  const onHalfHourMark =
+    (minutes === 0 || minutes === 30) && next.getSeconds() === 0 && next.getMilliseconds() === 0
+
+  next.setSeconds(0, 0)
+
+  if (onHalfHourMark) {
+    // 已在半点/整点：严格往后一格，避免默认落到「现在」
+    if (minutes === 0) next.setMinutes(30)
+    else next.setHours(next.getHours() + 1, 0, 0, 0)
+  } else if (minutes < 30) {
+    next.setMinutes(30)
+  } else {
+    next.setHours(next.getHours() + 1, 0, 0, 0)
+  }
+
+  return next
+}
+
+/**
+ * 预约类默认区间：开始 = 下一半点，结束 = 开始 + durationMinutes（默认 30 分钟）。
+ */
+export const createDefaultDateTimeRange = (
+  now: Date = new Date(),
+  durationMinutes = 30
+): DateTimeRangeValue => {
+  const from = ceilToNextHalfHour(now)
+  const to = new Date(from.getTime() + Math.max(durationMinutes, 1) * 60 * 1000)
+
+  return {
+    from: formatDateTimeValue(from),
+    to: formatDateTimeValue(to)
+  }
+}
+
+/** 保证结束严格晚于开始；否则把结束推到开始后 30 分钟 */
+const ensureRangeOrder = (from: string, to: string): DateTimeRangeValue => {
+  const fromDate = parseDateTimeValue(from)
+  const toDate = parseDateTimeValue(to)
+
+  if (!fromDate || !toDate) return { from, to }
+
+  if (toDate.getTime() > fromDate.getTime()) return { from, to }
+
+  return {
+    from,
+    to: formatDateTimeValue(new Date(fromDate.getTime() + HALF_HOUR_MS))
+  }
+}
 
 /** 按分钟步长生成选项；额外保留当前值，避免非步长分钟打开后不可见 */
 const buildMinuteOptions = (minuteStep: number, extraMinutes: number[] = []): number[] => {
@@ -360,53 +419,122 @@ export const DateTimePicker = ({
   )
 }
 
+type DayTimeSlot = {
+  hours: number
+  minutes: number
+  label: string
+}
+
+/** 按步长生成当天 HH:mm 列表；当前值若不在步长上则插入，避免选中项消失 */
+const buildDayTimeSlots = (minuteStep: number, selected?: Date): DayTimeSlot[] => {
+  const step = Math.min(Math.max(Math.trunc(minuteStep) || 30, 1), 60)
+  const slots = new Map<string, DayTimeSlot>()
+
+  for (let minutesOfDay = 0; minutesOfDay < 24 * 60; minutesOfDay += step) {
+    const hours = Math.floor(minutesOfDay / 60)
+    const minutes = minutesOfDay % 60
+    const label = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+
+    slots.set(`${hours}:${minutes}`, { hours, minutes, label })
+  }
+
+  if (selected) {
+    const hours = selected.getHours()
+    const minutes = selected.getMinutes()
+    const key = `${hours}:${minutes}`
+
+    if (!slots.has(key)) {
+      slots.set(key, {
+        hours,
+        minutes,
+        label: `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+      })
+    }
+  }
+
+  return [...slots.values()].sort((a, b) => a.hours * 60 + a.minutes - (b.hours * 60 + b.minutes))
+}
+
 type RangeTimePanelProps = {
   title: string
   value: Date | undefined
-  minuteOptions: number[]
-  onChange: (type: 'hour' | 'minute', value: number) => void
+  minuteStep: number
+
+  /** 弹层打开等时机变化时重滚到选中项中间 */
+  scrollToken?: boolean
+  onChange: (hours: number, minutes: number) => void
 }
 
-const RangeTimePanel = ({ title, value, minuteOptions, onChange }: RangeTimePanelProps) => {
+/**
+ * 合并时分的单列时间列表（如图：00:00 / 00:30 …）；
+ * 选中项在可滚动时尽量滚到视口垂直中间（两端不够则贴边）。
+ */
+const RangeTimePanel = ({ title, value, minuteStep, scrollToken, onChange }: RangeTimePanelProps) => {
+  const listRef = useRef<HTMLDivElement>(null)
+  const selectedKey = value ? `${value.getHours()}:${value.getMinutes()}` : null
+
+  const slots = useMemo(() => {
+    if (!selectedKey) return buildDayTimeSlots(minuteStep)
+
+    const [hours, minutes] = selectedKey.split(':').map(Number)
+    const selected = new Date()
+
+    selected.setHours(hours, minutes, 0, 0)
+
+    return buildDayTimeSlots(minuteStep, selected)
+  }, [minuteStep, selectedKey])
+
+  useEffect(() => {
+    if (!selectedKey) return
+
+    const frame = requestAnimationFrame(() => {
+      const list = listRef.current
+      const selectedEl = list?.querySelector<HTMLElement>('[data-slot="time-slot"][data-selected="true"]')
+      const viewport = list?.closest('[data-slot="scroll-area-viewport"]') as HTMLElement | null
+
+      if (!selectedEl || !viewport) return
+
+      const viewportRect = viewport.getBoundingClientRect()
+      const selectedRect = selectedEl.getBoundingClientRect()
+
+      const delta =
+        selectedRect.top + selectedRect.height / 2 - (viewportRect.top + viewportRect.height / 2)
+
+      if (Math.abs(delta) < 1) return
+
+      // 只滚时间列表视口，避免带动弹层/页面；两端不够时由浏览器自然贴边
+      viewport.scrollTop += delta
+    })
+
+    return () => cancelAnimationFrame(frame)
+  }, [selectedKey, scrollToken])
+
   return (
     <div className='flex min-w-0 flex-col gap-2 overflow-hidden p-2 lg:h-full'>
       <div className='text-muted-foreground px-1 text-xs font-medium'>{title}</div>
-      <div className='grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-hidden'>
-        <ScrollArea className='h-34 w-14 overflow-hidden rounded-md border lg:h-full'>
-          <div className='flex flex-col p-1'>
-            {Array.from({ length: 24 }, (_, hour) => hour).map(hour => (
+      <ScrollArea className='h-34 min-w-[5.5rem] overflow-hidden rounded-md border lg:h-full'>
+        <div ref={listRef} className='flex flex-col p-1'>
+          {slots.map(slot => {
+            const selected = selectedKey === `${slot.hours}:${slot.minutes}`
+
+            return (
               <Button
-                key={hour}
+                key={slot.label}
                 type='button'
-                size='icon-sm'
-                variant={value?.getHours() === hour ? 'default' : 'ghost'}
+                size='sm'
+                variant={selected ? 'default' : 'ghost'}
                 disabled={!value}
-                className='w-full shrink-0'
-                onClick={() => onChange('hour', hour)}
+                data-slot='time-slot'
+                data-selected={selected ? 'true' : undefined}
+                className='h-8 w-full shrink-0 justify-start px-2.5 font-normal tabular-nums'
+                onClick={() => onChange(slot.hours, slot.minutes)}
               >
-                {hour.toString().padStart(2, '0')}
+                {slot.label}
               </Button>
-            ))}
-          </div>
-        </ScrollArea>
-        <ScrollArea className='h-34 w-14 overflow-hidden rounded-md border lg:h-full'>
-          <div className='flex flex-col p-1'>
-            {minuteOptions.map(minute => (
-              <Button
-                key={minute}
-                type='button'
-                size='icon-sm'
-                variant={value?.getMinutes() === minute ? 'default' : 'ghost'}
-                disabled={!value}
-                className='w-full shrink-0'
-                onClick={() => onChange('minute', minute)}
-              >
-                {minute.toString().padStart(2, '0')}
-              </Button>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+            )
+          })}
+        </div>
+      </ScrollArea>
     </div>
   )
 }
@@ -421,7 +549,7 @@ export const DateTimeRangePicker = ({
   id,
   placeholder = '选择日期时间区间',
   disabled,
-  minuteStep = 5,
+  minuteStep = 30,
   startPlaceholder = '开始时间',
   endPlaceholder = '结束时间',
   numberOfMonths = 2
@@ -430,14 +558,6 @@ export const DateTimeRangePicker = ({
   const fromDate = parseDateTimeValue(value.from)
   const toDate = parseDateTimeValue(value.to)
   const selected: DateRange | undefined = fromDate || toDate ? { from: fromDate, to: toDate } : undefined
-
-  const minuteOptions = useMemo(() => {
-    const selectedMinutes = [fromDate?.getMinutes(), toDate?.getMinutes()].filter(
-      (minute): minute is number => Number.isInteger(minute)
-    )
-
-    return buildMinuteOptions(minuteStep, selectedMinutes)
-  }, [fromDate, minuteStep, toDate])
 
   const label =
     fromDate && toDate
@@ -450,36 +570,55 @@ export const DateTimeRangePicker = ({
     const nextFrom = range?.from ? new Date(range.from) : undefined
     const nextTo = range?.to ? new Date(range.to) : undefined
 
+    // 首次落时分：用「下一半点」；已有值则保留用户调过的时分
+    const defaultStart = ceilToNextHalfHour()
+
     if (nextFrom) {
-      nextFrom.setHours(fromDate?.getHours() ?? 0, fromDate?.getMinutes() ?? 0, 0, 0)
+      if (fromDate) {
+        nextFrom.setHours(fromDate.getHours(), fromDate.getMinutes(), 0, 0)
+      } else {
+        nextFrom.setHours(defaultStart.getHours(), defaultStart.getMinutes(), 0, 0)
+      }
     }
 
     if (nextTo) {
-      // 截止端首次选择时默认到当天最后一个分钟，符合“窗口截止时间”的业务直觉。
-      nextTo.setHours(toDate?.getHours() ?? 23, toDate?.getMinutes() ?? 59, 0, 0)
+      if (toDate) {
+        nextTo.setHours(toDate.getHours(), toDate.getMinutes(), 0, 0)
+      } else if (nextFrom) {
+        const defaultEnd = new Date(nextFrom.getTime() + HALF_HOUR_MS)
+
+        nextTo.setHours(defaultEnd.getHours(), defaultEnd.getMinutes(), 0, 0)
+      } else {
+        nextTo.setHours(defaultStart.getHours(), defaultStart.getMinutes(), 0, 0)
+      }
     }
 
-    onChange({
-      from: nextFrom ? formatDateTimeValue(nextFrom) : '',
-      to: nextTo ? formatDateTimeValue(nextTo) : ''
-    })
+    const from = nextFrom ? formatDateTimeValue(nextFrom) : ''
+    const to = nextTo ? formatDateTimeValue(nextTo) : ''
+
+    onChange(ensureRangeOrder(from, to))
   }
 
-  const handleTimeChange = (side: 'from' | 'to', type: 'hour' | 'minute', nextValue: number) => {
+  const handleTimeSelect = (side: 'from' | 'to', hours: number, minutes: number) => {
     const base = side === 'from' ? fromDate : toDate
 
     if (!base) return
 
     const nextDate = new Date(base)
 
-    if (type === 'hour') {
-      nextDate.setHours(nextValue)
-    } else {
-      nextDate.setMinutes(nextValue)
+    nextDate.setHours(hours, minutes, 0, 0)
+
+    if (side === 'from') {
+      onChange(
+        ensureRangeOrder(formatDateTimeValue(nextDate), value.to || formatDateTimeValue(nextDate))
+      )
+
+      return
     }
 
-    nextDate.setSeconds(0, 0)
-    onChange({ ...value, [side]: formatDateTimeValue(nextDate) })
+    onChange(
+      ensureRangeOrder(value.from || formatDateTimeValue(nextDate), formatDateTimeValue(nextDate))
+    )
   }
 
   return (
@@ -515,14 +654,16 @@ export const DateTimeRangePicker = ({
             <RangeTimePanel
               title={startPlaceholder}
               value={fromDate}
-              minuteOptions={minuteOptions}
-              onChange={(type, nextValue) => handleTimeChange('from', type, nextValue)}
+              minuteStep={minuteStep}
+              scrollToken={open}
+              onChange={(hours, minutes) => handleTimeSelect('from', hours, minutes)}
             />
             <RangeTimePanel
               title={endPlaceholder}
               value={toDate}
-              minuteOptions={minuteOptions}
-              onChange={(type, nextValue) => handleTimeChange('to', type, nextValue)}
+              minuteStep={minuteStep}
+              scrollToken={open}
+              onChange={(hours, minutes) => handleTimeSelect('to', hours, minutes)}
             />
           </div>
         </div>

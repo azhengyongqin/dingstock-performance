@@ -131,6 +131,31 @@ export const INTERVIEW_STATUS_LABEL: Record<PerfInterviewStatus, string> = {
   CANCELLED: '已取消'
 }
 
+/** SCHEDULED 且已到预约开始时间时的前端展示态（非后端枚举） */
+export const INTERVIEW_IN_PROGRESS_LABEL = '面谈中'
+
+/** 已预约且开始时间已到（或无开始时间不算进行中） */
+export function isInterviewScheduleStarted(
+  scheduledStartAt: string | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!scheduledStartAt) return false
+
+  return new Date(scheduledStartAt).getTime() <= now
+}
+
+/** 面谈列表/详情展示用状态文案 */
+export function interviewDisplayLabel(
+  interview: { status: PerfInterviewStatus; scheduledStartAt?: string | null },
+  now = Date.now()
+): string {
+  if (interview.status === 'SCHEDULED' && isInterviewScheduleStarted(interview.scheduledStartAt, now)) {
+    return INTERVIEW_IN_PROGRESS_LABEL
+  }
+
+  return INTERVIEW_STATUS_LABEL[interview.status]
+}
+
 // ===== 通用实体类型 =====
 
 /** lark_users 精简投影（后端 join 返回） */

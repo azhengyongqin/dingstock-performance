@@ -76,6 +76,8 @@ import OrgMemberMultiSelectPreview from './org-member-multi-select-preview'
 import MarkdownPreview from './markdown-preview'
 import RequestErrorPreview from './request-error-preview'
 import SearchInputPreview from './search-input-preview'
+import EmployeeSelectPreview from './employee-select-preview'
+import FeishuCalendarLinkButtonPreview from './feishu-calendar-link-button-preview'
 import FormTemplateEditor, { FormTemplateEditorSection } from '@/views/settings/form-templates/form-template-editor'
 import FormTemplatePreview from '@/views/settings/form-templates/form-template-preview'
 import { collectFormIssueMarkers } from '@/views/settings/form-templates/form-template-utils'
@@ -95,6 +97,8 @@ type ComponentKey =
   | 'member-picker'
   | 'org-member-multi-select'
   | 'search-input'
+  | 'employee-select'
+  | 'feishu-calendar-link'
   | 'member-pill'
   | 'form-template'
   | 'config-template'
@@ -173,6 +177,18 @@ const COMPONENT_MENU: ComponentMenuItem[] = [
     title: '统一搜索框',
     description: 'SearchInput / 拼音匹配',
     icon: SlidersHorizontalIcon
+  },
+  {
+    key: 'employee-select',
+    title: '员工下拉选择',
+    description: 'EmployeeSelect / 可搜索 Select',
+    icon: UsersIcon
+  },
+  {
+    key: 'feishu-calendar-link',
+    title: '飞书日程入口',
+    description: 'CalendarLogo / FeishuCalendarLinkButton',
+    icon: CalendarClockIcon
   },
   {
     key: 'member-pill',
@@ -1701,6 +1717,8 @@ const ComponentPreview = ({ activeComponent }: { activeComponent: ComponentKey }
   if (activeComponent === 'member-picker') return <MemberPickerPreview />
   if (activeComponent === 'org-member-multi-select') return <OrgMemberMultiSelectPreview />
   if (activeComponent === 'search-input') return <SearchInputPreview />
+  if (activeComponent === 'employee-select') return <EmployeeSelectPreview />
+  if (activeComponent === 'feishu-calendar-link') return <FeishuCalendarLinkButtonPreview />
   if (activeComponent === 'member-pill') return <MemberPillPreview />
   if (activeComponent === 'form-template') return <FormTemplateEditorPreview />
   if (activeComponent === 'config-template') return <ConfigTemplateEditorPreview />

@@ -12,6 +12,9 @@ import { SearchIcon, XIcon } from 'lucide-react'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { cn } from '@/lib/utils'
 
+/** 人员姓名搜索的统一占位（提示支持拼音 / 首字母） */
+export const SEARCH_INPUT_PINYIN_PLACEHOLDER = '搜索姓名（支持拼音，如 zs / zhang）'
+
 export type SearchInputProps = {
   value: string
   onChange: (value: string) => void
@@ -27,7 +30,7 @@ export type SearchInputProps = {
 const SearchInput = ({
   value,
   onChange,
-  placeholder = '搜索…',
+  placeholder = SEARCH_INPUT_PINYIN_PLACEHOLDER,
   className,
   id,
   disabled,

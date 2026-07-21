@@ -1,10 +1,10 @@
 'use client'
 
 // React Imports
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 // Next Imports
-import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 
 // Third-party Imports
 import type { ColumnFiltersState, PaginationState, SortingState } from '@tanstack/react-table'
@@ -15,7 +15,7 @@ import {
   getSortedRowModel,
   useReactTable
 } from '@tanstack/react-table'
-import { ExternalLinkIcon, Loader2Icon, ShieldAlertIcon } from 'lucide-react'
+import { Loader2Icon, ShieldAlertIcon } from 'lucide-react'
 import { toast } from 'sonner'
 
 // Component Imports
@@ -24,29 +24,19 @@ import PageHeader from '@/components/shared/PageHeader'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
-import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 // Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
 import type { ListResponse, PerfInterviewStatus } from '@/lib/perf-api'
-import {
-  INTERVIEW_STATUS_LABEL,
-  appealDisplayLabel,
-  feishuCalendarEventUrl,
-  formatDateTime
-} from '@/lib/perf-api'
 
+import AppealDetailSheet from './appeal-detail-sheet'
 import { APPEAL_STATUS_OPTIONS, buildAppealTableColumns } from './appeal-table-columns'
 import type { AppealRow } from './appeal-table-columns'
+
+/** 与 interviewLink 列 accessor 一致：含已取消的关联也算「已关联」 */
+const isAppealLinkedInterview = (row: AppealRow) =>
+  (row.linkedInterviewCount ?? 0) > 0 || Boolean(row.inInterview)
 
 type LinkedInterview = {
   id: number
@@ -76,12 +66,19 @@ type AppealDetail = AppealRow & {
  * 结案契约：expectedCalibrationRevision；改判须先在校准工作台追加决定。
  */
 const Appeals = () => {
+  const searchParams = useSearchParams()
+  const deepLinkAppealId = searchParams.get('appealId')
+  const openedDeepLinkRef = useRef<string | null>(null)
+
   const [appeals, setAppeals] = useState<AppealRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [forbidden, setForbidden] = useState(false)
 
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  // 默认「已关联面谈」，与面谈页 Tab 筛选同一交互
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([
+    { id: 'interviewLink', value: '已关联面谈' }
+  ])
   const [sorting, setSorting] = useState<SortingState>([])
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
 
@@ -144,7 +141,23 @@ const Appeals = () => {
     setDetail(null)
   }
 
+  // 面谈详情等深链：/appeals?appealId= 自动打开对应申诉
+  useEffect(() => {
+    if (!deepLinkAppealId || loading || forbidden) return
+    if (openedDeepLinkRef.current === deepLinkAppealId) return
+
+    const row = appeals.find(item => String(item.id) === deepLinkAppealId)
+
+    if (!row) return
+
+    openedDeepLinkRef.current = deepLinkAppealId
+    handleOpen(row)
+  }, [appeals, deepLinkAppealId, forbidden, handleOpen, loading])
+
   const columns = useMemo(() => buildAppealTableColumns({ onHandle: handleOpen }), [handleOpen])
+
+  const linkedCount = useMemo(() => appeals.filter(isAppealLinkedInterview).length, [appeals])
+  const unlinkedCount = useMemo(() => appeals.filter(row => !isAppealLinkedInterview(row)).length, [appeals])
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -254,195 +267,74 @@ const Appeals = () => {
     <div className='flex flex-col gap-6'>
       <PageHeader title='申诉处理' description='员工对绩效结果的申诉记录：指派处理人、关联面谈并结案' />
 
-      <Card>
-        <CardContent>
-          <DataTableToolbar table={table}>
-            <DataTableColumnFilter column={table.getColumn('status')} label='状态' options={APPEAL_STATUS_OPTIONS} />
-          </DataTableToolbar>
+      {loading ? (
+        <div className='text-muted-foreground flex items-center gap-2 text-sm'>
+          <Loader2Icon className='size-4 animate-spin' />
+          正在加载申诉列表…
+        </div>
+      ) : error ? (
+        <div className='text-destructive flex flex-col items-start gap-3 text-sm'>
+          {error}
+          <Button variant='outline' size='sm' onClick={() => void fetchAppeals()}>
+            重试
+          </Button>
+        </div>
+      ) : (
+        <Tabs
+          value={
+            (table.getColumn('interviewLink')?.getFilterValue() as string | undefined) ?? '已关联面谈'
+          }
+          onValueChange={value => {
+            if (value == null) return
+            table.getColumn('interviewLink')?.setFilterValue(value)
+          }}
+        >
+          <TabsList aria-label='面谈关联'>
+            <TabsTrigger value='已关联面谈'>
+              已关联面谈
+              <Badge className='bg-primary/10 text-primary ml-1.5'>{linkedCount}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value='无关联面谈'>
+              无关联面谈
+              <Badge className='bg-primary/10 text-primary ml-1.5'>{unlinkedCount}</Badge>
+            </TabsTrigger>
+          </TabsList>
 
-          {loading ? (
-            <div className='text-muted-foreground flex items-center justify-center gap-2 py-16'>
-              <Loader2Icon className='size-4 animate-spin' />
-              正在加载申诉列表…
-            </div>
-          ) : error ? (
-            <div className='text-destructive flex flex-col items-center gap-3 py-16 text-sm'>
-              {error}
-              <Button variant='outline' size='sm' onClick={() => void fetchAppeals()}>
-                重试
-              </Button>
-            </div>
-          ) : (
-            <DataTable table={table} emptyText='暂无申诉记录' />
-          )}
+          <div className='mt-4'>
+            <Card>
+              <CardContent className='pt-6'>
+                <DataTableToolbar table={table} searchColumn='employee'>
+                  <DataTableColumnFilter
+                    column={table.getColumn('status')}
+                    label='状态'
+                    options={APPEAL_STATUS_OPTIONS}
+                  />
+                </DataTableToolbar>
+                <DataTable table={table} emptyText='暂无申诉记录' />
+                <DataTablePagination table={table} />
+              </CardContent>
+            </Card>
+          </div>
+        </Tabs>
+      )}
 
-          <DataTablePagination table={table} />
-        </CardContent>
-      </Card>
-
-      <Dialog open={!!activeAppeal} onOpenChange={open => !open && handleClose()}>
-        <DialogContent className='max-h-[85vh] overflow-y-auto sm:max-w-lg'>
-          <DialogHeader>
-            <DialogTitle>{activeAppeal?.status === 'RESOLVED' ? '申诉记录' : '处理申诉'}</DialogTitle>
-            <DialogDescription>
-              {activeAppeal?.employee?.name ?? '-'} · {activeAppeal?.participant.cycle.name ?? '-'} · 当前等级{' '}
-              {activeAppeal?.participant.resultVersions[0]?.finalLevel ?? '-'}
-              {activeAppeal ? ` · ${appealDisplayLabel(activeAppeal)}` : ''}
-            </DialogDescription>
-          </DialogHeader>
-
-          {detailLoading ? (
-            <div className='text-muted-foreground flex items-center justify-center gap-2 py-10'>
-              <Loader2Icon className='size-4 animate-spin' />
-              正在加载申诉详情…
-            </div>
-          ) : (
-            <div className='flex flex-col gap-4'>
-              <div className='flex flex-col gap-1'>
-                <span className='text-muted-foreground text-xs'>申诉理由</span>
-                <p className='text-sm whitespace-pre-wrap'>{activeAppeal?.reason ?? '-'}</p>
-              </div>
-
-              <div className='flex flex-col gap-2'>
-                <div className='flex items-center justify-between gap-2'>
-                  <span className='text-muted-foreground text-xs'>
-                    关联面谈（{detail?.interviews.length ?? 0} 条）
-                  </span>
-                  <div className='flex flex-wrap gap-2'>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      render={<Link href={interviewViewHref} />}
-                      nativeButton={false}
-                    >
-                      <ExternalLinkIcon className='size-3.5' />
-                      查看关联面谈
-                    </Button>
-                    {activeAppeal?.status !== 'RESOLVED' && (
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        render={<Link href={interviewWorkspaceHref} />}
-                        nativeButton={false}
-                      >
-                        <ExternalLinkIcon className='size-3.5' />
-                        预约关联面谈
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                {detail?.interviews.length ? (
-                  <div className='flex flex-col gap-2'>
-                    {detail.interviews.map(interview => {
-                      const calendarHref =
-                        interview.calendarId && interview.calendarEventId
-                          ? feishuCalendarEventUrl(interview.calendarId, interview.calendarEventId)
-                          : null
-
-                      return (
-                        <div key={interview.id} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
-                          <div className='flex items-center gap-2'>
-                            <Badge variant='outline'>
-                              {INTERVIEW_STATUS_LABEL[interview.status] ?? interview.status}
-                            </Badge>
-                            <span className='text-muted-foreground text-xs'>
-                              {interview.scheduledStartAt
-                                ? formatDateTime(interview.scheduledStartAt)
-                                : formatDateTime(interview.createdAt)}
-                            </span>
-                          </div>
-                          {calendarHref ? (
-                            <a
-                              href={calendarHref}
-                              target='_blank'
-                              rel='noreferrer'
-                              className='text-primary text-xs underline-offset-2 hover:underline'
-                            >
-                              打开飞书日程
-                            </a>
-                          ) : null}
-                          {interview.resultNotes ? (
-                            <p className='text-muted-foreground text-xs line-clamp-2'>
-                              纪要摘要：{interview.resultNotes}
-                            </p>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <span className='text-muted-foreground text-sm'>暂无关联面谈；可前往面谈工作台预约并关联本申诉</span>
-                )}
-              </div>
-
-              {detail?.calibrations && detail.calibrations.length > 0 && (
-                <div className='flex flex-col gap-2'>
-                  <span className='text-muted-foreground text-xs'>校准决定（结案将锁定最新一条）</span>
-                  {detail.calibrations.map(item => (
-                    <div key={item.id} className='bg-muted/50 flex flex-col gap-1 rounded-md border p-3'>
-                      <div className='flex items-center gap-2 text-sm'>
-                        <Badge variant='outline'>{item.beforeLevel ?? '-'}</Badge>
-                        <span className='text-muted-foreground'>→</span>
-                        <Badge className='bg-primary/10 text-primary'>{item.afterLevel}</Badge>
-                        <span className='text-muted-foreground ml-auto text-xs'>{formatDateTime(item.createdAt)}</span>
-                      </div>
-                      {item.reason && <p className='text-muted-foreground text-xs'>{item.reason}</p>}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {activeAppeal?.status === 'RESOLVED' ? (
-                <div className='flex flex-col gap-1'>
-                  <span className='text-muted-foreground text-xs'>处理结论（{formatDateTime(detail?.resolvedAt)}）</span>
-                  <p className='text-sm whitespace-pre-wrap'>{detail?.conclusion ?? activeAppeal.conclusion ?? '-'}</p>
-                  {detail?.resultAdjusted && (
-                    <Badge variant='outline' className='w-fit text-yellow-600 dark:text-yellow-400'>
-                      结果已调整
-                    </Badge>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <Separator />
-
-                  <div className='bg-muted/40 rounded-md border p-3 text-xs leading-relaxed'>
-                    结案将提交最新校准决定（revision{' '}
-                    {latestCalibrationId ?? '无'}
-                    ）。若需改判，请先到
-                    <Link
-                      href='/calibrations'
-                      className='text-primary mx-1 underline-offset-2 hover:underline'
-                    >
-                      校准工作台
-                    </Link>
-                    追加校准决定，再回到此页结案；不可在此直接填写目标等级。
-                  </div>
-
-                  <div className='flex flex-col gap-2'>
-                    <Label>处理结论（必填）</Label>
-                    <Textarea
-                      value={conclusion}
-                      onChange={event => setConclusion(event.target.value)}
-                      placeholder='给出申诉处理结论，将同步至员工'
-                    />
-                  </div>
-
-                  <div className='flex justify-end gap-2'>
-                    <Button variant='outline' onClick={handleClose}>
-                      取消
-                    </Button>
-                    <Button onClick={() => void handleResolve()} disabled={resolving || latestCalibrationId == null}>
-                      {resolving && <Loader2Icon className='animate-spin' />}
-                      提交处理结论
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {activeAppeal ? (
+        <AppealDetailSheet
+          appeal={activeAppeal}
+          interviews={detail?.interviews ?? []}
+          calibrations={detail?.calibrations ?? []}
+          detailLoading={detailLoading}
+          detailConclusion={detail?.conclusion}
+          conclusion={conclusion}
+          onConclusionChange={setConclusion}
+          resolving={resolving}
+          latestCalibrationId={latestCalibrationId}
+          interviewViewHref={interviewViewHref}
+          interviewWorkspaceHref={interviewWorkspaceHref}
+          onClose={handleClose}
+          onResolve={() => void handleResolve()}
+        />
+      ) : null}
     </div>
   )
 }
