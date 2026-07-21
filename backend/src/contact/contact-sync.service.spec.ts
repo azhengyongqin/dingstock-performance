@@ -145,6 +145,8 @@ describe('ContactSyncService', () => {
           items: [
             {
               employment_id: 'ou-1',
+              // SDK 会把本批未查询的顶层字段保留为 undefined；合并时不能覆盖前一批结果。
+              employee_number: undefined,
               person_info: { national_id_number: '110101199001011234' },
             },
           ],

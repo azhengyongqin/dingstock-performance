@@ -1,0 +1,26 @@
+# AI-Service-Center 生产配置模板。
+# 复制到服务器 shared/backend.prod.yaml 后填写真实密钥；不要提交真实连接串和密钥。
+app:
+  port: 3001
+
+# Prisma 使用 migrations 管理表结构，不使用运行时 synchronize。
+database:
+  url: 'postgresql://<用户名>:<密码>@<PG地址>:5432/dingstock_performance'
+
+redis:
+  uri: 'redis://:<密码>@<Redis地址>:6379/1'
+
+lark:
+  # appId/appSecret 默认继承 backend/config/app.yaml；也可在此处显式覆盖。
+  oauth:
+    authorizeUrl: 'https://accounts.feishu.cn/open-apis/authen/v1/authorize'
+    redirectUri: 'http://8.137.151.95/performance/backend/auth/lark/callback'
+    scope: ''
+    webRedirectUrl: 'http://8.137.151.95/performance/auth/callback'
+  notification:
+    enabled: true
+
+auth:
+  # 生产环境禁止免飞书 OAuth 的开发快速登录。
+  devLogin:
+    enabled: false

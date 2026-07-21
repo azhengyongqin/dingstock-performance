@@ -203,6 +203,17 @@ const COREHR_EMPLOYEE_FIELDS = [
   'person_info.working_years',
 ];
 
+/**
+ * CoreHR 字段分批响应会携带本批未查询字段，并将其值设为 undefined。
+ * 合并时只保留已定义属性，避免后批响应清空前批已经查询到的数据。
+ */
+const omitUndefinedProperties = <T extends object>(value: T): T =>
+  Object.fromEntries(
+    Object.entries(value).filter(
+      ([, propertyValue]) => propertyValue !== undefined,
+    ),
+  ) as T;
+
 @Injectable()
 export class ContactSyncService {
   private readonly logger = new Logger(ContactSyncService.name);
@@ -515,13 +526,17 @@ export class ContactSyncService {
           continue;
         }
         const previous = mergedItems.get(item.employment_id);
+        const definedItem = omitUndefinedProperties(item);
+        const definedPersonInfo = item.person_info
+          ? omitUndefinedProperties(item.person_info)
+          : undefined;
         mergedItems.set(item.employment_id, {
           ...previous,
-          ...item,
+          ...definedItem,
           // person_info 等对象可能被 fields 分批切开，必须深一层合并。
           person_info: {
             ...previous?.person_info,
-            ...item.person_info,
+            ...definedPersonInfo,
           },
         });
       }

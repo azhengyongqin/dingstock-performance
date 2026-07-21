@@ -1,0 +1,15 @@
+# 盯潮绩效系统：/performance
+
+@performance_backend_root path /performance/backend
+redir @performance_backend_root /performance/backend/ 308
+
+# 移除 /performance/backend 前缀后再交给 NestJS。
+handle_path /performance/backend/* {
+	reverse_proxy 127.0.0.1:3001
+}
+
+# Next.js 构建时已设置 basePath=/performance，因此保留完整请求路径。
+@performance_frontend path /performance /performance/*
+handle @performance_frontend {
+	reverse_proxy 127.0.0.1:3002
+}

@@ -1,0 +1,11 @@
+# 同一 IP 只声明一次站点；每个项目在 routes/ 下维护自己的根路径路由。
+http://8.137.151.95 {
+	encode zstd gzip
+
+	import /etc/caddy/routes/*.caddy
+
+	# 未匹配任何项目根路径时明确返回 404。
+	handle {
+		respond "Project route not found" 404
+	}
+}
