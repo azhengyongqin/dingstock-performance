@@ -19,7 +19,7 @@ import AuthBackgroundShape from '@/assets/svg/auth-background-shape'
 import { apiFetch } from '@/lib/api'
 
 /**
- * 登录页：仅提供「使用飞书登录」入口（无账号密码表单）。
+ * 登录页：始终提供飞书 OAuth；后端开启 devLogin 时额外显示快速登录入口。
  * 流程：请求后端 /auth/lark/authorize-url → 跳转飞书授权页 →
  * 后端回调处理后 302 回前端 /auth/callback?token=...
  */
@@ -73,8 +73,8 @@ const Login = () => {
 
           {error && <p className='text-destructive text-sm'>{error}</p>}
 
-          {/* 开发环境快速登录：生产构建下该分支不生效 */}
-          {process.env.NODE_ENV !== 'production' && <DevQuickLogin />}
+          {/* 是否显示由后端 auth.devLogin.enabled 决定，避免前后端开关不一致 */}
+          <DevQuickLogin />
 
           <p className='text-muted-foreground text-center text-sm'>登录即表示同意公司绩效管理相关制度与数据使用规范</p>
         </CardContent>

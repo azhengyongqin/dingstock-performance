@@ -166,7 +166,7 @@ export const uploadNovelImage = async (file: File): Promise<string> => {
   return result.url
 }
 
-// ---- 开发环境快速登录（仅 dev；生产后端返回 404，前端也不渲染入口） ----
+// ---- 开发快速登录（由后端 auth.devLogin.enabled 统一控制） ----
 
 /** 开发快速登录候选员工（后端 GET /auth/dev/users 返回项） */
 export type DevLoginUser = {

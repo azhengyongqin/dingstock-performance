@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
 
 // Util Imports
-import { devLogin, fetchDevLoginUsers, saveAuth, type DevLoginUser } from '@/lib/api'
+import { ApiError, devLogin, fetchDevLoginUsers, saveAuth, type DevLoginUser } from '@/lib/api'
 
 /** 角色码 → 中文徽标文案（仅展示 HR/ADMIN；其余角色由任务关系派生，不在此列） */
 const ROLE_LABEL: Record<string, string> = {
@@ -43,14 +43,17 @@ const RoleBadges = ({ user }: { user: DevLoginUser }) => {
 }
 
 /**
- * 开发环境「快速选择员工登录」：
+ * 「快速选择员工登录」：
  * 免飞书 OAuth，直接选一个已同步员工换取会话 JWT，方便快速切换角色测试。
- * 仅在 dev 构建下由登录页引入渲染；生产后端接口返回 404、前端也不渲染本组件。
+ * 是否显示完全由后端 auth.devLogin.enabled 控制：接口关闭并返回 404 时不渲染入口。
  */
 const DevQuickLogin = () => {
   const router = useRouter()
 
   const [users, setUsers] = useState<DevLoginUser[]>([])
+
+  // 初始探测期间不渲染，避免后端关闭时入口闪现。
+  const [available, setAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -62,10 +65,19 @@ const DevQuickLogin = () => {
 
     fetchDevLoginUsers()
       .then(data => {
-        if (active) setUsers(data.items)
+        if (active) {
+          setUsers(data.items)
+          setAvailable(true)
+        }
       })
-      .catch(() => {
-        if (active) setError('拉取员工列表失败：请确认后端已启动，且已用 HR 账号触发过组织架构同步。')
+      .catch(cause => {
+        if (!active) return
+
+        // 404 是后端明确关闭 devLogin，不向普通用户暴露入口或错误提示。
+        if (cause instanceof ApiError && cause.status === 404) return
+
+        setAvailable(true)
+        setError('拉取员工列表失败：请确认后端已启动，且已用 HR 账号触发过组织架构同步。')
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -93,6 +105,8 @@ const DevQuickLogin = () => {
     }
   }
 
+  if (!available) return null
+
   return (
     <div className='border-border/60 rounded-lg border border-dashed p-4'>
       <div className='mb-3 flex items-center gap-2'>
@@ -100,7 +114,7 @@ const DevQuickLogin = () => {
           DEV
         </Badge>
         <span className='text-sm font-medium'>快速选择员工登录</span>
-        <span className='text-muted-foreground text-xs'>仅开发环境</span>
+        <span className='text-muted-foreground text-xs'>临时测试入口</span>
       </div>
 
       {/* 保留 cmdk 内置过滤：每个 CommandItem 的 value 用「姓名+英文名+open_id」以支持搜索 */}
