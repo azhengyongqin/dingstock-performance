@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 // Next Imports
 import { useRouter } from 'next/navigation'
@@ -10,12 +10,14 @@ import { useRouter } from 'next/navigation'
 import { LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
 
 // Component Imports
+import SearchInput from '@/components/shared/SearchInput'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Command, CommandEmpty, CommandItem, CommandList } from '@/components/ui/command'
 
 // Util Imports
 import { ApiError, devLogin, fetchDevLoginUsers, saveAuth, type DevLoginUser } from '@/lib/api'
+import { matchesPinyinSearch } from '@/lib/pinyin-search'
 
 /** 角色码 → 中文徽标文案（仅展示 HR/ADMIN；其余角色由任务关系派生，不在此列） */
 const ROLE_LABEL: Record<string, string> = {
@@ -51,6 +53,7 @@ const DevQuickLogin = () => {
   const router = useRouter()
 
   const [users, setUsers] = useState<DevLoginUser[]>([])
+  const [query, setQuery] = useState('')
 
   // 初始探测期间不渲染，避免后端关闭时入口闪现。
   const [available, setAvailable] = useState(false)
@@ -88,6 +91,20 @@ const DevQuickLogin = () => {
     }
   }, [])
 
+  // 与组织架构 / 多选弹窗同一套拼音匹配
+  const filteredUsers = useMemo(() => {
+    const keyword = query.trim()
+
+    if (!keyword) return users
+
+    return users.filter(
+      user =>
+        matchesPinyinSearch(user.name, keyword) ||
+        (user.en_name ? matchesPinyinSearch(user.en_name, keyword) : false) ||
+        user.open_id.toLowerCase().includes(keyword.toLowerCase())
+    )
+  }, [users, query])
+
   const handlePick = async (user: DevLoginUser) => {
     if (pendingOpenId) return
     setPendingOpenId(user.open_id)
@@ -117,9 +134,17 @@ const DevQuickLogin = () => {
         <span className='text-muted-foreground text-xs'>临时测试入口</span>
       </div>
 
-      {/* 保留 cmdk 内置过滤：每个 CommandItem 的 value 用「姓名+英文名+open_id」以支持搜索 */}
-      <Command className='border-border/60 bg-transparent'>
-        <CommandInput placeholder='搜索姓名 / 英文名…' />
+      {/* shouldFilter=false：列表过滤交给 SearchInput + matchesPinyinSearch */}
+      <Command shouldFilter={false} className='border-border/60 bg-transparent'>
+        <div className='p-1 pb-0'>
+          <SearchInput
+            value={query}
+            onChange={setQuery}
+            placeholder='搜索姓名 / 英文名…'
+            disabled={loading || Boolean(pendingOpenId)}
+            className='border-input/30 bg-input/30 h-8! rounded-lg! shadow-none!'
+          />
+        </div>
         <CommandList>
           {loading ? (
             <div className='text-muted-foreground flex items-center justify-center gap-2 py-6 text-sm'>
@@ -129,10 +154,10 @@ const DevQuickLogin = () => {
           ) : (
             <>
               <CommandEmpty>未找到匹配的员工</CommandEmpty>
-              {users.map(user => (
+              {filteredUsers.map(user => (
                 <CommandItem
                   key={user.open_id}
-                  value={`${user.name} ${user.en_name ?? ''} ${user.open_id}`}
+                  value={user.open_id}
                   onSelect={() => handlePick(user)}
                   disabled={Boolean(pendingOpenId)}
                   className='gap-3'
