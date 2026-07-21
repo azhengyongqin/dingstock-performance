@@ -1,0 +1,4 @@
+interface:
+  display_name: "部署 AI-Service-Center"
+  short_description: "初始化并更新发布绩效系统到 AI-Service-Center"
+  default_prompt: "使用 $deploy-ai-service-center 将当前项目安全发布到 AI-Service-Center。"
