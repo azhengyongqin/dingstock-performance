@@ -14,7 +14,6 @@ import {
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
-import { AuthService } from '../auth/auth.service';
 import { NotificationEventService } from '../notification/notification-event.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -49,7 +48,6 @@ export class InterviewService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
-    private readonly authService: AuthService,
     private readonly notificationEventService: NotificationEventService,
     @Inject(INTERVIEW_CALENDAR_PORT)
     private readonly calendar: InterviewCalendarPort,
@@ -70,10 +68,8 @@ export class InterviewService {
       operatorOpenId,
       input.extraAttendeeOpenIds,
     );
-    const userAccessToken =
-      await this.authService.requireUserAccessToken(operatorOpenId);
+    // 日程由应用身份创建，不依赖操作者飞书 user_access_token
     const event = await this.calendar.createEvent({
-      userAccessToken,
       summary: `绩效面谈 · ${participant.cycle.name}`,
       description: '绩效结果沟通面谈',
       startAt: startAt.start,
@@ -177,10 +173,7 @@ export class InterviewService {
       throw new ConflictException('面谈缺少飞书日程关联，无法改期');
     }
 
-    const userAccessToken =
-      await this.authService.requireUserAccessToken(operatorOpenId);
     await this.calendar.updateEvent({
-      userAccessToken,
       calendarId: current.calendarId,
       eventId: current.calendarEventId,
       startAt: range.start,
@@ -218,10 +211,7 @@ export class InterviewService {
       throw new ConflictException('面谈缺少飞书日程关联，无法取消');
     }
 
-    const userAccessToken =
-      await this.authService.requireUserAccessToken(operatorOpenId);
     await this.calendar.cancelEvent({
-      userAccessToken,
       calendarId: current.calendarId,
       eventId: current.calendarEventId,
     });

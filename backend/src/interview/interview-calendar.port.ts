@@ -1,4 +1,4 @@
-/** 飞书面谈日程端口：以操作者 user_access_token 代建/改期/取消。 */
+/** 飞书面谈日程端口：以应用身份（tenant_access_token / APP_ID）创建、改期、取消。 */
 export const INTERVIEW_CALENDAR_PORT = Symbol('INTERVIEW_CALENDAR_PORT');
 
 export type InterviewCalendarEventRef = {
@@ -7,7 +7,6 @@ export type InterviewCalendarEventRef = {
 };
 
 export type CreateInterviewCalendarEventInput = {
-  userAccessToken: string;
   summary: string;
   description?: string;
   startAt: Date;
@@ -16,7 +15,6 @@ export type CreateInterviewCalendarEventInput = {
 };
 
 export type UpdateInterviewCalendarEventInput = {
-  userAccessToken: string;
   calendarId: string;
   eventId: string;
   startAt: Date;
@@ -25,7 +23,6 @@ export type UpdateInterviewCalendarEventInput = {
 };
 
 export type CancelInterviewCalendarEventInput = {
-  userAccessToken: string;
   calendarId: string;
   eventId: string;
 };

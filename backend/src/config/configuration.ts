@@ -61,6 +61,8 @@ export type AppConfig = {
   lark: Record<string, unknown> & {
     appId?: unknown;
     appSecret?: unknown;
+    /** 面谈日程所用应用侧日历 ID；未配置时运行时查应用主日历 */
+    interviewCalendarId?: string;
     oauth: LarkOauthConfig;
     /** 飞书通知发送开关：关闭时通知只落库不外发 */
     notification: {
@@ -194,6 +196,12 @@ export const loadAppConfig = (): AppConfig => {
       ...yamlConfig.lark,
       appId: process.env.LARK_APP_ID ?? yamlConfig.lark?.appId,
       appSecret: process.env.LARK_APP_SECRET ?? yamlConfig.lark?.appSecret,
+      // 可选：指定应用侧日历；未配置时运行时查询应用主日历
+      interviewCalendarId:
+        process.env.LARK_INTERVIEW_CALENDAR_ID ??
+        (typeof yamlConfig.lark?.interviewCalendarId === 'string'
+          ? yamlConfig.lark.interviewCalendarId
+          : undefined),
       oauth: {
         authorizeUrl:
           process.env.LARK_OAUTH_AUTHORIZE_URL ??

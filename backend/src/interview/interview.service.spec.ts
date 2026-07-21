@@ -10,7 +10,6 @@ jest.mock('../shared/database/prisma.service', () => ({
 }));
 jest.mock('../audit/audit.service', () => ({ AuditService: class {} }));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
-jest.mock('../auth/auth.service', () => ({ AuthService: class {} }));
 jest.mock('../notification/notification-event.service', () => ({
   NotificationEventService: class {},
 }));
@@ -64,7 +63,6 @@ describe('InterviewService 面谈工作台主闭环', () => {
   };
   const audit = { record: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
-  const auth = { requireUserAccessToken: jest.fn() };
   const notifications = {
     enqueueInterviewScheduledEvent: jest.fn().mockResolvedValue({ id: 1 }),
     enqueueInterviewCancelledEvents: jest.fn().mockResolvedValue([{ id: 2 }]),
@@ -91,9 +89,8 @@ describe('InterviewService 面谈工作台主闭环', () => {
     tx.$queryRaw.mockResolvedValue([{ id: 7 }]);
     prisma.perfParticipant.findUnique.mockResolvedValue(publishedParticipant);
     tx.perfParticipant.findUnique.mockResolvedValue(publishedParticipant);
-    auth.requireUserAccessToken.mockResolvedValue('uat_leader');
     calendar.createEvent.mockResolvedValue({
-      calendarId: 'primary',
+      calendarId: 'cal_app',
       eventId: 'evt_1',
     });
     tx.perfInterview.create.mockResolvedValue({
@@ -103,7 +100,7 @@ describe('InterviewService 面谈工作台主闭环', () => {
       organizerOpenId: 'ou_leader',
       scheduledStartAt: startAt,
       scheduledEndAt: endAt,
-      calendarId: 'primary',
+      calendarId: 'cal_app',
       calendarEventId: 'evt_1',
       participantOpenIds: ['ou_employee', 'ou_leader'],
       resultNotes: null,
@@ -115,7 +112,6 @@ describe('InterviewService 面谈工作台主闭环', () => {
       prisma as never,
       audit as never,
       rbac as never,
-      auth as never,
       notifications as never,
       calendar as never,
     );
@@ -130,9 +126,11 @@ describe('InterviewService 面谈工作台主闭环', () => {
 
     expect(calendar.createEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        userAccessToken: 'uat_leader',
         attendeeOpenIds: ['ou_employee', 'ou_leader'],
       }),
+    );
+    expect(calendar.createEvent.mock.calls[0][0]).not.toHaveProperty(
+      'userAccessToken',
     );
     expect(tx.perfInterview.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -140,7 +138,7 @@ describe('InterviewService 面谈工作台主闭环', () => {
         status: 'SCHEDULED',
         organizerOpenId: 'ou_leader',
         calendarEventId: 'evt_1',
-        calendarId: 'primary',
+        calendarId: 'cal_app',
         participantOpenIds: ['ou_employee', 'ou_leader'],
       }),
     });
