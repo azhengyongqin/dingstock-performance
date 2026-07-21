@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AuditModule } from '../audit/audit.module';
+import { AuthModule } from '../auth/auth.module';
 import { NotificationModule } from '../notification/notification.module';
 import { RbacModule } from '../rbac/rbac.module';
 import { SharedModule } from '../shared/shared.module';
@@ -10,7 +11,13 @@ import { LarkInterviewCalendarAdapter } from './lark-interview-calendar.adapter'
 
 /** 绩效面谈：预约（飞书日程）+ 纪要；与申诉弱关联 */
 @Module({
-  imports: [SharedModule, RbacModule, AuditModule, NotificationModule],
+  imports: [
+    SharedModule,
+    AuthModule,
+    RbacModule,
+    AuditModule,
+    NotificationModule,
+  ],
   controllers: [InterviewController],
   providers: [
     InterviewService,
