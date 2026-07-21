@@ -209,9 +209,10 @@ export class ReviewerService {
     for (const item of history)
       push(item.reviewerOpenId, item.relation, '历史评审关系');
 
-    // 统一补充人员主数据
+    // 统一补充人员主数据（含被评估人，供指派页展示「为谁邀请」）
     const allOpenIds = [
       ...new Set([
+        participant.employeeOpenId,
         ...assignments.map((a) => a.reviewerOpenId),
         ...recommendations.map((r) => r.openId),
       ]),
@@ -225,6 +226,13 @@ export class ReviewerService {
     return {
       // 供前端选人时即时拦截：考核 Leader 快照不可被指派为 360° 评审员
       leaderOpenId: participant.leaderOpenIdSnapshot,
+      employee: userMap.get(participant.employeeOpenId) ?? {
+        open_id: participant.employeeOpenId,
+      },
+      cycle: {
+        id: participant.cycle.id,
+        name: participant.cycle.name,
+      },
       assignments: assignments.map((a) => ({
         ...a,
         reviewer: userMap.get(a.reviewerOpenId) ?? null,

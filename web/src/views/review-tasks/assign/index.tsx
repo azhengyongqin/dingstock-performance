@@ -159,6 +159,10 @@ const ReviewerAssign = () => {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [selected, setSelected] = useState<SelectedReviewer[]>([])
 
+  /** 被评估人与周期：指派页必须明示「为谁邀请」 */
+  const [employee, setEmployee] = useState<LarkUserBrief | null>(null)
+  const [cycleName, setCycleName] = useState<string | null>(null)
+
   /** 考核 Leader 快照：不可被指派为 360°评审员（选人时即时拦截，服务端另有硬校验兜底） */
   const [leaderOpenId, setLeaderOpenId] = useState<string | null>(null)
   const [knownAssignmentIds, setKnownAssignmentIds] = useState<number[]>([])
@@ -187,6 +191,8 @@ const ReviewerAssign = () => {
     try {
       const data = await apiFetch<{
         leaderOpenId?: string | null
+        employee?: LarkUserBrief | null
+        cycle?: { id: number; name: string } | null
         assignments: Assignment[]
         recommendations: Recommendation[]
       }>(`/participants/${participantId}/reviewers`)
@@ -194,6 +200,8 @@ const ReviewerAssign = () => {
       const active = (data.assignments ?? []).filter(assignment => assignment.status !== 'REPLACED')
 
       setLeaderOpenId(data.leaderOpenId ?? null)
+      setEmployee(data.employee ?? null)
+      setCycleName(data.cycle?.name ?? null)
       setRecommendations(data.recommendations ?? [])
       setKnownAssignmentIds(active.map(assignment => assignment.id))
       setSelected(
@@ -339,18 +347,43 @@ const ReviewerAssign = () => {
 
   const inviteLabel = inviteRelation ? (RELATION_LABEL[inviteRelation] ?? inviteRelation) : ''
 
+  const employeeName = employee?.name ?? employee?.open_id ?? '被评估人'
+
+  const headerDescription = [
+    cycleName,
+    `为 ${employeeName} 指定 360°评估人；推荐仅是候选，采纳后才生效`
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   return (
     <div className='flex flex-col gap-6'>
       <PageHeader
         title='评审人推荐与指定'
-        description='为被评估人指定 360°评估人；推荐仅是候选，采纳后才生效'
+        description={headerDescription}
         backHref='/team-review'
         backLabel='团队看板'
       />
 
       <Card className='mx-auto w-full max-w-3xl'>
-        <CardHeader>
+        <CardHeader className='gap-3'>
           <CardTitle>邀请 360°评估人</CardTitle>
+          {/* 明示评估对象，避免从团队看板跳入后丢失「为谁邀请」上下文 */}
+          <div className='bg-muted/40 flex items-center gap-3 rounded-lg border px-3 py-2.5'>
+            <UserAvatar
+              openId={employee?.open_id}
+              name={employee?.name}
+              avatarUrl={avatarUrlOf(employee)}
+              size='default'
+            />
+            <div className='min-w-0'>
+              <p className='text-muted-foreground text-xs'>被评估人</p>
+              <p className='truncate font-medium'>{employeeName}</p>
+              {employee?.job_title ? (
+                <p className='text-muted-foreground truncate text-xs'>{employee.job_title}</p>
+              ) : null}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className='flex flex-col gap-4'>
           {/* 360° 邀请规则说明（不设人数规则） */}

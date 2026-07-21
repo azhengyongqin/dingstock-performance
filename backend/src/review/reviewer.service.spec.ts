@@ -109,7 +109,7 @@ describe('ReviewerService', () => {
     employeeOpenId: 'ou_emp',
     leaderOpenIdSnapshot: 'ou_leader',
     departmentIdSnapshot: null,
-    cycle: { id: 100, deletedAt: null },
+    cycle: { id: 100, name: '2026年中绩效评定', deletedAt: null },
   };
 
   beforeEach(async () => {
@@ -171,6 +171,33 @@ describe('ReviewerService', () => {
       expect(
         result.recommendations.map((r: { openId: string }) => r.openId),
       ).not.toContain('ou_leader');
+    });
+
+    it('响应包含被评估人与周期，供指派页展示对象', async () => {
+      prismaMock.larkUser.findMany.mockResolvedValue([
+        {
+          open_id: 'ou_emp',
+          name: '冯文博',
+          avatar: null,
+          job_title: '工程师',
+        },
+      ]);
+
+      const result = await service.listWithRecommendations('ou_leader', 7);
+
+      expect(result.employee).toMatchObject({
+        open_id: 'ou_emp',
+        name: '冯文博',
+      });
+      expect(result.cycle).toEqual({
+        id: 100,
+        name: '2026年中绩效评定',
+      });
+      expect(prismaMock.larkUser.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { open_id: { in: expect.arrayContaining(['ou_emp']) } },
+        }),
+      );
     });
   });
 
