@@ -11,6 +11,9 @@ jest.mock('../shared/database/prisma.service', () => ({
 jest.mock('../audit/audit.service', () => ({ AuditService: class {} }));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
 jest.mock('../auth/auth.service', () => ({ AuthService: class {} }));
+jest.mock('../notification/notification-event.service', () => ({
+  NotificationEventService: class {},
+}));
 jest.mock(
   '../generated/prisma/enums',
   () => ({
@@ -19,7 +22,6 @@ jest.mock(
       COMPLETED: 'COMPLETED',
       CANCELLED: 'CANCELLED',
     },
-    PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
     PerfAppealStatus: { PENDING: 'PENDING', RESOLVED: 'RESOLVED' },
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfParticipantStatus: {
@@ -63,6 +65,10 @@ describe('InterviewService 面谈工作台主闭环', () => {
   const audit = { record: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
   const auth = { requireUserAccessToken: jest.fn() };
+  const notifications = {
+    enqueueInterviewScheduledEvent: jest.fn().mockResolvedValue({ id: 1 }),
+    enqueueInterviewCancelledEvents: jest.fn().mockResolvedValue([{ id: 2 }]),
+  };
   const calendar = {
     createEvent: jest.fn(),
     updateEvent: jest.fn(),
@@ -110,11 +116,12 @@ describe('InterviewService 面谈工作台主闭环', () => {
       audit as never,
       rbac as never,
       auth as never,
+      notifications as never,
       calendar as never,
     );
   });
 
-  it('预约成功：创建飞书日程后落 SCHEDULED，默认邀请员工与操作者，并写审计', async () => {
+  it('预约成功：创建飞书日程后落 SCHEDULED，通知员工，并写审计', async () => {
     const created = await service.schedule('ou_leader', {
       participantId: 7,
       scheduledStartAt: startAt.toISOString(),
@@ -137,6 +144,14 @@ describe('InterviewService 面谈工作台主闭环', () => {
         participantOpenIds: ['ou_employee', 'ou_leader'],
       }),
     });
+    expect(notifications.enqueueInterviewScheduledEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interviewId: 11,
+        receiverOpenId: 'ou_employee',
+        cycleName: '2026年中',
+      }),
+      tx,
+    );
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'interview.schedule' }),
     );
@@ -235,6 +250,11 @@ describe('InterviewService 面谈工作台主闭环', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'interview.complete' }),
     );
+    // 纪要对员工不可见，完成填写不得向员工发应用通知
+    expect(notifications.enqueueInterviewScheduledEvent).not.toHaveBeenCalled();
+    expect(
+      notifications.enqueueInterviewCancelledEvents,
+    ).not.toHaveBeenCalled();
 
     prisma.perfInterview.findMany.mockResolvedValue([
       {
@@ -277,7 +297,7 @@ describe('InterviewService 面谈工作台主闭环', () => {
         employeeOpenId: 'ou_employee',
         leaderOpenIdSnapshot: 'ou_leader',
         departmentIdSnapshot: 'od_product',
-        cycle: { status: 'ACTIVE' },
+        cycle: { id: 1, name: '2026年中', status: 'ACTIVE' },
       },
     });
     tx.perfInterview.update.mockResolvedValue({
@@ -307,10 +327,21 @@ describe('InterviewService 面谈工作台主闭环', () => {
       id: 11,
       status: 'CANCELLED',
       calendarEventId: 'evt_1',
+      participantOpenIds: ['ou_employee', 'ou_leader', 'ou_hr'],
+      participantId: 7,
     });
     await service.cancel('ou_leader', 11);
     expect(calendar.cancelEvent).toHaveBeenCalledWith(
       expect.objectContaining({ eventId: 'evt_1' }),
+    );
+    expect(notifications.enqueueInterviewCancelledEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interviewId: 11,
+        receiverOpenIds: ['ou_employee', 'ou_leader', 'ou_hr'],
+        excludeOpenId: 'ou_leader',
+        cycleName: '2026年中',
+      }),
+      tx,
     );
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'interview.cancel' }),

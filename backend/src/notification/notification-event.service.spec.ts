@@ -103,6 +103,9 @@ describe('NotificationEventService', () => {
     roleGrant: {
       findMany: jest.fn(),
     },
+    larkDepartment: {
+      findMany: jest.fn(),
+    },
     perfNotificationEvent: {
       upsert: jest.fn(
         ({
@@ -139,9 +142,13 @@ describe('NotificationEventService', () => {
     del: jest.fn().mockResolvedValue(1),
     eval: jest.fn().mockResolvedValue(1),
   };
+  const rbacMock = {
+    expandDepartmentSubtree: jest.fn(async (rootIds: string[]) => rootIds),
+  };
   const buildService = () =>
     new NotificationEventService(
       prismaMock as unknown as PrismaService,
+      rbacMock as never,
       redisMock as unknown as Redis,
     );
 
@@ -154,6 +161,7 @@ describe('NotificationEventService', () => {
     redisMock.get.mockResolvedValue(null);
     prismaMock.perfEvaluationTask.findMany.mockResolvedValue([]);
     prismaMock.roleGrant.findMany.mockResolvedValue([]);
+    prismaMock.larkDepartment.findMany.mockResolvedValue([]);
   });
 
   it('相同业务键重复入队只保留一个事件', async () => {
@@ -247,6 +255,102 @@ describe('NotificationEventService', () => {
           previousFinalLevel: 'B',
           isReconfirmation: true,
         }),
+      }),
+    ]);
+  });
+
+  it('申诉发起通知 Leader 与范围内 HR，并按申诉去重', async () => {
+    const service = buildService();
+    prismaMock.roleGrant.findMany.mockResolvedValue([
+      { userOpenId: 'ou_hr_scope', orgScope: ['od_product'] },
+      { userOpenId: 'ou_hr_other', orgScope: ['od_sales'] },
+      { userOpenId: 'ou_hr_global', orgScope: [] },
+    ]);
+    rbacMock.expandDepartmentSubtree.mockImplementation(
+      async (rootIds: string[]) => rootIds,
+    );
+
+    const first = await service.enqueueAppealCreatedEvents({
+      appealId: 51,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      employeeOpenId: 'ou_employee',
+      leaderOpenId: 'ou_leader',
+      departmentId: 'od_product',
+    });
+    const duplicate = await service.enqueueAppealCreatedEvents({
+      appealId: 51,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      employeeOpenId: 'ou_employee',
+      leaderOpenId: 'ou_leader',
+      departmentId: 'od_product',
+    });
+
+    expect(first).toHaveLength(3);
+    expect(duplicate).toHaveLength(3);
+    expect([...events.keys()].sort()).toEqual([
+      'appeal-created:51:ou_hr_global',
+      'appeal-created:51:ou_hr_scope',
+      'appeal-created:51:ou_leader',
+    ]);
+    expect([...events.values()]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'APPEAL_CREATED',
+          template: 'appeal_created',
+        }),
+      ]),
+    );
+  });
+
+  it('面谈预约与取消分别按接收人去重入队，取消可排除操作者', async () => {
+    const service = buildService();
+
+    await service.enqueueInterviewScheduledEvent({
+      interviewId: 11,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      receiverOpenId: 'ou_employee',
+      scheduledStartAt: new Date('2026-07-22T10:00:00.000Z'),
+      scheduledEndAt: new Date('2026-07-22T11:00:00.000Z'),
+    });
+    await service.enqueueInterviewCancelledEvents({
+      interviewId: 11,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      receiverOpenIds: ['ou_employee', 'ou_leader', 'ou_hr', 'ou_employee'],
+      excludeOpenId: 'ou_leader',
+    });
+
+    expect([...events.keys()].sort()).toEqual([
+      'interview-cancelled:11:ou_employee',
+      'interview-cancelled:11:ou_hr',
+      'interview-scheduled:11:ou_employee',
+    ]);
+  });
+
+  it('结案维持等级对员工入队独立事件且不走再次确认模板', async () => {
+    const service = buildService();
+
+    await service.enqueueAppealResolvedMaintainedEvent({
+      appealId: 51,
+      cycleId: 9,
+      cycleName: '2026 上半年绩效评定',
+      participantId: 7,
+      resultVersionId: 41,
+      receiverOpenId: 'ou_employee',
+    });
+
+    expect([...events.values()]).toEqual([
+      expect.objectContaining({
+        dedupeKey: 'appeal-resolved-maintained:51:ou_employee',
+        type: 'APPEAL_RESOLVED_MAINTAINED',
+        template: 'appeal_resolved_maintained',
       }),
     ]);
   });

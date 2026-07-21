@@ -45,12 +45,18 @@ Status: resolved
 
 ## 通知与旧模型收缩
 
+Status: resolved
+
 **What to build:** 补齐应用内关键通知，并收缩旧的强耦合面谈/申诉接口与类型，使实现、表结构文档与 PRD 一致，避免双路径并存。
 
 **Blocked by:** 面谈工作台主闭环, 申诉弱关联与结果闭环
 
-- [ ] 通知：申诉发起 → Leader（及范围内 HR）；面谈预约 → 员工；面谈取消 → 员工及其他参与人；结案维持 → 员工；改判再确认沿用现有路径
-- [ ] 完成填写纪要不向员工发通知（纪要对其不可见）
-- [ ] 移除或停用会强制 `IN_INTERVIEW` / 依赖面谈类型枚举的旧写入路径，调用方全部迁到新模型
-- [ ] 数据库表结构与相关产品/研发文档与两态申诉、独立面谈状态、弱关联语义一致
-- [ ] 回归：主缝与申诉结案缝在收缩后仍绿；后端/前端按仓库约定完成构建校验
+- [x] 通知：申诉发起 → Leader（及范围内 HR）；面谈预约 → 员工；面谈取消 → 员工及其他参与人；结案维持 → 员工；改判再确认沿用现有路径
+- [x] 完成填写纪要不向员工发通知（纪要对其不可见）
+- [x] 移除或停用会强制 `IN_INTERVIEW` / 依赖面谈类型枚举的旧写入路径，调用方全部迁到新模型
+- [x] 数据库表结构与相关产品/研发文档与两态申诉、独立面谈状态、弱关联语义一致
+- [x] 回归：主缝与申诉结案缝在收缩后仍绿；后端/前端按仓库约定完成构建校验
+
+## Answer
+
+2026-07-21：补齐 outbox 事件 `APPEAL_CREATED` / `INTERVIEW_SCHEDULED` / `INTERVIEW_CANCELLED` / `APPEAL_RESOLVED_MAINTAINED`；删除旧 `addInterview`/`addOptionalInterview` HTTP 与 `PerfInterviewType`；迁移 `20260721180000_notification_appeal_interview_cleanup`；文档与 CONTEXT 对齐。后端全量 477 测通过，build + migrate 成功。

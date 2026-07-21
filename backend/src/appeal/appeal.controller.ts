@@ -52,25 +52,6 @@ class AssignAppealDto {
   handlerOpenId!: string;
 }
 
-class InterviewDto {
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  participantOpenIds?: string[];
-
-  @IsOptional()
-  @IsString()
-  content?: string;
-
-  @IsOptional()
-  @IsString()
-  employeeFeedback?: string;
-
-  @IsOptional()
-  @IsString()
-  conclusion?: string;
-}
-
 class ResolveAppealDto {
   @IsString()
   @MaxLength(1000)
@@ -140,16 +121,6 @@ export class AppealController {
     return this.appealService.assign(req.user.open_id, id, dto.handlerOpenId);
   }
 
-  @Post('appeals/:id/interviews')
-  @ApiOperation({ summary: '添加申诉面谈记录' })
-  addInterview(
-    @Req() req: AuthenticatedRequest,
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: InterviewDto,
-  ) {
-    return this.appealService.addInterview(req.user.open_id, id, dto);
-  }
-
   @Post('appeals/:id/resolve')
   @ApiOperation({
     summary: '关闭申诉（改判须先在校准工作台追加显式决定）',
@@ -160,19 +131,5 @@ export class AppealController {
     @Body() dto: ResolveAppealDto,
   ) {
     return this.appealService.resolve(req.user.open_id, id, dto);
-  }
-
-  @Post('participants/:participantId/interviews')
-  @ApiOperation({ summary: '选择性面谈记录（Leader/HR）' })
-  addOptionalInterview(
-    @Req() req: AuthenticatedRequest,
-    @Param('participantId', ParseIntPipe) participantId: number,
-    @Body() dto: InterviewDto,
-  ) {
-    return this.appealService.addOptionalInterview(
-      req.user.open_id,
-      participantId,
-      dto,
-    );
   }
 }

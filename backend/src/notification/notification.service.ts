@@ -72,6 +72,18 @@ function renderText(
     case 'result_pushed':
     case 'result_published':
       return `【结果确认】你的绩效结果已发布，请前往绩效系统查看并确认。`;
+    case 'result_changed_reconfirmation':
+      return `【结果再次确认】你的绩效结果因申诉处理已更新，请前往绩效系统查看并再次确认。`;
+    case 'result_invalidated_by_cycle_rollback':
+      return `【结果失效】${cycleName} 已整体退回，你此前收到的绩效结果已失效，请等待重新发布。`;
+    case 'appeal_created':
+      return `【绩效申诉】${cycleName} 中有员工发起了绩效申诉，请前往绩效系统处理。`;
+    case 'interview_scheduled':
+      return `【绩效面谈】${cycleName} 已为你预约绩效面谈，请留意飞书日程并准时参加。`;
+    case 'interview_cancelled':
+      return `【绩效面谈】${cycleName} 的绩效面谈已取消，请勿按原时间出席。`;
+    case 'appeal_resolved_maintained':
+      return `【申诉处理】你的绩效申诉已处理完成，最终等级维持不变，请前往绩效系统查看结论。`;
     case 'appeal_resolved':
       return `【申诉处理】你的绩效申诉已处理完成，请前往绩效系统查看结论并再次确认结果。`;
     default:

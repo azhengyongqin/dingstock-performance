@@ -54,6 +54,9 @@ describe('ResultService 不可变结果版本', () => {
   const audit = { record: jest.fn() };
   const notifications = {
     enqueueResultPublishedEvent: jest.fn().mockResolvedValue({ id: 1 }),
+    enqueueAppealResolvedMaintainedEvent: jest
+      .fn()
+      .mockResolvedValue({ id: 2 }),
   };
   let service: ResultService;
 
@@ -352,7 +355,7 @@ describe('ResultService 不可变结果版本', () => {
     });
   });
 
-  it('申诉处理后同级决定保留原版本并回到原确认链，不产生通知', async () => {
+  it('申诉处理后同级决定保留原版本并回到原确认链，发送结案维持通知', async () => {
     tx.perfParticipant.findUnique.mockResolvedValue({
       ...participant,
       status: 'APPEALING',
@@ -387,6 +390,16 @@ describe('ResultService 不可变结果版本', () => {
     });
     expect(tx.perfResultVersion.create).not.toHaveBeenCalled();
     expect(notifications.enqueueResultPublishedEvent).not.toHaveBeenCalled();
+    expect(
+      notifications.enqueueAppealResolvedMaintainedEvent,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appealId: 51,
+        resultVersionId: 41,
+        receiverOpenId: 'ou_employee',
+      }),
+      tx,
+    );
   });
 
   it('申诉改判时追加新版本、进入 RE_CONFIRMING 并发送变更通知', async () => {

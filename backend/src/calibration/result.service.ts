@@ -332,11 +332,22 @@ export class ResultService {
       ? PerfRatingSymbol.C
       : this.requireRatingSymbol(calibration.afterLevel);
     if (currentVersion.finalLevel === finalLevel) {
-      // 原版本从未被确认，维持结论后继续沿用原确认入口，不新建任务或通知。
+      // 原版本从未被确认，维持结论后继续沿用原确认入口；不新建结果版本，仅发结案通知。
       await tx.perfParticipant.update({
         where: { id: input.participantId },
         data: { status: PerfParticipantStatus.RESULT_PUBLISHED },
       });
+      await this.notificationEventService.enqueueAppealResolvedMaintainedEvent(
+        {
+          appealId: input.appealId,
+          cycleId: participant.cycleId,
+          cycleName: participant.cycle.name,
+          participantId: input.participantId,
+          resultVersionId: currentVersion.id,
+          receiverOpenId: participant.employeeOpenId,
+        },
+        tx,
+      );
       return {
         changed: false,
         resultVersionId: currentVersion.id,

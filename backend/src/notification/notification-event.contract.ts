@@ -19,7 +19,11 @@ export type EnqueueNotificationEventInput = {
     | 'TASK_REMINDER_DUE'
     | 'CYCLE_START_FAILED'
     | 'RESULT_PUBLISHED'
-    | 'RESULT_INVALIDATED';
+    | 'RESULT_INVALIDATED'
+    | 'APPEAL_CREATED'
+    | 'INTERVIEW_SCHEDULED'
+    | 'INTERVIEW_CANCELLED'
+    | 'APPEAL_RESOLVED_MAINTAINED';
   cycleId?: number;
   taskId?: number;
   stage?: PerfEvaluationTaskType;
@@ -77,6 +81,38 @@ export function resultInvalidatedDedupeKey(input: {
   receiverOpenId: string;
 }) {
   return `result-invalidated:${input.rollbackId}:${input.receiverOpenId}`;
+}
+
+/** 一次申诉发起对每个接收人只入队一条处理提醒。 */
+export function appealCreatedDedupeKey(input: {
+  appealId: number;
+  receiverOpenId: string;
+}) {
+  return `appeal-created:${input.appealId}:${input.receiverOpenId}`;
+}
+
+/** 一次面谈预约只向员工发一条应用通知（日历邀请另计）。 */
+export function interviewScheduledDedupeKey(input: {
+  interviewId: number;
+  receiverOpenId: string;
+}) {
+  return `interview-scheduled:${input.interviewId}:${input.receiverOpenId}`;
+}
+
+/** 一次面谈取消对每个参与人只入队一条通知。 */
+export function interviewCancelledDedupeKey(input: {
+  interviewId: number;
+  receiverOpenId: string;
+}) {
+  return `interview-cancelled:${input.interviewId}:${input.receiverOpenId}`;
+}
+
+/** 结案维持等级时，同一申诉对员工只通知一次。 */
+export function appealResolvedMaintainedDedupeKey(input: {
+  appealId: number;
+  receiverOpenId: string;
+}) {
+  return `appeal-resolved-maintained:${input.appealId}:${input.receiverOpenId}`;
 }
 
 export type TaskNotificationContext = {

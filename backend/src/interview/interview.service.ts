@@ -9,13 +9,13 @@ import {
   PerfAppealStatus,
   PerfCycleStatus,
   PerfInterviewStatus,
-  PerfInterviewType,
   PerfParticipantStatus,
   PerfRole,
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AuthService } from '../auth/auth.service';
+import { NotificationEventService } from '../notification/notification-event.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import {
@@ -50,6 +50,7 @@ export class InterviewService {
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
     private readonly authService: AuthService,
+    private readonly notificationEventService: NotificationEventService,
     @Inject(INTERVIEW_CALENDAR_PORT)
     private readonly calendar: InterviewCalendarPort,
   ) {}
@@ -91,14 +92,10 @@ export class InterviewService {
       if (input.appealId != null) {
         await this.assertLinkableAppeal(input.appealId, input.participantId, tx);
       }
-      return tx.perfInterview.create({
+      const created = await tx.perfInterview.create({
         data: {
           participantId: input.participantId,
           appealId: input.appealId ?? null,
-          // 遗留 type 列仍必填；业务分支只看 appealId（ticket 3 收缩枚举）
-          type: input.appealId
-            ? PerfInterviewType.APPEAL
-            : PerfInterviewType.OPTIONAL,
           status: PerfInterviewStatus.SCHEDULED,
           organizerOpenId: operatorOpenId,
           scheduledStartAt: startAt.start,
@@ -108,6 +105,20 @@ export class InterviewService {
           participantOpenIds: attendeeOpenIds,
         },
       });
+      // 应用通知与预约同事务；日历邀请已由飞书侧送达
+      await this.notificationEventService.enqueueInterviewScheduledEvent(
+        {
+          interviewId: created.id,
+          cycleId: locked.cycle.id,
+          cycleName: locked.cycle.name,
+          participantId: locked.id,
+          receiverOpenId: locked.employeeOpenId,
+          scheduledStartAt: startAt.start,
+          scheduledEndAt: startAt.end,
+        },
+        tx,
+      );
+      return created;
     });
 
     await this.auditService.record({
@@ -138,13 +149,7 @@ export class InterviewService {
       }
       return tx.perfInterview.update({
         where: { id },
-        data: {
-          appealId,
-          type:
-            appealId != null
-              ? PerfInterviewType.APPEAL
-              : PerfInterviewType.OPTIONAL,
-        },
+        data: { appealId },
       });
     });
 
@@ -223,10 +228,22 @@ export class InterviewService {
 
     const updated = await this.prisma.$transaction(async (tx) => {
       await this.lockParticipant(tx, current.participantId);
-      return tx.perfInterview.update({
+      const cancelled = await tx.perfInterview.update({
         where: { id },
         data: { status: PerfInterviewStatus.CANCELLED },
       });
+      await this.notificationEventService.enqueueInterviewCancelledEvents(
+        {
+          interviewId: cancelled.id,
+          cycleId: current.participant.cycle.id,
+          cycleName: current.participant.cycle.name,
+          participantId: current.participantId,
+          receiverOpenIds: cancelled.participantOpenIds,
+          excludeOpenId: operatorOpenId,
+        },
+        tx,
+      );
+      return cancelled;
     });
 
     await this.auditService.record({

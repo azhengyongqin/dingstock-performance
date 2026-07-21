@@ -11,11 +11,16 @@ import {
   PerfNotificationEventStatus,
   PerfRole,
 } from '../generated/prisma/enums';
+import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import { REDIS_CLIENT } from '../shared/redis/redis.constants';
 import type { NotificationRules } from '../config-template/config-template.contract';
 import {
+  appealCreatedDedupeKey,
+  appealResolvedMaintainedDedupeKey,
   cycleStartFailedDedupeKey,
+  interviewCancelledDedupeKey,
+  interviewScheduledDedupeKey,
   resultPublishedDedupeKey,
   resultInvalidatedDedupeKey,
   type EnqueueNotificationEventInput,
@@ -86,6 +91,7 @@ export class NotificationEventService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly rbacService: RbacService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -193,6 +199,190 @@ export class NotificationEventService {
       },
       transaction,
     );
+  }
+
+  /**
+   * 申诉发起：通知直属 Leader 与组织范围内 HR/Admin。
+   * 接收人解析在业务事务外读授权表；事件写入可挂业务事务。
+   */
+  async enqueueAppealCreatedEvents(
+    input: {
+      appealId: number;
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      employeeOpenId: string;
+      leaderOpenId: string | null;
+      departmentId: string | null;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    const receivers = new Set<string>();
+    if (input.leaderOpenId) receivers.add(input.leaderOpenId);
+    for (const openId of await this.managementReceiversForDepartment(
+      input.departmentId,
+    )) {
+      receivers.add(openId);
+    }
+    return Promise.all(
+      [...receivers].map((receiverOpenId) =>
+        this.enqueue(
+          {
+            dedupeKey: appealCreatedDedupeKey({
+              appealId: input.appealId,
+              receiverOpenId,
+            }),
+            type: 'APPEAL_CREATED',
+            cycleId: input.cycleId,
+            receiverOpenId,
+            channel: PerfNotificationChannel.BOT_DM,
+            template: 'appeal_created',
+            payload: {
+              appealId: input.appealId,
+              cycleId: input.cycleId,
+              cycleName: input.cycleName,
+              participantId: input.participantId,
+              employeeOpenId: input.employeeOpenId,
+            },
+          },
+          transaction,
+        ),
+      ),
+    );
+  }
+
+  /** 面谈预约成功后通知员工（日历邀请之外的应用提醒）。 */
+  enqueueInterviewScheduledEvent(
+    input: {
+      interviewId: number;
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      receiverOpenId: string;
+      scheduledStartAt: Date;
+      scheduledEndAt: Date;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    return this.enqueue(
+      {
+        dedupeKey: interviewScheduledDedupeKey(input),
+        type: 'INTERVIEW_SCHEDULED',
+        cycleId: input.cycleId,
+        receiverOpenId: input.receiverOpenId,
+        channel: PerfNotificationChannel.BOT_DM,
+        template: 'interview_scheduled',
+        payload: {
+          interviewId: input.interviewId,
+          cycleId: input.cycleId,
+          cycleName: input.cycleName,
+          participantId: input.participantId,
+          scheduledStartAt: input.scheduledStartAt.toISOString(),
+          scheduledEndAt: input.scheduledEndAt.toISOString(),
+        },
+      },
+      transaction,
+    );
+  }
+
+  /** 面谈取消：通知员工及其他参与人（排除操作者本人，避免自通知）。 */
+  enqueueInterviewCancelledEvents(
+    input: {
+      interviewId: number;
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      receiverOpenIds: readonly string[];
+      excludeOpenId?: string;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    const receivers = [
+      ...new Set(
+        input.receiverOpenIds.filter(
+          (openId) => openId && openId !== input.excludeOpenId,
+        ),
+      ),
+    ];
+    return Promise.all(
+      receivers.map((receiverOpenId) =>
+        this.enqueue(
+          {
+            dedupeKey: interviewCancelledDedupeKey({
+              interviewId: input.interviewId,
+              receiverOpenId,
+            }),
+            type: 'INTERVIEW_CANCELLED',
+            cycleId: input.cycleId,
+            receiverOpenId,
+            channel: PerfNotificationChannel.BOT_DM,
+            template: 'interview_cancelled',
+            payload: {
+              interviewId: input.interviewId,
+              cycleId: input.cycleId,
+              cycleName: input.cycleName,
+              participantId: input.participantId,
+            },
+          },
+          transaction,
+        ),
+      ),
+    );
+  }
+
+  /** 申诉结案且可见等级未变：通知员工结案，不走再次确认路径。 */
+  enqueueAppealResolvedMaintainedEvent(
+    input: {
+      appealId: number;
+      cycleId: number;
+      cycleName: string;
+      participantId: number;
+      resultVersionId: number;
+      receiverOpenId: string;
+    },
+    transaction?: NotificationEventWriter,
+  ) {
+    return this.enqueue(
+      {
+        dedupeKey: appealResolvedMaintainedDedupeKey(input),
+        type: 'APPEAL_RESOLVED_MAINTAINED',
+        cycleId: input.cycleId,
+        receiverOpenId: input.receiverOpenId,
+        channel: PerfNotificationChannel.BOT_DM,
+        template: 'appeal_resolved_maintained',
+        payload: {
+          appealId: input.appealId,
+          cycleId: input.cycleId,
+          cycleName: input.cycleName,
+          participantId: input.participantId,
+          resultVersionId: input.resultVersionId,
+        },
+      },
+      transaction,
+    );
+  }
+
+  /** 解析覆盖某部门的 HR（空 org_scope = 全局）；复用 RBAC 部门子树展开。 */
+  private async managementReceiversForDepartment(
+    departmentId: string | null,
+  ): Promise<string[]> {
+    const grants = await this.prisma.roleGrant.findMany({
+      where: { role: PerfRole.HR },
+      select: { userOpenId: true, orgScope: true },
+    });
+    const receivers = new Set<string>();
+    for (const grant of grants) {
+      if (grant.orgScope.length === 0) {
+        receivers.add(grant.userOpenId);
+        continue;
+      }
+      if (!departmentId) continue;
+      const scope = await this.rbacService.expandDepartmentSubtree(
+        grant.orgScope,
+      );
+      if (scope.includes(departmentId)) receivers.add(grant.userOpenId);
+    }
+    return [...receivers];
   }
 
   /** 任务开放事件按接收人拆分，抄送人与执行人为同一人时自动去重。 */

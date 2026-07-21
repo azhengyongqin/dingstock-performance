@@ -8,7 +8,6 @@ import {
   PerfAppealStatus,
   PerfCycleStatus,
   PerfInterviewStatus,
-  PerfInterviewType,
   PerfParticipantStatus,
   PerfRole,
 } from '../generated/prisma/enums';
@@ -17,6 +16,7 @@ import { PrismaService } from '../shared/database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CalibrationService } from '../calibration/calibration.service';
 import { ResultService } from '../calibration/result.service';
+import { NotificationEventService } from '../notification/notification-event.service';
 import { RbacService } from '../rbac/rbac.service';
 
 /** 申诉队列：发起 / 指派 / 结案。面谈为独立能力，可通过可选 appealId 弱关联，不推动申诉状态。 */
@@ -28,6 +28,7 @@ export class AppealService {
     private readonly calibrationService: CalibrationService,
     private readonly resultService: ResultService,
     private readonly rbacService: RbacService,
+    private readonly notificationEventService: NotificationEventService,
   ) {}
 
   private assertCycleWritable(participant: {
@@ -53,7 +54,7 @@ export class AppealService {
       const participant = await tx.perfParticipant.findUnique({
         where: { id: participantId },
         include: {
-          cycle: { select: { status: true } },
+          cycle: { select: { status: true, name: true } },
           resultVersions: {
             where: { supersededAt: null, invalidatedAt: null },
             orderBy: { version: 'desc' },
@@ -105,6 +106,18 @@ export class AppealService {
         where: { id: participantId },
         data: { status: PerfParticipantStatus.APPEALING },
       });
+      await this.notificationEventService.enqueueAppealCreatedEvents(
+        {
+          appealId: created.id,
+          cycleId: participant.cycleId,
+          cycleName: participant.cycle.name,
+          participantId,
+          employeeOpenId: participant.employeeOpenId,
+          leaderOpenId: participant.leaderOpenIdSnapshot,
+          departmentId: participant.departmentIdSnapshot,
+        },
+        tx,
+      );
       return created;
     });
     await this.auditService.record({
@@ -337,112 +350,6 @@ export class AppealService {
       after: { handlerOpenId },
     });
     return updated;
-  }
-
-  /**
-   * @deprecated 遗留入口；新预约请走 InterviewService。
-   * 不再推进申诉状态（申诉仅 PENDING/RESOLVED）。
-   */
-  async addInterview(
-    operatorOpenId: string,
-    appealId: number,
-    input: {
-      participantOpenIds?: string[];
-      content?: string;
-      employeeFeedback?: string;
-      conclusion?: string;
-    },
-  ) {
-    const interview = await this.prisma.$transaction(async (tx) => {
-      const identity = await tx.perfAppeal.findUnique({
-        where: { id: appealId },
-        select: { participantId: true },
-      });
-      if (!identity) throw new NotFoundException('申诉不存在');
-      await this.lockAppealAggregate(tx, identity.participantId);
-      const appeal = await tx.perfAppeal.findUnique({
-        where: { id: appealId },
-        include: {
-          participant: { include: { cycle: { select: { status: true } } } },
-        },
-      });
-      if (!appeal) throw new NotFoundException('申诉不存在');
-      if (appeal.invalidatedAt) {
-        throw new ConflictException('申诉已因周期整体退回而失效');
-      }
-      this.assertCycleWritable(appeal.participant);
-      await this.assertCanManage(operatorOpenId, appeal.participant);
-      if (appeal.status === PerfAppealStatus.RESOLVED) {
-        throw new ConflictException('申诉已处理完成');
-      }
-      return tx.perfInterview.create({
-        data: {
-          participantId: appeal.participantId,
-          appealId,
-          type: PerfInterviewType.APPEAL,
-          // 遗留入口：无飞书日程，直接记为已完成纪要（新预约走 InterviewService）
-          status: PerfInterviewStatus.COMPLETED,
-          organizerOpenId: operatorOpenId,
-          participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
-          content: input.content,
-          employeeFeedback: input.employeeFeedback,
-          conclusion: input.conclusion,
-          resultNotes: input.conclusion ?? input.content,
-        },
-      });
-    });
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'interview.create',
-      targetType: 'perf_appeal',
-      targetId: String(appealId),
-      after: interview,
-    });
-    return interview;
-  }
-
-  /** 选择性面谈（不关联申诉，Leader/HR 发起） */
-  async addOptionalInterview(
-    operatorOpenId: string,
-    participantId: number,
-    input: {
-      participantOpenIds?: string[];
-      content?: string;
-      conclusion?: string;
-    },
-  ) {
-    const interview = await this.prisma.$transaction(async (tx) => {
-      // 选择性面谈也与归档共用 cycle 行锁，避免归档检查后插入新记录。
-      await this.lockAppealAggregate(tx, participantId);
-      const participant = await tx.perfParticipant.findUnique({
-        where: { id: participantId },
-        include: { cycle: { select: { status: true } } },
-      });
-      if (!participant) throw new NotFoundException('参与者不存在');
-      this.assertCycleWritable(participant);
-      await this.assertCanManage(operatorOpenId, participant);
-
-      return tx.perfInterview.create({
-        data: {
-          participantId,
-          type: PerfInterviewType.OPTIONAL,
-          status: PerfInterviewStatus.COMPLETED,
-          organizerOpenId: operatorOpenId,
-          participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
-          content: input.content,
-          conclusion: input.conclusion,
-          resultNotes: input.conclusion ?? input.content,
-        },
-      });
-    });
-    await this.auditService.record({
-      operatorOpenId,
-      action: 'interview.create',
-      targetType: 'perf_participant',
-      targetId: String(participantId),
-      after: interview,
-    });
-    return interview;
   }
 
   /** 关闭申诉；结果版本判断、状态变化和条件更新在同一聚合事务内完成。 */

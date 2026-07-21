@@ -498,14 +498,6 @@ enum PerfAppealStatus {
   @@schema("performance")
 }
 
-/// 面谈类型（遗留；新流程以可选 appealId 表达是否关联申诉，ticket 3 收缩）
-enum PerfInterviewType {
-  APPEAL /// 申诉面谈
-  OPTIONAL /// 选择性面谈
-
-  @@schema("performance")
-}
-
 /// 面谈生命周期：预约 → 完成；可取消
 enum PerfInterviewStatus {
   SCHEDULED /// 已预约（须绑定飞书日程）
@@ -541,6 +533,10 @@ enum PerfNotificationEventType {
   CYCLE_START_FAILED /// 待启动周期到时复核失败
   RESULT_PUBLISHED /// 结果版本发布，通知员工查看并确认
   RESULT_INVALIDATED /// 周期整体退回后，通知已收到结果的员工旧结果链失效
+  APPEAL_CREATED /// 员工发起申诉，通知 Leader 与范围内 HR
+  INTERVIEW_SCHEDULED /// 面谈预约成功，通知员工
+  INTERVIEW_CANCELLED /// 面谈取消，通知员工及其他参与人
+  APPEAL_RESOLVED_MAINTAINED /// 申诉结案且等级未变，通知员工
 
   @@schema("performance")
 }
@@ -1431,12 +1427,11 @@ model PerfAppeal {
   @@schema("performance")
 }
 
-/// 面谈记录：独立预约/纪要；可选关联申诉（appealId）。新流程以 status + 飞书日程为准。
+/// 面谈记录：独立预约/纪要；可选关联申诉（appealId）。是否关联只看 appealId。
 model PerfInterview {
   id                 Int                 @id @default(autoincrement()) /// 内部自增主键
   participantId      Int                 @map("participant_id") /// 所属参与者
   appealId           Int?                @map("appeal_id") /// 可选关联申诉；与申诉状态机解耦
-  type               PerfInterviewType   @map("type") /// 遗留类型字段；新写入固定 OPTIONAL（无关联）或 APPEAL（有关联）
   status             PerfInterviewStatus @default(SCHEDULED) /// 面谈生命周期
   organizerOpenId    String              @map("organizer_open_id") /// 预约操作者 / 飞书日程组织者
   scheduledStartAt   DateTime?           @map("scheduled_start_at") /// 预约开始时间；新预约必填

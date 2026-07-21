@@ -14,6 +14,9 @@ jest.mock('../calibration/calibration.service', () => ({
 jest.mock('../calibration/result.service', () => ({
   ResultService: class {},
 }));
+jest.mock('../notification/notification-event.service', () => ({
+  NotificationEventService: class {},
+}));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
 jest.mock(
   '../generated/prisma/enums',
@@ -22,7 +25,6 @@ jest.mock(
       PENDING: 'PENDING',
       RESOLVED: 'RESOLVED',
     },
-    PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
     PerfInterviewStatus: {
       SCHEDULED: 'SCHEDULED',
       COMPLETED: 'COMPLETED',
@@ -70,6 +72,9 @@ describe('AppealService 结果版本申诉链', () => {
   const calibration = { history: jest.fn() };
   const result = { resolveAppeal: jest.fn() };
   const rbac = { hasAnyRole: jest.fn(), getOrgScope: jest.fn() };
+  const notifications = {
+    enqueueAppealCreatedEvents: jest.fn().mockResolvedValue([{ id: 1 }]),
+  };
   let service: AppealService;
 
   beforeEach(() => {
@@ -82,7 +87,7 @@ describe('AppealService 结果版本申诉链', () => {
       leaderOpenIdSnapshot: 'ou_leader',
       departmentIdSnapshot: 'od_product',
       status: 'RESULT_PUBLISHED',
-      cycle: { status: 'ACTIVE' },
+      cycle: { status: 'ACTIVE', name: '2026年中' },
       resultVersions: [
         { id: 41, version: 1, supersededAt: null, confirmedAt: null },
       ],
@@ -106,10 +111,11 @@ describe('AppealService 结果版本申诉链', () => {
       calibration as never,
       result as never,
       rbac as never,
+      notifications as never,
     );
   });
 
-  it('员工只能用当前未确认结果版本发起一次申诉，并在同一事务绑定版本和进入 APPEALING', async () => {
+  it('员工只能用当前未确认结果版本发起一次申诉，并通知 Leader 与范围内 HR', async () => {
     await expect(
       service.create('ou_employee', 7, 41, '等级与事实不符', [
         { fileToken: 'box_1' },
@@ -128,6 +134,15 @@ describe('AppealService 结果版本申诉链', () => {
       where: { id: 7 },
       data: { status: 'APPEALING' },
     });
+    expect(notifications.enqueueAppealCreatedEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appealId: 51,
+        leaderOpenId: 'ou_leader',
+        departmentId: 'od_product',
+        cycleName: '2026年中',
+      }),
+      tx,
+    );
   });
 
   it('归档后即使参与者状态未改写也不能再发起申诉', async () => {
@@ -171,7 +186,7 @@ describe('AppealService 结果版本申诉链', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('同级处理原子关闭申诉，保留原版本且不发送新通知', async () => {
+  it('同级处理原子关闭申诉并保留原版本', async () => {
     tx.perfAppeal.findUnique.mockResolvedValue({
       id: 51,
       participantId: 7,
@@ -311,25 +326,6 @@ describe('AppealService 结果版本申诉链', () => {
     );
   });
 
-  it('遗留 addInterview 不再把申诉推进到 IN_INTERVIEW', async () => {
-    tx.perfAppeal.findUnique.mockResolvedValue({
-      id: 51,
-      participantId: 7,
-      status: 'PENDING',
-      invalidatedAt: null,
-      participant: {
-        leaderOpenIdSnapshot: 'ou_leader',
-        departmentIdSnapshot: 'od_product',
-        cycle: { status: 'ACTIVE' },
-      },
-    });
-
-    await service.addInterview('ou_leader', 51, { content: '沟通要点' });
-
-    expect(tx.perfInterview.create).toHaveBeenCalled();
-    expect(tx.perfAppeal.update).not.toHaveBeenCalled();
-  });
-
   it('旧 Leader 和越过组织范围的 HR 都不能处理申诉', async () => {
     tx.perfAppeal.findUnique.mockResolvedValue({
       id: 51,
@@ -444,20 +440,4 @@ describe('AppealService 结果版本申诉链', () => {
     expect(calibration.history).not.toHaveBeenCalled();
   });
 
-  it('面谈在聚合锁后重读到 RESOLVED 时拒绝插入', async () => {
-    tx.perfAppeal.findUnique.mockResolvedValue({
-      id: 51,
-      participantId: 7,
-      status: 'RESOLVED',
-      participant: {
-        leaderOpenIdSnapshot: 'ou_leader',
-        departmentIdSnapshot: 'od_product',
-      },
-    });
-
-    await expect(
-      service.addInterview('ou_leader', 51, { content: '迟到的面谈' }),
-    ).rejects.toBeInstanceOf(ConflictException);
-    expect(tx.perfInterview.create).not.toHaveBeenCalled();
-  });
 });
