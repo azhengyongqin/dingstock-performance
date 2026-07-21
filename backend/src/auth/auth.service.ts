@@ -372,6 +372,11 @@ export class AuthService {
     );
   }
 
+  /** 业务侧（如代建飞书日程）获取当前用户有效的 user_access_token。 */
+  async requireUserAccessToken(openId: string): Promise<string> {
+    return this.getUserAccessToken(openId);
+  }
+
   /** 取有效的 user_access_token：未过期直接用，过期用 refresh_token 刷新（SDK 自动带 app_access_token）。 */
   private async getUserAccessToken(openId: string): Promise<string> {
     const raw = await this.redis.get(`${USER_TOKEN_KEY_PREFIX}${openId}`);

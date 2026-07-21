@@ -7,6 +7,7 @@ import {
 import {
   PerfAppealStatus,
   PerfCycleStatus,
+  PerfInterviewStatus,
   PerfInterviewType,
   PerfParticipantStatus,
   PerfRole,
@@ -350,10 +351,14 @@ export class AppealService {
           participantId: appeal.participantId,
           appealId,
           type: PerfInterviewType.APPEAL,
+          // 遗留入口：无飞书日程，直接记为已完成纪要（新预约走 InterviewService）
+          status: PerfInterviewStatus.COMPLETED,
+          organizerOpenId: operatorOpenId,
           participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
           content: input.content,
           employeeFeedback: input.employeeFeedback,
           conclusion: input.conclusion,
+          resultNotes: input.conclusion ?? input.content,
         },
       });
       if (appeal.status === PerfAppealStatus.PENDING) {
@@ -399,9 +404,12 @@ export class AppealService {
         data: {
           participantId,
           type: PerfInterviewType.OPTIONAL,
+          status: PerfInterviewStatus.COMPLETED,
+          organizerOpenId: operatorOpenId,
           participantOpenIds: input.participantOpenIds ?? [operatorOpenId],
           content: input.content,
           conclusion: input.conclusion,
+          resultNotes: input.conclusion ?? input.content,
         },
       });
     });

@@ -499,10 +499,19 @@ enum PerfAppealStatus {
   @@schema("performance")
 }
 
-/// 面谈类型（产品 §8.18）
+/// 面谈类型（遗留；新流程以可选 appealId 表达是否关联申诉，ticket 3 收缩）
 enum PerfInterviewType {
   APPEAL /// 申诉面谈
   OPTIONAL /// 选择性面谈
+
+  @@schema("performance")
+}
+
+/// 面谈生命周期：预约 → 完成；可取消
+enum PerfInterviewStatus {
+  SCHEDULED /// 已预约（须绑定飞书日程）
+  COMPLETED /// 已完成（已填结果纪要）
+  CANCELLED /// 已取消（同步取消飞书日程）
 
   @@schema("performance")
 }
@@ -1423,25 +1432,33 @@ model PerfAppeal {
   @@schema("performance")
 }
 
-/// 面谈记录（产品 §8.18）：申诉面谈关联 appeal_id，选择性面谈可独立创建
+/// 面谈记录：独立预约/纪要；可选关联申诉（appealId）。新流程以 status + 飞书日程为准。
 model PerfInterview {
-  id                 Int               @id @default(autoincrement()) /// 内部自增主键
-  participantId      Int               @map("participant_id") /// 所属参与者
-  appealId           Int?              @map("appeal_id") /// 关联申诉；仅 type=APPEAL 时存在
-  type               PerfInterviewType @map("type") /// 面谈类型
-  participantOpenIds String[]          @default([]) @map("participant_open_ids") /// 面谈参与人 open_id 列表（Leader/HR 等）
-  content            String?           @map("content") /// 面谈内容纪要
-  employeeFeedback   String?           @map("employee_feedback") /// 员工反馈
-  conclusion         String?           @map("conclusion") /// 面谈结论
-  resultAdjusted     Boolean           @default(false) @map("result_adjusted") /// 面谈后结果是否调整（调整走校准记录）
-  createdAt          DateTime          @default(now()) @map("created_at") /// 创建时间
-  updatedAt          DateTime          @updatedAt @map("updated_at") /// 最近更新时间（纪要可补充完善）
+  id                 Int                 @id @default(autoincrement()) /// 内部自增主键
+  participantId      Int                 @map("participant_id") /// 所属参与者
+  appealId           Int?                @map("appeal_id") /// 可选关联申诉；与申诉状态机解耦
+  type               PerfInterviewType   @map("type") /// 遗留类型字段；新写入固定 OPTIONAL（无关联）或 APPEAL（有关联）
+  status             PerfInterviewStatus @default(SCHEDULED) /// 面谈生命周期
+  organizerOpenId    String              @map("organizer_open_id") /// 预约操作者 / 飞书日程组织者
+  scheduledStartAt   DateTime?           @map("scheduled_start_at") /// 预约开始时间；新预约必填
+  scheduledEndAt     DateTime?           @map("scheduled_end_at") /// 预约结束时间；新预约必填
+  calendarId         String?             @map("calendar_id") /// 飞书日历 ID（通常为主日历）
+  calendarEventId    String?             @map("calendar_event_id") /// 飞书日程 event_id；SCHEDULED 新记录必填
+  participantOpenIds String[]            @default([]) @map("participant_open_ids") /// 面谈参与人 open_id（含员工与操作者等）
+  resultNotes        String?             @map("result_notes") /// 面谈结果纪要（仅 Leader/HR/Admin 可见）
+  content            String?             @map("content") /// 遗留内容字段
+  employeeFeedback   String?             @map("employee_feedback") /// 遗留员工反馈
+  conclusion         String?             @map("conclusion") /// 遗留结论字段
+  resultAdjusted     Boolean             @default(false) @map("result_adjusted") /// 遗留：是否调整结果
+  createdAt          DateTime            @default(now()) @map("created_at") /// 创建时间
+  updatedAt          DateTime            @updatedAt @map("updated_at") /// 最近更新时间
 
   participant PerfParticipant @relation(fields: [participantId], references: [id], onDelete: Restrict)
   appeal      PerfAppeal?     @relation(fields: [appealId], references: [id], onDelete: Restrict)
 
   @@index([participantId])
   @@index([appealId])
+  @@index([status])
   @@map("perf_interviews")
   @@schema("performance")
 }

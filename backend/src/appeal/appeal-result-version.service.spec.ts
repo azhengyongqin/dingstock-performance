@@ -24,6 +24,11 @@ jest.mock(
       RESOLVED: 'RESOLVED',
     },
     PerfInterviewType: { APPEAL: 'APPEAL', OPTIONAL: 'OPTIONAL' },
+    PerfInterviewStatus: {
+      SCHEDULED: 'SCHEDULED',
+      COMPLETED: 'COMPLETED',
+      CANCELLED: 'CANCELLED',
+    },
     PerfCycleStatus: { ACTIVE: 'ACTIVE', ARCHIVED: 'ARCHIVED' },
     PerfParticipantStatus: {
       RESULT_PUBLISHED: 'RESULT_PUBLISHED',

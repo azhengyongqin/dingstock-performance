@@ -22,6 +22,7 @@ export type PerfCycleType = 'SEMI_ANNUAL' | 'QUARTERLY' | 'ANNUAL'
 export type PerfRole = 'EMPLOYEE' | 'REVIEWER' | 'LEADER' | 'HR' | 'ADMIN'
 export type PerfReviewStatus = 'DRAFT' | 'SUBMITTED'
 export type PerfAppealStatus = 'PENDING' | 'IN_INTERVIEW' | 'RESOLVED'
+export type PerfInterviewStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED'
 export type PerfFormTemplateVersionStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 export type PerfJobLevelPrefix = 'D' | 'M'
 export type PerfFormSubformType = 'SELF' | 'PEER' | 'MANAGER'
@@ -99,6 +100,12 @@ export const APPEAL_STATUS_LABEL: Record<PerfAppealStatus, string> = {
   PENDING: '待处理',
   IN_INTERVIEW: '面谈处理中',
   RESOLVED: '已处理'
+}
+
+export const INTERVIEW_STATUS_LABEL: Record<PerfInterviewStatus, string> = {
+  SCHEDULED: '已预约',
+  COMPLETED: '已完成',
+  CANCELLED: '已取消'
 }
 
 // ===== 通用实体类型 =====

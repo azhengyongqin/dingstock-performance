@@ -92,6 +92,13 @@ export const navItems: NavItem[] = [
         label: '绩效校准',
         href: '/calibrations',
         roles: ['HR', 'ADMIN']
+      },
+      {
+        icon: 'MessagesSquare',
+        label: '绩效面谈',
+        href: '/interviews',
+        activePath: '/interviews',
+        roles: ['LEADER', 'HR', 'ADMIN']
       }
     ]
   },
