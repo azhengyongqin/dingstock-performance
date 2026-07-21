@@ -486,35 +486,83 @@ export class ContactSyncService {
     const client = this.larkService.getClient();
     let synced = 0;
 
-    for (let i = 0; i < openIds.length; i += COREHR_BATCH_SIZE) {
-      const batch = openIds.slice(i, i + COREHR_BATCH_SIZE);
+    type CorehrBatchGetResponse = Awaited<
+      ReturnType<typeof client.corehr.v2.employee.batchGet>
+    >;
+    type CorehrFieldFetchResult = {
+      responses: CorehrBatchGetResponse[];
+      validFields: string[];
+    };
 
-      type CorehrBatchGetResponse = Awaited<
-        ReturnType<typeof client.corehr.v2.employee.batchGet>
-      >;
-      const responses: CorehrBatchGetResponse[] = [];
-      for (
-        let fieldIndex = 0;
-        fieldIndex < COREHR_EMPLOYEE_FIELDS.length;
-        fieldIndex += COREHR_FIELD_BATCH_SIZE
-      ) {
-        responses.push(
-          await client.corehr.v2.employee.batchGet({
-            data: {
-              fields: COREHR_EMPLOYEE_FIELDS.slice(
-                fieldIndex,
-                fieldIndex + COREHR_FIELD_BATCH_SIZE,
-              ),
-              employment_ids: batch,
-            },
-            params: {
-              // 与 lark_users / lark_departments 主键口径保持一致。
-              user_id_type: 'open_id',
-              department_id_type: 'open_department_id',
-            },
-          }),
+    /**
+     * 租户未配置 custom_org 等可选字段时，飞书会让整个 fields 批次返回 470。
+     * 递归拆分失败批次，最终只跳过单个无效字段，避免连带丢失其它有效字段。
+     */
+    const fetchFieldGroup = async (
+      fields: string[],
+      employmentIds: string[],
+    ): Promise<CorehrFieldFetchResult> => {
+      const response = await client.corehr.v2.employee.batchGet({
+        data: { fields, employment_ids: employmentIds },
+        params: {
+          user_id_type: 'open_id',
+          department_id_type: 'open_department_id',
+        },
+      });
+
+      if (response?.code === undefined || response.code === 0) {
+        return { responses: [response], validFields: fields };
+      }
+
+      const isMissingFieldMetadata =
+        response.code === 470 &&
+        response.msg?.includes('Field metadata not found');
+      if (!isMissingFieldMetadata) {
+        throw new Error(
+          `CoreHR 员工详情接口返回错误 ${response.code}: ${response.msg ?? 'unknown error'}`,
         );
       }
+
+      if (fields.length === 1) {
+        this.logger.warn(
+          `跳过当前租户不可用的 CoreHR 字段 ${fields[0]}：${response.msg}`,
+        );
+        return { responses: [], validFields: [] };
+      }
+
+      const middle = Math.ceil(fields.length / 2);
+      const left = await fetchFieldGroup(
+        fields.slice(0, middle),
+        employmentIds,
+      );
+      const right = await fetchFieldGroup(fields.slice(middle), employmentIds);
+      return {
+        responses: [...left.responses, ...right.responses],
+        validFields: [...left.validFields, ...right.validFields],
+      };
+    };
+
+    // 首个员工批次负责探测租户可用字段；后续批次直接复用并重新聚合到每批 100 个。
+    let resolvedFields: string[] | undefined;
+
+    for (let i = 0; i < openIds.length; i += COREHR_BATCH_SIZE) {
+      const batch = openIds.slice(i, i + COREHR_BATCH_SIZE);
+      const responses: CorehrBatchGetResponse[] = [];
+      const validFields: string[] = [];
+      const fieldsToQuery = resolvedFields ?? COREHR_EMPLOYEE_FIELDS;
+      for (
+        let fieldIndex = 0;
+        fieldIndex < fieldsToQuery.length;
+        fieldIndex += COREHR_FIELD_BATCH_SIZE
+      ) {
+        const result = await fetchFieldGroup(
+          fieldsToQuery.slice(fieldIndex, fieldIndex + COREHR_FIELD_BATCH_SIZE),
+          batch,
+        );
+        responses.push(...result.responses);
+        validFields.push(...result.validFields);
+      }
+      resolvedFields = validFields;
 
       const responseItems = responses.flatMap(
         (response) => response?.data?.items ?? [],

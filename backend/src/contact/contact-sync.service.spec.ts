@@ -87,6 +87,8 @@ describe('ContactSyncService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    corehrBatchGetMock.mockReset();
+    compensationQueryMock.mockReset();
     redisMock.set.mockResolvedValue('OK');
     redisMock.del.mockResolvedValue(1);
     compensationQueryMock.mockResolvedValue({
@@ -326,6 +328,73 @@ describe('ContactSyncService', () => {
     expect(finalStatus.corehrEmployees).toBeUndefined();
     expect(finalStatus.corehrError).toContain('no corehr permission');
     expect(prismaMock.larkCorehrEmployee.upsert).not.toHaveBeenCalled();
+  });
+
+  it('CoreHR 字段批次含租户无效字段时拆分重试并保留其它字段', async () => {
+    childrenWithIteratorMock.mockReturnValue(asPageIterator([]));
+    findByDepartmentWithIteratorMock.mockReturnValue(
+      asPageIterator([{ open_id: 'ou-1', name: '张三' }]),
+    );
+    corehrBatchGetMock.mockImplementation(
+      (payload: { data: { fields: string[] } }) => {
+        const fields = payload.data.fields;
+        if (fields.some((field) => field.startsWith('custom_org_'))) {
+          return Promise.resolve({
+            code: 470,
+            msg: 'Field metadata not found: employment.custom_org__c',
+          });
+        }
+
+        return Promise.resolve({
+          code: 0,
+          data: {
+            items: [
+              {
+                employment_id: 'ou-1',
+                ...(fields.includes('employee_number')
+                  ? { employee_number: 'D19001' }
+                  : {}),
+                ...(fields.some((field) => field.startsWith('person_info.'))
+                  ? {
+                      person_info: {
+                        national_id_number: '110101199001011234',
+                      },
+                    }
+                  : {}),
+              },
+            ],
+          },
+        });
+      },
+    );
+
+    await service.triggerSync();
+    await flushAsync();
+
+    const fieldRequests = (
+      corehrBatchGetMock.mock.calls as Array<[{ data: { fields: string[] } }]>
+    ).map(([payload]) => payload.data.fields);
+    expect(fieldRequests).toEqual(
+      expect.arrayContaining([
+        ['custom_org_01'],
+        ['custom_org_02'],
+        ['custom_org_03'],
+        ['custom_org_04'],
+        ['custom_org_05'],
+      ]),
+    );
+    const corehrUpsertArg = (
+      prismaMock.larkCorehrEmployee.upsert.mock.calls as unknown[][]
+    )[0][0] as { create: Record<string, unknown> };
+    expect(corehrUpsertArg.create).toMatchObject({
+      open_id: 'ou-1',
+      employee_number: 'D19001',
+      person_info: { national_id_number: '110101199001011234' },
+    });
+    const finalStatus = lastStatusWrite(redisMock.set);
+    expect(finalStatus.status).toBe('success');
+    expect(finalStatus.corehrEmployees).toBe(1);
+    expect(finalStatus.corehrError).toBeUndefined();
   });
 
   it('已有同步在执行时拒绝重复触发', async () => {
