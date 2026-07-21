@@ -116,6 +116,6 @@ export type FormTemplateVersionContract = {
 
 export type DefaultFormTemplateContract = FormTemplateVersionContract & {
   systemKey: string;
-  version: 1;
+  version: 2;
   status: 'PUBLISHED';
 };

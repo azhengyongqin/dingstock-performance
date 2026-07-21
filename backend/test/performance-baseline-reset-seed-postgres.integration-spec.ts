@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -28,6 +29,17 @@ type BridgeConstraintState = {
   definition: string;
   comment: string | null;
 };
+
+/** 对 JSONB 中的 V2 Markdown 做稳定摘要，同时锁定正文、空行和转义字符。 */
+function digestDefaultMarkdown(config: unknown): string | null {
+  if (typeof config !== 'object' || config === null || Array.isArray(config)) {
+    return null;
+  }
+  const defaultValue = (config as Record<string, unknown>).defaultValue;
+  return typeof defaultValue === 'string'
+    ? createHash('sha256').update(defaultValue).digest('hex')
+    : null;
+}
 
 /**
  * 真实运维接缝：fresh migrate deploy 后依次执行生产 reset 核心和两次 seed 核心。
@@ -299,6 +311,82 @@ describe('fresh PostgreSQL 绩效数据 reset + baseline seed 验收', () => {
       configVersions: 1,
       cycles: 1,
     });
+
+    const seededFormVersions = await prisma!.perfFormTemplateVersion.findMany({
+      orderBy: { jobLevelPrefix: 'asc' },
+      select: {
+        version: true,
+        status: true,
+        jobLevelPrefix: true,
+        subforms: {
+          where: { type: 'SELF' },
+          select: {
+            dimensions: {
+              where: { businessKey: 'self:summary-and-plan' },
+              select: {
+                name: true,
+                fields: {
+                  select: {
+                    businessKey: true,
+                    title: true,
+                    type: true,
+                    config: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    // 基线脚本必须重建数据库中已确认的 D/M V2，不能退回旧的多字段自评。
+    expect(
+      seededFormVersions.map((formVersion) => ({
+        version: formVersion.version,
+        status: formVersion.status,
+        prefix: formVersion.jobLevelPrefix,
+        summaryDimensionName: formVersion.subforms[0].dimensions[0].name,
+        summaryFields: formVersion.subforms[0].dimensions[0].fields.map(
+          (field) => ({
+            key: field.businessKey,
+            title: field.title,
+            type: field.type,
+            defaultValueSha256: digestDefaultMarkdown(field.config),
+          }),
+        ),
+      })),
+    ).toEqual([
+      {
+        version: 2,
+        status: 'PUBLISHED',
+        prefix: 'D',
+        summaryDimensionName: '年中总结',
+        summaryFields: [
+          {
+            key: 'self:summary',
+            title: '年中总结',
+            type: 'MARKDOWN',
+            defaultValueSha256:
+              '4082e0570ee904f8b4ccd874bf5f142cfeac6b559059b7ad468bad3e2f3b70b0',
+          },
+        ],
+      },
+      {
+        version: 2,
+        status: 'PUBLISHED',
+        prefix: 'M',
+        summaryDimensionName: '总结与规划',
+        summaryFields: [
+          {
+            key: 'self:summary',
+            title: '年中总结',
+            type: 'MARKDOWN',
+            defaultValueSha256:
+              '4082e0570ee904f8b4ccd874bf5f142cfeac6b559059b7ad468bad3e2f3b70b0',
+          },
+        ],
+      },
+    ]);
 
     await seedBaselineData(prisma!);
     await expect(readBaselineShape()).resolves.toEqual(firstSeedShape);

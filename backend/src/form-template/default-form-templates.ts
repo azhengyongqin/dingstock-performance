@@ -52,7 +52,69 @@ const scoringDimension = (
   ],
 });
 
-const selfSubform = (): FormTemplateSubformContract => ({
+/**
+ * 数据库中 D/M V2 共用的自评 Markdown 初始值。
+ * 使用逐行数组显式保留编辑器产生的空行与 Markdown 转义字符。
+ */
+const SELF_REVIEW_MARKDOWN_DEFAULT = [
+  '## 一\\.绩效自评',
+  '',
+  '> （200\\-300字内）',
+  '> ',
+  '> ',
+  '',
+  '',
+  '',
+  '---',
+  '',
+  '## 二\\.半年总结',
+  '',
+  '#### 工作产出结果',
+  '',
+  '|**考察维度**|**具体阐述**|**分析总结**|',
+  '|---|---|---|',
+  '|**工作产出结果一**|||',
+  '|**工作产出结果二**|||',
+  '|**可自行增加**|||',
+  '',
+  '',
+  '',
+  '#### 个人成长',
+  '',
+  '- 近半年个人新成长或习得的技能，提效工具',
+  '',
+  '---',
+  '',
+  '## 三\\.下个半年规划',
+  '',
+  '#### 半年工作规划与个人成长计划',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '#### 需要的支持和帮助',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '---',
+  '',
+  '## 四\\.对公司的建议和期许',
+  '',
+  '',
+  '',
+  '',
+  '',
+  '',
+].join('\n');
+
+const selfSubform = (prefix: 'D' | 'M'): FormTemplateSubformContract => ({
   type: 'SELF',
   title: '员工自评',
   description: '员工完成自评等级、工作总结与后续规划。',
@@ -60,7 +122,7 @@ const selfSubform = (): FormTemplateSubformContract => ({
   dimensions: [
     {
       key: 'self:performance',
-      name: '绩效自评',
+      name: '绩效等级',
       type: 'SCORING',
       scoringMethod: 'RATING',
       audience: 'EMPLOYEE',
@@ -71,7 +133,7 @@ const selfSubform = (): FormTemplateSubformContract => ({
     },
     {
       key: 'self:summary-and-plan',
-      name: '总结与规划',
+      name: prefix === 'D' ? '年中总结' : '总结与规划',
       type: 'NON_SCORING',
       scoringMethod: null,
       audience: 'EMPLOYEE',
@@ -79,30 +141,10 @@ const selfSubform = (): FormTemplateSubformContract => ({
       isCore: false,
       sortOrder: 1,
       fields: [
-        field('self:summary', '自评总结', 'MARKDOWN', 'ALWAYS', 0, {
-          placeholder: '请结合事实完成自评总结，一般为 200～300 字。',
-        }),
-        field('self:half-year-summary', '半年度总结', 'MARKDOWN', 'ALWAYS', 1, {
-          placeholder:
-            '## 工作产出结果\n### 工作产出结果一\n具体阐述...\n分析总结\n\n## 个人成长\n> 近半年个人新成长或习得的技能、提效工具',
-        }),
-        field('self:next-half-plan', '下个半年规划', 'MARKDOWN', 'ALWAYS', 2, {
-          placeholder: '## 工作规划\n\n## 个人成长计划',
-        }),
-        field(
-          'self:support-needed',
-          '需要的支持和帮助',
-          'LONG_TEXT',
-          'OPTIONAL',
-          3,
-        ),
-        field('self:attachments', '补充附件', 'ATTACHMENT', 'OPTIONAL', 4, {
-          config: { maxFiles: 10, maxSizeMb: 100 },
-        }),
-        field('self:links', '补充链接', 'LINK', 'OPTIONAL', 5, {
+        field('self:summary', '年中总结', 'MARKDOWN', 'ALWAYS', 0, {
+          placeholder: '',
           config: {
-            maxLength: 2_000,
-            allowedProtocols: ['http', 'https'],
+            defaultValue: SELF_REVIEW_MARKDOWN_DEFAULT,
           },
         }),
       ],
@@ -116,13 +158,13 @@ const createTemplate = (
   managerDimensions: FormTemplateDimensionContract[],
 ): DefaultFormTemplateContract => ({
   systemKey: `DEFAULT_${prefix}`,
-  version: 1,
+  version: 2,
   status: 'PUBLISHED',
   name: `${prefix === 'D' ? '普通岗' : '管理岗'}默认评估表单`,
   description: `系统内置 ${prefix} 职级前缀评估表单。`,
   jobLevelPrefix: prefix,
   subforms: [
-    selfSubform(),
+    selfSubform(prefix),
     {
       type: 'PEER',
       title: '360°评估',

@@ -4,7 +4,8 @@
  *
  * 行为：先清理旧数据（若这三类数据已存在则全部删除），再基于权威文档重建：
  * - 评估表单模板（PerfFormTemplate D/M）：内容取自 form-template/default-form-templates，
- *   维度/权重与《盯潮-绩效系统-评估维度规则说明》一致（普通岗 35/45/20，管理岗 40/35/25 等）。
+ *   固化现有数据库已发布的 D/M V2 版本；维度/权重与《盯潮-绩效系统-评估维度规则说明》一致
+ *   （普通岗 35/45/20，管理岗 40/35/25 等）。
  * - 配置模板（PerfConfigTemplate，systemKey=DEFAULT_CONFIG）：评级 S/A/B/C 区间与映射分、
  *   固定统一维度约束取自《绩效等级定义和计算方式》，
  *   并补齐一套可发布的默认日程（default-config-template 故意留 0/0 不可发布，这里覆盖为可发布值）。
@@ -41,7 +42,7 @@ const SYSTEM_OPERATOR = 'SYSTEM_BASELINE_SEED';
 const CONFIG_TEMPLATE_SYSTEM_KEY = 'DEFAULT_CONFIG';
 const CONFIG_TEMPLATE_NAME = '标准半年度绩效配置';
 
-/** 表单模板稳定幂等键（内容来自 DEFAULT_FORM_TEMPLATES）。 */
+/** 表单模板稳定幂等键（内容来自数据库 D/M V2 的固化常量）。 */
 const FORM_TEMPLATE_SYSTEM_KEYS = DEFAULT_FORM_TEMPLATES.map(
   (template) => template.systemKey,
 );
@@ -202,7 +203,7 @@ async function cleanupBaseline(prisma: PrismaClient) {
 }
 
 /**
- * 创建并发布默认 D/M 评估表单模板，返回各职级前缀对应的已发布版本 id。
+ * 创建并发布默认 D/M V2 评估表单模板，返回各职级前缀对应的已发布版本 id。
  * 与 seed-default-form-templates 逻辑一致：先建 DRAFT（数据库要求版本从 DRAFT 起步），再转 PUBLISHED。
  */
 async function seedFormTemplates(

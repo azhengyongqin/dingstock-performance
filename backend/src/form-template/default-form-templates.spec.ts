@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { DEFAULT_FORM_TEMPLATES } from './default-form-templates';
 import { validateFormTemplatePublication } from './publication-validator';
 
@@ -24,7 +25,7 @@ const summarizeDimensions = (
 };
 
 describe('DEFAULT_FORM_TEMPLATES', () => {
-  it('提供可幂等识别且能够直接发布的 D/M v1 三子表单模板', () => {
+  it('提供可幂等识别且能够直接发布的 D/M v2 三子表单模板', () => {
     expect(
       DEFAULT_FORM_TEMPLATES.map((template) => ({
         systemKey: template.systemKey,
@@ -36,14 +37,14 @@ describe('DEFAULT_FORM_TEMPLATES', () => {
     ).toEqual([
       {
         systemKey: 'DEFAULT_D',
-        version: 1,
+        version: 2,
         status: 'PUBLISHED',
         prefix: 'D',
         subforms: ['SELF', 'PEER', 'MANAGER'],
       },
       {
         systemKey: 'DEFAULT_M',
-        version: 1,
+        version: 2,
         status: 'PUBLISHED',
         prefix: 'M',
         subforms: ['SELF', 'PEER', 'MANAGER'],
@@ -52,6 +53,58 @@ describe('DEFAULT_FORM_TEMPLATES', () => {
     expect(
       DEFAULT_FORM_TEMPLATES.flatMap(validateFormTemplatePublication),
     ).toEqual([]);
+  });
+
+  it('默认员工自评采用数据库 V2 的单一预置 Markdown 年中总结', () => {
+    for (const template of DEFAULT_FORM_TEMPLATES) {
+      const self = template.subforms.find(
+        (subform) => subform.type === 'SELF',
+      )!;
+      const summaryDimension = self.dimensions[1];
+      const summaryField = summaryDimension.fields[0];
+      const defaultValue = summaryField.config?.defaultValue;
+
+      expect(self.dimensions[0].name).toBe('绩效等级');
+      expect({
+        ...summaryDimension,
+        fields: [
+          {
+            ...summaryField,
+            config: {
+              defaultValueSha256:
+                typeof defaultValue === 'string'
+                  ? createHash('sha256').update(defaultValue).digest('hex')
+                  : null,
+            },
+          },
+        ],
+      }).toEqual({
+        key: 'self:summary-and-plan',
+        name: template.jobLevelPrefix === 'D' ? '年中总结' : '总结与规划',
+        type: 'NON_SCORING',
+        scoringMethod: null,
+        audience: 'EMPLOYEE',
+        weight: null,
+        isCore: false,
+        sortOrder: 1,
+        fields: [
+          {
+            key: 'self:summary',
+            title: '年中总结',
+            type: 'MARKDOWN',
+            requiredRule: 'ALWAYS',
+            requiredLevels: [],
+            sortOrder: 0,
+            placeholder: '',
+            config: {
+              // 摘要来自当前数据库 D/M V2 的完整 Markdown，包含空行和转义字符。
+              defaultValueSha256:
+                '4082e0570ee904f8b4ccd874bf5f142cfeac6b559059b7ad468bad3e2f3b70b0',
+            },
+          },
+        ],
+      });
+    }
   });
 
   it('默认员工自评为占比 100% 的评级核心维度', () => {

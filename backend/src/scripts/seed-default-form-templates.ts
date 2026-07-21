@@ -1,5 +1,5 @@
 /**
- * 幂等初始化 D/M 默认评估表单模板。
+ * 幂等初始化 D/M V2 默认评估表单模板。
  * 运行：pnpm seed:form-templates
  */
 import { PrismaPg } from '@prisma/adapter-pg';
