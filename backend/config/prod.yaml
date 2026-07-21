@@ -16,6 +16,7 @@ lark:
     enabled: true
 
 auth:
-  # 生产环境显式关闭开发快速登录（双保险，防止误开）。
+  # 生产环境默认关闭；如临时开启，必须同时配置恰好 32 位的 password。
   devLogin:
     enabled: false
+    # password: ''

@@ -44,6 +44,7 @@ describe('AuthService', () => {
 
   // 开发登录开关（布尔）：默认开启，测试内可切换以模拟生产关闭。
   let devLoginEnabled = true;
+  let devLoginPassword: string | undefined;
 
   const prismaMock = {
     larkUser: {
@@ -88,6 +89,7 @@ describe('AuthService', () => {
     jest.clearAllMocks();
     redisMock.set.mockResolvedValue('OK');
     devLoginEnabled = true;
+    devLoginPassword = undefined;
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -102,10 +104,11 @@ describe('AuthService', () => {
               }
               return value;
             },
-            get: (key: string) =>
-              key === 'auth.devLogin.enabled'
-                ? devLoginEnabled
-                : configValues[key],
+            get: (key: string) => {
+              if (key === 'auth.devLogin.enabled') return devLoginEnabled;
+              if (key === 'auth.devLogin.password') return devLoginPassword;
+              return configValues[key];
+            },
           },
         },
         { provide: LarkService, useValue: larkServiceMock },
@@ -328,6 +331,7 @@ describe('AuthService', () => {
 
   describe('开发环境快速登录', () => {
     it('listDevUsers 聚合角色标记：授权/超管→roles，下属/快照→is_leader', async () => {
+      devLoginPassword = '0123456789abcdef0123456789abcdef';
       prismaMock.larkUser.findMany.mockResolvedValue([
         {
           open_id: 'ou_hr',
@@ -382,7 +386,7 @@ describe('AuthService', () => {
         { leaderOpenIdSnapshot: 'ou_leader' },
       ]);
 
-      const { items, total } = await service.listDevUsers();
+      const { items, total } = await service.listDevUsers(devLoginPassword);
 
       expect(total).toBe(4);
       const byId = Object.fromEntries(items.map((i) => [i.open_id, i]));
@@ -406,6 +410,7 @@ describe('AuthService', () => {
     });
 
     it('devLogin 对存在的员工签发可被 verifySession 解开的会话 JWT', async () => {
+      devLoginPassword = '0123456789abcdef0123456789abcdef';
       prismaMock.larkUser.findUnique.mockResolvedValue({
         open_id: 'ou_1',
         union_id: 'on_1',
@@ -417,7 +422,7 @@ describe('AuthService', () => {
         enterprise_email: null,
       });
 
-      const result = await service.devLogin('ou_1');
+      const result = await service.devLogin('ou_1', devLoginPassword);
 
       expect(result.token).toBe('signed-jwt');
       expect(result.user.open_id).toBe('ou_1');
@@ -435,6 +440,20 @@ describe('AuthService', () => {
       await expect(service.devLogin('ou_missing')).rejects.toBeInstanceOf(
         BadRequestException,
       );
+    });
+
+    it('配置密码后，两接口都在访问数据库前拒绝缺失或错误密码', async () => {
+      devLoginPassword = '0123456789abcdef0123456789abcdef';
+
+      await expect(service.listDevUsers()).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      await expect(
+        service.devLogin('ou_1', 'ffffffffffffffffffffffffffffffff'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+
+      expect(prismaMock.larkUser.findMany).not.toHaveBeenCalled();
+      expect(prismaMock.larkUser.findUnique).not.toHaveBeenCalled();
     });
 
     it('dev 开关关闭（模拟生产）时两接口一律抛 404', async () => {

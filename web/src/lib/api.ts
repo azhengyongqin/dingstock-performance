@@ -60,6 +60,18 @@ export const clearAuth = () => {
   window.localStorage.removeItem(USER_STORAGE_KEY)
 }
 
+/** 判断当前页面是否属于登录流程；兼容 `/performance` 等部署 basePath。 */
+export const isAuthPagePath = (pathname: string, basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ''): boolean => {
+  const normalizedBasePath = basePath.replace(/\/$/u, '')
+  const authRoot = `${normalizedBasePath}/auth`
+
+  return pathname === authRoot || pathname.startsWith(`${authRoot}/`)
+}
+
+/** 返回带部署 basePath 的登录页路径。 */
+export const getAuthLoginPath = (basePath = process.env.NEXT_PUBLIC_BASE_PATH ?? ''): string =>
+  `${basePath.replace(/\/$/u, '')}/auth/login`
+
 /** API 请求错误：携带 HTTP 状态码与解析后的响应体，便于调用方区分处理 */
 export class ApiError extends Error {
   status: number
@@ -133,9 +145,9 @@ export const apiFetch = async <T = unknown>(path: string, init?: RequestInit): P
     }
 
     // 401 = token 缺失/过期：全局登出并回登录页（登录相关页面除外，避免循环跳转）
-    if (response.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
+    if (response.status === 401 && typeof window !== 'undefined' && !isAuthPagePath(window.location.pathname)) {
       clearAuth()
-      window.location.href = '/auth/login'
+      window.location.href = getAuthLoginPath()
     }
 
     throw new ApiError(response.status, message, body)
@@ -206,13 +218,16 @@ export type DevLoginUser = {
   is_tenant_manager: boolean
 }
 
-/** 【仅开发】拉取可快速登录的员工列表 */
-export const fetchDevLoginUsers = () =>
-  apiFetch<{ items: DevLoginUser[]; total: number }>('/auth/dev/users')
+/** 【仅开发】验证访问密码并拉取可快速登录的员工列表 */
+export const fetchDevLoginUsers = (password?: string) =>
+  apiFetch<{ items: DevLoginUser[]; total: number }>(
+    '/auth/dev/users',
+    password ? { headers: { 'x-dev-login-password': password } } : undefined
+  )
 
 /** 【仅开发】按 open_id 直接登录，返回会话 token 与用户信息 */
-export const devLogin = (openId: string) =>
+export const devLogin = (openId: string, password?: string) =>
   apiFetch<{ token: string; user: { open_id: string; name?: string; avatar_url?: string } }>('/auth/dev/login', {
     method: 'POST',
-    body: JSON.stringify({ open_id: openId })
+    body: JSON.stringify({ open_id: openId, password })
   })

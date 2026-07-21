@@ -26,6 +26,8 @@ describe('configuration loader', () => {
     delete process.env.POSTGRES_URI;
     delete process.env.LARK_NOTIFICATION_ENABLED;
     delete process.env.AUTH_DEFAULT_ADMIN_OPEN_ID;
+    delete process.env.AUTH_DEV_LOGIN_ENABLED;
+    delete process.env.AUTH_DEV_LOGIN_PASSWORD;
     delete process.env.AI_REPORT_ENABLED;
     delete process.env.AI_REPORT_ENDPOINT;
     delete process.env.AI_REPORT_API_KEY;
@@ -123,6 +125,54 @@ describe('configuration loader', () => {
         'lark:\n  notification:\n    enabled: true\n',
       );
       expect(loadAppConfig().lark.notification.enabled).toBe(false);
+    });
+  });
+
+  describe('production dev login password', () => {
+    const password = '0123456789abcdef0123456789abcdef';
+
+    it('rejects production devLogin when the 32-character password is missing', () => {
+      process.env.NODE_ENV = 'production';
+      writeFileSync(
+        join(tempDir, 'config', 'prod.yaml'),
+        'auth:\n  devLogin:\n    enabled: true\n',
+      );
+
+      expect(() => loadAppConfig()).toThrow('必须配置恰好 32 位密码');
+    });
+
+    it('rejects a production devLogin password that is not exactly 32 characters', () => {
+      process.env.NODE_ENV = 'production';
+      writeFileSync(
+        join(tempDir, 'config', 'prod.yaml'),
+        "auth:\n  devLogin:\n    enabled: true\n    password: 'short-password'\n",
+      );
+
+      expect(() => loadAppConfig()).toThrow('必须配置恰好 32 位密码');
+    });
+
+    it('loads a 32-character password from yaml', () => {
+      process.env.NODE_ENV = 'production';
+      writeFileSync(
+        join(tempDir, 'config', 'prod.yaml'),
+        `auth:\n  devLogin:\n    enabled: true\n    password: '${password}'\n`,
+      );
+
+      expect(loadAppConfig().auth.devLogin).toEqual({
+        enabled: true,
+        password,
+      });
+    });
+
+    it('allows the environment password to override yaml', () => {
+      process.env.NODE_ENV = 'production';
+      process.env.AUTH_DEV_LOGIN_PASSWORD = password;
+      writeFileSync(
+        join(tempDir, 'config', 'prod.yaml'),
+        "auth:\n  devLogin:\n    enabled: true\n    password: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n",
+      );
+
+      expect(loadAppConfig().auth.devLogin.password).toBe(password);
     });
   });
 

@@ -74,7 +74,7 @@ pnpm prisma:studio        # Prisma Studio
 - 配置加载器是 `src/config/configuration.ts` 的 `loadAppConfig()`。优先级：环境变量 → YAML → 硬编码默认值。
 - YAML 文件按 `NODE_ENV` 选择：非生产读 `config/dev.yaml`，生产读 `config/prod.yaml`；可用 `APP_CONFIG_FILE` / `CONFIG_FILE` 临时指定。
 - 关键点：**`prisma.config.ts` 直接调用同一个 `loadAppConfig()`**，因此 Prisma CLI 和 Nest 应用拿到完全一致的数据库连接串——改配置逻辑时两端会同时受影响。
-- 数据库：`DATABASE_URL`（兼容旧 `POSTGRES_URI`）；Redis：`REDIS_URI`；飞书：`LARK_APP_ID` / `LARK_APP_SECRET`。部署与密钥优先用环境变量覆盖，勿写死进 YAML。
+- 数据库：`DATABASE_URL`（兼容旧 `POSTGRES_URI`）；Redis：`REDIS_URI`；飞书：`LARK_APP_ID` / `LARK_APP_SECRET`；生产开发登录：`AUTH_DEV_LOGIN_ENABLED` / `AUTH_DEV_LOGIN_PASSWORD`。生产开启 Dev Login 时密码必须恰好 32 位。部署与密钥优先用环境变量覆盖，勿写死进仓库 YAML。
 - 环境变量校验 schema 见 `src/config/validation.schema.ts`（joi）。
 
 ### 模块组织：基础设施经 SharedModule 统一导出

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   BadRequestException,
   Inject,
@@ -190,13 +190,36 @@ export class AuthService {
   }
 
   /**
+   * 校验开发登录共享密码。使用固定长度摘要比较，避免直接字符串比较泄露前缀匹配信息。
+   * 本地未配置密码时保持原有免密体验；生产开启 devLogin 时配置加载器会强制密码存在且为 32 位。
+   */
+  private assertDevLoginPassword(password?: string): void {
+    const configuredPassword = this.configService.get<string>(
+      'auth.devLogin.password',
+    );
+    if (!configuredPassword) return;
+
+    const expected = createHash('sha256').update(configuredPassword).digest();
+    const actual = createHash('sha256')
+      .update(password ?? '')
+      .digest();
+
+    if (!timingSafeEqual(expected, actual)) {
+      throw new UnauthorizedException('开发登录访问密码错误');
+    }
+  }
+
+  /**
    * 开发快速登录：列出已同步员工（`lark_users`）及其角色标记，供登录页选人。
    * 角色标记批量聚合，避免逐人查询：
    * - roles：role_grants 授权 + 租户超管兜底 ADMIN；
    * - is_leader：出现在他人 leader_user_id（有直属下属）或任一周期 Leader 快照（与派生逻辑一致）。
    */
-  async listDevUsers(): Promise<{ items: DevLoginUser[]; total: number }> {
+  async listDevUsers(
+    password?: string,
+  ): Promise<{ items: DevLoginUser[]; total: number }> {
     this.assertDevLoginEnabled();
+    this.assertDevLoginPassword(password);
 
     const [users, grants, participantLeaders] = await Promise.all([
       this.prisma.larkUser.findMany({
@@ -264,8 +287,9 @@ export class AuthService {
    * 开发快速登录：按 open_id 直接为选定员工签发会话 JWT（不经飞书 OAuth）。
    * 不写入飞书 user_access_token，故 jsapi 网页组件在此会话下会退化——仅用于本地角色功能测试。
    */
-  async devLogin(openId: string) {
+  async devLogin(openId: string, password?: string) {
     this.assertDevLoginEnabled();
+    this.assertDevLoginPassword(password);
 
     if (!openId) {
       throw new BadRequestException('open_id 不能为空');

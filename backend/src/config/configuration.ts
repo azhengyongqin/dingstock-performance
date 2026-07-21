@@ -26,6 +26,7 @@ export type RawConfig = {
     jwt?: Record<string, unknown>;
     devLogin?: {
       enabled?: boolean;
+      password?: string;
     };
   };
   aiReport?: {
@@ -76,9 +77,10 @@ export type AppConfig = {
       secret: string;
       expiresIn: string;
     };
-    /** 开发环境快速登录（免飞书 OAuth 直接选人登录）：生产必须关闭 */
+    /** 开发快速登录（免飞书 OAuth 直接选人登录）：生产开启时必须配置 32 位密码 */
     devLogin: {
       enabled: boolean;
+      password?: string;
     };
   };
   /** AI 报告网关；关闭时任务保留等待态但绝不阻塞人工流程 */
@@ -168,6 +170,18 @@ export const loadAppConfig = (): AppConfig => {
     parseBoolEnv(process.env.AUTH_DEV_LOGIN_ENABLED) ??
     yamlConfig.auth?.devLogin?.enabled ??
     process.env.NODE_ENV !== 'production';
+  const devLoginPassword =
+    process.env.AUTH_DEV_LOGIN_PASSWORD ?? yamlConfig.auth?.devLogin?.password;
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    devLoginEnabled &&
+    devLoginPassword?.length !== 32
+  ) {
+    throw new Error(
+      '生产环境开启 auth.devLogin.enabled 时，必须配置恰好 32 位密码',
+    );
+  }
 
   const aiReportEnabled =
     parseBoolEnv(process.env.AI_REPORT_ENABLED) ??
@@ -236,6 +250,7 @@ export const loadAppConfig = (): AppConfig => {
       },
       devLogin: {
         enabled: devLoginEnabled,
+        password: devLoginPassword,
       },
     },
     aiReport: {

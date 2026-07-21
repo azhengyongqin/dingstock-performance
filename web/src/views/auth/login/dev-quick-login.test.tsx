@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import DevQuickLogin from './dev-quick-login'
@@ -51,5 +52,40 @@ describe('开发快速登录后端开关', () => {
 
     await waitFor(() => expect(apiMocks.fetchDevLoginUsers).toHaveBeenCalledOnce())
     await waitFor(() => expect(screen.queryByText('快速选择员工登录')).not.toBeInTheDocument())
+  })
+
+  it('后端要求密码时，验证 32 位密码后才展示员工并把密码带入登录请求', async () => {
+    const user = userEvent.setup()
+    const password = '0123456789abcdef0123456789abcdef'
+
+    apiMocks.fetchDevLoginUsers.mockRejectedValueOnce(new apiMocks.ApiError(401)).mockResolvedValueOnce({
+      items: [
+        {
+          open_id: 'ou_test',
+          name: '测试员工',
+          roles: [],
+          is_leader: false,
+          is_tenant_manager: false
+        }
+      ],
+      total: 1
+    })
+    apiMocks.devLogin.mockResolvedValue({ token: 'jwt', user: { open_id: 'ou_test', name: '测试员工' } })
+
+    render(<DevQuickLogin />)
+
+    const passwordInput = await screen.findByLabelText('32 位访问密码')
+    const verifyButton = screen.getByRole('button', { name: '验证密码' })
+
+    expect(verifyButton).toBeDisabled()
+    expect(screen.queryByText('测试员工')).not.toBeInTheDocument()
+
+    await user.type(passwordInput, password)
+    await user.click(verifyButton)
+
+    await waitFor(() => expect(apiMocks.fetchDevLoginUsers).toHaveBeenNthCalledWith(2, password))
+    await user.click(await screen.findByText('测试员工'))
+
+    expect(apiMocks.devLogin).toHaveBeenCalledWith('ou_test', password)
   })
 })

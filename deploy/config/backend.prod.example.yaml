@@ -21,6 +21,7 @@ lark:
     enabled: true
 
 auth:
-  # 生产环境禁止免飞书 OAuth 的开发快速登录。
+  # 生产环境默认关闭；临时开启时必须把占位值替换为恰好 32 位的强随机密码。
   devLogin:
     enabled: false
+    password: '<恰好32位的强随机密码>'

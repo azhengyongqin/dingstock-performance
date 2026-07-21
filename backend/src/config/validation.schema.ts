@@ -28,6 +28,8 @@ export const validationSchema = Joi.object({
   AUTH_DEFAULT_ADMIN_OPEN_ID: Joi.string().pattern(/^ou_[A-Za-z0-9]+$/),
   // 开发环境快速登录开关（可选）：'1'/'true'/'yes'/'on' 开启，其余关闭；缺省时非生产默认开启。
   AUTH_DEV_LOGIN_ENABLED: Joi.string(),
+  // 生产开启快速登录时必须提供恰好 32 位密码；YAML 的同名配置由 configuration.ts 做组合校验。
+  AUTH_DEV_LOGIN_PASSWORD: Joi.string().length(32),
   // AI 报告通过可配置的内部 HTTP 网关生成；密钥只允许环境变量注入。
   AI_REPORT_ENABLED: Joi.string(),
   AI_REPORT_ENDPOINT: Joi.string().uri({ scheme: ['http', 'https'] }),

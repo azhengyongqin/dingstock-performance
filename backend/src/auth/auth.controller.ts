@@ -7,16 +7,19 @@ import {
   Req,
   Res,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOperation,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
-import { DevLoginDto } from './dto/dev-login.dto';
+import { DevLoginHeaders } from './dev-login-headers.decorator';
+import { DevLoginDto, DevLoginHeadersDto } from './dto/dev-login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import type { AuthenticatedRequest } from './jwt-auth.guard';
 import { SkipPerformanceCutoverGate } from '../cutover/performance-cutover.decorator';
@@ -76,14 +79,29 @@ export class AuthController {
     return req.user;
   }
 
-  // ---- 开发环境快速登录（免鉴权，dev 开关关闭时统一 404；生产必须关闭） ----
+  // ---- 开发快速登录（开关关闭时统一 404；生产开启时强制 32 位共享密码） ----
 
   @Get('dev/users')
+  @ApiHeader({
+    name: 'x-dev-login-password',
+    required: false,
+    description: '生产环境开启 Dev Login 时必填的 32 位访问密码',
+  })
   @ApiOperation({
     summary: '【仅开发】列出可快速登录的员工及角色标记（选人用）',
   })
-  listDevUsers() {
-    return this.authService.listDevUsers();
+  listDevUsers(
+    @DevLoginHeaders(
+      new ValidationPipe({
+        whitelist: true,
+        transform: true,
+        // Header 参数属于 custom 类型，必须显式开启才能执行 DTO 校验。
+        validateCustomDecorators: true,
+      }),
+    )
+    headers: DevLoginHeadersDto,
+  ) {
+    return this.authService.listDevUsers(headers['x-dev-login-password']);
   }
 
   @Post('dev/login')
@@ -91,6 +109,6 @@ export class AuthController {
     summary: '【仅开发】按 open_id 直接登录（免飞书 OAuth），返回会话 token',
   })
   devLogin(@Body() body: DevLoginDto) {
-    return this.authService.devLogin(body.open_id);
+    return this.authService.devLogin(body.open_id, body.password);
   }
 }

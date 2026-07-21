@@ -1,7 +1,7 @@
 'use client'
 
 // React Imports
-import { useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 
 // Next Imports
 import { useRouter } from 'next/navigation'
@@ -13,7 +13,9 @@ import { LoaderCircleIcon, TriangleAlertIcon } from 'lucide-react'
 import SearchInput from '@/components/shared/SearchInput'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Command, CommandEmpty, CommandItem, CommandList } from '@/components/ui/command'
+import { Input } from '@/components/ui/input'
 
 // Util Imports
 import { ApiError, devLogin, fetchDevLoginUsers, saveAuth, type DevLoginUser } from '@/lib/api'
@@ -60,6 +62,12 @@ const DevQuickLogin = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 生产环境可为快速登录增加独立密码门禁；密码仅保存在当前组件内存中。
+  const [passwordRequired, setPasswordRequired] = useState(false)
+  const [passwordAccepted, setPasswordAccepted] = useState(false)
+  const [password, setPassword] = useState('')
+  const [verifyingPassword, setVerifyingPassword] = useState(false)
+
   // 正在登录的员工 open_id（禁用重复点击并显示 loading）
   const [pendingOpenId, setPendingOpenId] = useState<string | null>(null)
 
@@ -71,6 +79,7 @@ const DevQuickLogin = () => {
         if (active) {
           setUsers(data.items)
           setAvailable(true)
+          setPasswordAccepted(true)
         }
       })
       .catch(cause => {
@@ -78,6 +87,14 @@ const DevQuickLogin = () => {
 
         // 404 是后端明确关闭 devLogin，不向普通用户暴露入口或错误提示。
         if (cause instanceof ApiError && cause.status === 404) return
+
+        // 401 表示入口已开启，但必须先通过独立的 32 位密码验证。
+        if (cause instanceof ApiError && cause.status === 401) {
+          setAvailable(true)
+          setPasswordRequired(true)
+
+          return
+        }
 
         setAvailable(true)
         setError('拉取员工列表失败：请确认后端已启动，且已用 HR 账号触发过组织架构同步。')
@@ -105,19 +122,50 @@ const DevQuickLogin = () => {
     )
   }, [users, query])
 
+  const handleVerifyPassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (password.length !== 32 || verifyingPassword) return
+
+    setVerifyingPassword(true)
+    setError(null)
+
+    try {
+      const data = await fetchDevLoginUsers(password)
+
+      setUsers(data.items)
+      setPasswordAccepted(true)
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        setError('访问密码错误，请重试。')
+      } else {
+        setError('验证失败，请确认后端服务正常后重试。')
+      }
+    } finally {
+      setVerifyingPassword(false)
+    }
+  }
+
   const handlePick = async (user: DevLoginUser) => {
     if (pendingOpenId) return
     setPendingOpenId(user.open_id)
     setError(null)
 
     try {
-      const { token } = await devLogin(user.open_id)
+      const { token } = await devLogin(user.open_id, passwordRequired ? password : undefined)
 
       // 与飞书 OAuth 回调一致：写入 token + 用户基本信息，再进工作台
       saveAuth(token, { name: user.name, avatar: user.avatar_url, openId: user.open_id })
       router.replace('/workbench')
-    } catch {
-      setError(`以「${user.name}」登录失败，请重试。`)
+    } catch (cause) {
+      // 密码可能已被管理员轮换，返回验证页重新输入，避免继续暴露员工列表。
+      if (cause instanceof ApiError && cause.status === 401 && passwordRequired) {
+        setUsers([])
+        setPasswordAccepted(false)
+        setError('访问密码已失效，请重新输入。')
+      } else {
+        setError(`以「${user.name}」登录失败，请重试。`)
+      }
+
       setPendingOpenId(null)
     }
   }
@@ -134,57 +182,81 @@ const DevQuickLogin = () => {
         <span className='text-muted-foreground text-xs'>临时测试入口</span>
       </div>
 
-      {/* shouldFilter=false：列表过滤交给 SearchInput + matchesPinyinSearch */}
-      <Command shouldFilter={false} className='border-border/60 bg-transparent'>
-        <div className='p-1 pb-0'>
-          <SearchInput
-            value={query}
-            onChange={setQuery}
-            placeholder='搜索姓名 / 英文名…'
-            disabled={loading || Boolean(pendingOpenId)}
-            className='border-input/30 bg-input/30 h-8! rounded-lg! shadow-none!'
-          />
-        </div>
-        <CommandList>
-          {loading ? (
-            <div className='text-muted-foreground flex items-center justify-center gap-2 py-6 text-sm'>
-              <LoaderCircleIcon className='size-4 animate-spin' />
-              正在加载员工列表…
-            </div>
-          ) : (
-            <>
-              <CommandEmpty>未找到匹配的员工</CommandEmpty>
-              {filteredUsers.map(user => (
-                <CommandItem
-                  key={user.open_id}
-                  value={user.open_id}
-                  onSelect={() => handlePick(user)}
-                  disabled={Boolean(pendingOpenId)}
-                  className='gap-3'
-                >
-                  <Avatar className='size-8'>
-                    {user.avatar_url && <AvatarImage src={user.avatar_url} alt={user.name} />}
-                    <AvatarFallback>{user.name.slice(0, 1)}</AvatarFallback>
-                  </Avatar>
-                  <div className='flex min-w-0 flex-1 flex-col'>
-                    <span className='truncate text-sm font-medium'>{user.name}</span>
-                    <span className='text-muted-foreground truncate text-xs'>
-                      {[user.job_title, user.department].filter(Boolean).join(' · ') || '—'}
-                    </span>
-                  </div>
-                  <div className='flex shrink-0 items-center gap-1'>
-                    {pendingOpenId === user.open_id ? (
-                      <LoaderCircleIcon className='text-muted-foreground size-4 animate-spin' />
-                    ) : (
-                      <RoleBadges user={user} />
-                    )}
-                  </div>
-                </CommandItem>
-              ))}
-            </>
-          )}
-        </CommandList>
-      </Command>
+      {/* 密码门禁验证成功前不请求、不展示员工列表。 */}
+      {passwordRequired && !passwordAccepted ? (
+        <form className='space-y-3' onSubmit={handleVerifyPassword}>
+          <div className='space-y-1.5'>
+            <label htmlFor='dev-login-password' className='text-sm font-medium'>
+              32 位访问密码
+            </label>
+            <Input
+              id='dev-login-password'
+              type='password'
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              maxLength={32}
+              autoComplete='off'
+              placeholder='请输入管理员提供的访问密码'
+              disabled={verifyingPassword}
+            />
+          </div>
+          <Button type='submit' className='w-full' disabled={password.length !== 32 || verifyingPassword}>
+            {verifyingPassword && <LoaderCircleIcon className='animate-spin' />}
+            验证密码
+          </Button>
+        </form>
+      ) : (
+        <Command shouldFilter={false} className='border-border/60 bg-transparent'>
+          <div className='p-1 pb-0'>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder='搜索姓名 / 英文名…'
+              disabled={loading || Boolean(pendingOpenId)}
+              className='border-input/30 bg-input/30 h-8! rounded-lg! shadow-none!'
+            />
+          </div>
+          <CommandList>
+            {loading ? (
+              <div className='text-muted-foreground flex items-center justify-center gap-2 py-6 text-sm'>
+                <LoaderCircleIcon className='size-4 animate-spin' />
+                正在加载员工列表…
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>未找到匹配的员工</CommandEmpty>
+                {filteredUsers.map(user => (
+                  <CommandItem
+                    key={user.open_id}
+                    value={user.open_id}
+                    onSelect={() => handlePick(user)}
+                    disabled={Boolean(pendingOpenId)}
+                    className='gap-3'
+                  >
+                    <Avatar className='size-8'>
+                      {user.avatar_url && <AvatarImage src={user.avatar_url} alt={user.name} />}
+                      <AvatarFallback>{user.name.slice(0, 1)}</AvatarFallback>
+                    </Avatar>
+                    <div className='flex min-w-0 flex-1 flex-col'>
+                      <span className='truncate text-sm font-medium'>{user.name}</span>
+                      <span className='text-muted-foreground truncate text-xs'>
+                        {[user.job_title, user.department].filter(Boolean).join(' · ') || '—'}
+                      </span>
+                    </div>
+                    <div className='flex shrink-0 items-center gap-1'>
+                      {pendingOpenId === user.open_id ? (
+                        <LoaderCircleIcon className='text-muted-foreground size-4 animate-spin' />
+                      ) : (
+                        <RoleBadges user={user} />
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </>
+            )}
+          </CommandList>
+        </Command>
+      )}
 
       {error && (
         <p className='text-destructive mt-3 flex items-start gap-1.5 text-sm'>
