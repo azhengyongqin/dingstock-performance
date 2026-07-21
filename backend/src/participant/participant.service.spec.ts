@@ -67,6 +67,7 @@ describe('ParticipantService', () => {
     perfEvaluationTask: {
       createMany: jest.fn(),
       findMany: jest.fn(),
+      updateMany: jest.fn(),
     },
     larkUser: { findMany: jest.fn() },
     larkCorehrEmployee: { findMany: jest.fn() },
@@ -409,18 +410,12 @@ describe('ParticipantService', () => {
     });
   });
 
-  it('ADMIN 移除已产生结果数据的考核人员被拒绝', async () => {
+  it('ADMIN 在 ACTIVE 周期也不可物理移除考核人员', async () => {
     rbacMock.isAdmin.mockResolvedValue(true);
     prismaMock.perfCycle.findFirst.mockResolvedValue({
       id: 100,
       status: 'ACTIVE',
     });
-    prismaMock.perfParticipant.findFirst.mockResolvedValue({
-      id: 9,
-      cycleId: 100,
-    });
-    prismaMock.perfResultVersion.count.mockResolvedValue(1);
-
     await expect(service.remove('ou_admin', 100, 9)).rejects.toThrow(
       ConflictException,
     );
@@ -439,46 +434,42 @@ describe('ParticipantService', () => {
     expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
   });
 
-  it('ADMIN 移除已有统一评估提交的考核人员时要求二次确认', async () => {
-    rbacMock.isAdmin.mockResolvedValue(true);
-    prismaMock.perfCycle.findFirst.mockResolvedValue({
-      id: 100,
-      status: 'ACTIVE',
-    });
-    prismaMock.perfParticipant.findFirst.mockResolvedValue({
-      id: 9,
-      cycleId: 100,
-    });
-    prismaMock.perfEvaluationSubmission.count.mockResolvedValue(1);
-
-    await expect(service.remove('ou_admin', 100, 9)).rejects.toMatchObject({
-      response: expect.objectContaining({
-        code: 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM',
-      }),
-    });
-    expect(prismaMock.perfParticipant.delete).not.toHaveBeenCalled();
-  });
-
-  it('ADMIN 带 confirm 时可移除已有统一评估提交的考核人员', async () => {
-    rbacMock.isAdmin.mockResolvedValue(true);
-    prismaMock.perfCycle.findFirst.mockResolvedValue({
-      id: 100,
-      status: 'ACTIVE',
-    });
-    prismaMock.perfParticipant.findFirst.mockResolvedValue({
-      id: 9,
-      cycleId: 100,
-    });
-    prismaMock.perfEvaluationSubmission.count.mockResolvedValue(1);
+  it('HR 将 ACTIVE 参与者设为中途退出时保留过程数据并收口未完成任务', async () => {
     txMock.$queryRaw.mockResolvedValueOnce([
       { participant_id: 9, cycle_id: 100, cycle_status: 'ACTIVE' },
     ]);
-    txMock.perfParticipant.delete.mockResolvedValue({ id: 9 });
+    txMock.perfParticipant.findUnique.mockResolvedValue({
+      id: 9,
+      cycleId: 100,
+      status: 'ACTIVE',
+    });
+    txMock.perfParticipant.update.mockResolvedValue({
+      id: 9,
+      cycleId: 100,
+      status: 'WITHDRAWN',
+    });
+    txMock.perfEvaluationTask.updateMany.mockResolvedValue({ count: 3 });
 
-    await service.remove('ou_admin', 100, 9, true);
+    await service.withdraw('ou_hr', 100, 9, '员工已离职');
 
-    expect(txMock.perfParticipant.delete).toHaveBeenCalledWith({
+    expect(txMock.perfParticipant.update).toHaveBeenCalledWith({
       where: { id: 9 },
+      data: { status: 'WITHDRAWN' },
+    });
+    expect(txMock.perfEvaluationTask.updateMany).toHaveBeenCalledWith({
+      where: { participantId: 9, completedAt: null },
+      data: { completedAt: expect.any(Date) },
+    });
+    expect(prismaMock.perfEvaluationSubmission.count).not.toHaveBeenCalled();
+    expect(txMock.perfParticipant.delete).not.toHaveBeenCalled();
+    expect(auditMock.record).toHaveBeenCalledWith({
+      operatorOpenId: 'ou_hr',
+      action: 'participant.withdraw',
+      targetType: 'perf_participant',
+      targetId: '9',
+      before: { status: 'ACTIVE' },
+      after: { status: 'WITHDRAWN' },
+      reason: '员工已离职',
     });
   });
 });

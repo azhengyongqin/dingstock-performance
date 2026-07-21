@@ -21,6 +21,14 @@ jest.mock(
       ACTIVE: 'ACTIVE',
       ARCHIVED: 'ARCHIVED',
     },
+    PerfAssignmentStatus: { REPLACED: 'REPLACED' },
+    PerfEvaluationTaskType: {
+      SELF: 'SELF',
+      PEER: 'PEER',
+      MANAGER: 'MANAGER',
+      AI: 'AI',
+    },
+    PerfParticipantStatus: { ACTIVE: 'ACTIVE' },
     PerfRole: { HR: 'HR', ADMIN: 'ADMIN' },
   }),
   { virtual: true },
@@ -29,6 +37,9 @@ jest.mock('@prisma/adapter-pg', () => ({
   PrismaPg: jest.fn().mockImplementation((options: unknown) => options),
 }));
 jest.mock('../audit/audit.service', () => ({ AuditService: class {} }));
+jest.mock('../notification/notification-event.service', () => ({
+  NotificationEventService: class {},
+}));
 jest.mock('../rbac/rbac.service', () => ({ RbacService: class {} }));
 jest.mock('../shared/database/prisma.service', () => ({
   PrismaService: class {},
@@ -148,6 +159,10 @@ describe('CycleSetupService', () => {
       findFirst: jest.fn(),
     },
     perfCycleConfigVersion: { create: jest.fn(), update: jest.fn() },
+    perfEvaluationTask: {
+      findMany: jest.fn(),
+      updateMany: jest.fn(),
+    },
     perfParticipant: { update: jest.fn() },
     larkUser: { findMany: jest.fn() },
     larkCorehrEmployee: { findMany: jest.fn() },
@@ -160,6 +175,7 @@ describe('CycleSetupService', () => {
   };
   const audit = { record: jest.fn() };
   const rbac = { hasAnyRole: jest.fn().mockResolvedValue(true) };
+  const notification = { enqueueTaskOpenedEvents: jest.fn() };
   let service: CycleSetupService;
 
   beforeEach(() => {
@@ -181,6 +197,7 @@ describe('CycleSetupService', () => {
       prisma as never,
       audit as never,
       rbac as never,
+      notification as never,
     );
   });
 
@@ -417,6 +434,144 @@ describe('CycleSetupService', () => {
         'RATING_SCALE_INVALID',
         'BOUND_SUBFORM_REQUIRED',
       ]),
+    );
+  });
+
+  it('进行中周期调整计划时同步未归档任务，并立即开放新开始时间已到达的任务', async () => {
+    const plannedStartAt = new Date('2026-07-01T01:00:00.000Z');
+    const dto = {
+      allowStageOverlap: true,
+      stages: [
+        {
+          stage: 'SELF' as const,
+          startAt: '2026-07-01T01:00:00.000Z',
+          reminderDeadlineAt: '2026-07-08T01:00:00.000Z',
+        },
+        {
+          stage: 'PEER' as const,
+          startAt: '2026-07-02T01:00:00.000Z',
+          reminderDeadlineAt: '2026-07-09T01:00:00.000Z',
+        },
+        {
+          stage: 'MANAGER' as const,
+          startAt: '2026-07-03T01:00:00.000Z',
+          reminderDeadlineAt: '2026-07-10T01:00:00.000Z',
+        },
+      ],
+      notificationRules: source.notificationRules,
+      reason: '修正进行中的评估任务时间',
+    };
+    tx.perfCycle.findFirst.mockResolvedValue({
+      id: 9,
+      name: '2026 年中绩效评定',
+      ownerOpenId: 'ou_hr',
+      status: 'ACTIVE',
+      plannedStartAt,
+      currentConfigVersionId: 19,
+    });
+    tx.perfEvaluationTask.findMany.mockResolvedValue([
+      {
+        id: 501,
+        cycleId: 9,
+        type: 'SELF',
+        assigneeOpenId: 'ou_employee',
+        reminderDeadlineAt: new Date('2026-07-08T01:00:00.000Z'),
+        participant: {
+          leaderOpenIdSnapshot: 'ou_leader',
+          reviewerAssignments: [],
+        },
+      },
+    ]);
+    tx.perfEvaluationTask.updateMany.mockResolvedValue({ count: 1 });
+    prisma.perfCycle.findFirst.mockResolvedValue({
+      id: 9,
+      status: 'ACTIVE',
+      plannedStartAt,
+      currentConfigVersion: {
+        id: 19,
+        schedulePreset: {
+          allowStageOverlap: true,
+          stages: [
+            {
+              stage: 'SELF',
+              startOffsetMinutes: 0,
+              reminderDeadlineOffsetMinutes: 10_080,
+            },
+            {
+              stage: 'PEER',
+              startOffsetMinutes: 1_440,
+              reminderDeadlineOffsetMinutes: 11_520,
+            },
+            {
+              stage: 'MANAGER',
+              startOffsetMinutes: 2_880,
+              reminderDeadlineOffsetMinutes: 12_960,
+            },
+          ],
+        },
+        notificationRules: source.notificationRules,
+        formSnapshots: [],
+      },
+      participants: [],
+    });
+
+    await expect(service.updatePlan('ou_hr', 9, dto)).resolves.toBeDefined();
+
+    expect(tx.perfCycleConfigVersion.update).toHaveBeenCalledWith({
+      where: { id: 19 },
+      data: expect.objectContaining({
+        schedulePreset: expect.objectContaining({ allowStageOverlap: true }),
+        notificationRules: source.notificationRules,
+      }),
+    });
+    expect(tx.perfEvaluationTask.updateMany).toHaveBeenCalledWith({
+      where: {
+        cycleId: 9,
+        type: 'SELF',
+        openedAt: null,
+        participant: { status: 'ACTIVE' },
+      },
+      data: {
+        startAt: new Date('2026-07-01T01:00:00.000Z'),
+        reminderDeadlineAt: new Date('2026-07-08T01:00:00.000Z'),
+      },
+    });
+    expect(tx.perfEvaluationTask.updateMany).toHaveBeenCalledWith({
+      where: {
+        cycleId: 9,
+        type: 'SELF',
+        openedAt: { not: null },
+        participant: { status: 'ACTIVE' },
+      },
+      data: { reminderDeadlineAt: new Date('2026-07-08T01:00:00.000Z') },
+    });
+    expect(tx.perfEvaluationTask.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          cycleId: 9,
+          openedAt: null,
+          participant: { status: 'ACTIVE' },
+        }),
+      }),
+    );
+    expect(tx.perfEvaluationTask.updateMany).toHaveBeenCalledWith({
+      where: { id: 501, openedAt: null },
+      data: { openedAt: expect.any(Date) },
+    });
+    expect(notification.enqueueTaskOpenedEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 501,
+        cycleId: 9,
+        type: 'SELF',
+        assigneeOpenId: 'ou_employee',
+      }),
+      tx,
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'cycle.plan.update',
+        reason: '修正进行中的评估任务时间',
+      }),
     );
   });
 

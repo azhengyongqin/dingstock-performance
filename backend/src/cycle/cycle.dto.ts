@@ -112,6 +112,12 @@ export class UpsertCyclePlanDto {
   @ValidateNested()
   @Type(() => NotificationRulesDto)
   notificationRules!: NotificationRulesDto;
+
+  /** 进行中调整会改变已经创建的任务事实，必须说明原因并写入审计日志。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 /** 高级配置只调整周期自己的计算快照，不回写来源模板或 D/M 表单。 */

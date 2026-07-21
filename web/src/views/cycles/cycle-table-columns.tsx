@@ -76,7 +76,7 @@ export const cycleTableColumns: ColumnDef<CycleRow>[] = [
           size='sm'
           render={<Link href={`/cycles/${row.original.id}/edit`} />}
           nativeButton={false}
-          disabled={row.original.status !== 'DRAFT' && row.original.status !== 'SCHEDULED'}
+          disabled={row.original.status === 'ARCHIVED'}
         >
           编辑
         </Button>

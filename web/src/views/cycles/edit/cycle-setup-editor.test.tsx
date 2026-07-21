@@ -112,7 +112,13 @@ const plan: PerfCyclePlan = {
 }
 
 const checkItems: StartCheckItem[] = [
-  { key: 'participants.prefix', ok: false, message: '1 名参与者缺少职级', target: 'participants', actionLabel: '处理参与者' },
+  {
+    key: 'participants.prefix',
+    ok: false,
+    message: '1 名参与者缺少职级',
+    target: 'participants',
+    actionLabel: '处理参与者'
+  },
   { key: 'plan.complete', ok: true, message: '三类任务日程完整', target: 'plan' }
 ]
 
@@ -128,6 +134,7 @@ const createProps = () => ({
   checkItems,
   checkOk: false,
   editable: true,
+  participantAction: 'REMOVE' as const,
   saving: false,
   onDraftChange: vi.fn(),
   onSaveBasic: vi.fn(async () => true),
@@ -225,6 +232,40 @@ describe('CycleSetupEditor', () => {
     await user.click(screen.getByRole('button', { name: '退回草稿' }))
     expect(props.onReturnToDraft).toHaveBeenCalledOnce()
   })
+
+  it('ACTIVE 可补加参与者并调整任务时间，但保留已启动基础锚点且不允许重套模板', async () => {
+    const user = userEvent.setup()
+
+    const props = {
+      ...createProps(),
+      status: 'ACTIVE' as const,
+      sourceConfigLabel: '标准配置 · v2',
+      participantAction: 'WITHDRAW' as const
+    }
+
+    render(<CycleSetupEditor {...props} />)
+
+    expect(screen.getByLabelText('周期名称')).toBeDisabled()
+    expect(screen.getByLabelText('计划启动时间')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '重新套用模板' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /参与者/ }))
+    expect(screen.getByRole('button', { name: '添加参与者' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '中途退出 普通岗员工' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /计划预览/ }))
+
+    for (const button of screen.getAllByRole('button', { name: '编辑通知' })) {
+      expect(button).toBeEnabled()
+    }
+
+    await user.click(screen.getByRole('button', { name: /启动检查/ }))
+    await user.type(screen.getByLabelText('调整原因'), '调整评估时间安排')
+    await user.click(screen.getByRole('button', { name: '保存调整' }))
+    expect(props.onSavePlan).toHaveBeenCalledWith('调整评估时间安排')
+    expect(screen.getByRole('button', { name: '保存并退出' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '设为待启动' })).not.toBeInTheDocument()
+  })
 })
 
 describe('CycleSetupEditor 重新套用模板', () => {
@@ -244,9 +285,7 @@ describe('CycleSetupEditor 重新套用模板', () => {
     await openTemplateSelect(user)
     await user.click(screen.getByRole('option', { name: /标准配置/ }))
 
-    expect(props.onDraftChange).toHaveBeenCalledWith(
-      expect.objectContaining({ configTemplateVersionId: '11' })
-    )
+    expect(props.onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ configTemplateVersionId: '11' }))
     expect(screen.queryByText(/重新套用模板/)).not.toBeInTheDocument()
     expect(screen.queryByText(/确认覆盖/)).not.toBeInTheDocument()
     expect(props.onReapplyTemplate).not.toHaveBeenCalled()

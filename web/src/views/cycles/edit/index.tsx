@@ -7,6 +7,17 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 
 import PageHeader from '@/components/shared/PageHeader'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Textarea } from '@/components/ui/textarea'
 import { ApiError, apiFetch } from '@/lib/api'
 import type {
   ListResponse,
@@ -79,8 +90,16 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const [activeConfigImpact, setActiveConfigImpact] = useState<ActivePerfCycleConfigImpact | null>(null)
   const [pendingActiveConfig, setPendingActiveConfig] = useState<ActivePerfCycleConfigInput | null>(null)
 
-  const editable = status === 'DRAFT' || status === 'SCHEDULED'
+  const [withdrawTarget, setWithdrawTarget] = useState<{
+    participantId: number
+    name: string
+  } | null>(null)
+
+  const [withdrawReason, setWithdrawReason] = useState('')
+
+  const editable = status !== 'ARCHIVED'
   const activeConfigEditable = status === 'ACTIVE'
+  const participantAction = !editable ? 'NONE' : status === 'ACTIVE' ? 'WITHDRAW' : 'REMOVE'
 
   const loadParticipants = useCallback(async (id: number) => {
     const [participantData, prefixData] = await Promise.all([
@@ -146,6 +165,9 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   }, [realCycleId, loadCycleSetup])
 
   const saveBasic = async (): Promise<boolean> => {
+    // ACTIVE 的计划启动时间已经成为历史锚点；进行中编辑从参与者和实际计划开始，不重写基础锚点。
+    if (status === 'ACTIVE') return true
+
     if (!draft.name.trim() || !draft.plannedStartAt || (!snapshot && !draft.configTemplateVersionId)) {
       toast.error('请填写周期名称、配置模板版本和计划启动时间')
 
@@ -226,13 +248,10 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
       }
 
       if (payload.departmentIds.length > 0) {
-        const byDepartments = await apiFetch<{ added: number }>(
-          `/cycles/${realCycleId}/participants/by-departments`,
-          {
-            method: 'POST',
-            body: JSON.stringify({ departmentIds: payload.departmentIds })
-          }
-        )
+        const byDepartments = await apiFetch<{ added: number }>(`/cycles/${realCycleId}/participants/by-departments`, {
+          method: 'POST',
+          body: JSON.stringify({ departmentIds: payload.departmentIds })
+        })
 
         added += byDepartments.added
       }
@@ -247,20 +266,58 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
   const removeMember = async (participantId: number) => {
     if (!realCycleId) return
 
+    if (status === 'ACTIVE') {
+      const participant = participants.find(item => item.id === participantId)
+
+      setWithdrawTarget({
+        participantId,
+        name: participant?.employee?.name ?? participant?.employeeOpenId ?? `参与者 #${participantId}`
+      })
+      setWithdrawReason('')
+
+      return
+    }
+
+    setSaving(true)
+
     try {
-      await apiFetch(`/cycles/${realCycleId}/participants/${participantId}`, { method: 'DELETE' })
+      await apiFetch(`/cycles/${realCycleId}/participants/${participantId}`, {
+        method: 'DELETE'
+      })
       await refreshParticipants()
     } catch (error) {
       toast.error(errorMessage(error, '移除参与者失败'))
+    } finally {
+      setSaving(false)
     }
   }
 
-  const savePlan = async (): Promise<boolean> => {
+  const confirmWithdraw = async () => {
+    if (!realCycleId || !withdrawTarget || !withdrawReason.trim()) return
+    setSaving(true)
+
+    try {
+      await apiFetch(`/cycles/${realCycleId}/participants/${withdrawTarget.participantId}/withdraw`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: withdrawReason.trim() })
+      })
+      toast.success(`${withdrawTarget.name} 已设为中途退出，历史过程数据已保留`)
+      setWithdrawTarget(null)
+      setWithdrawReason('')
+      await refreshParticipants()
+    } catch (error) {
+      toast.error(errorMessage(error, '设置中途退出失败'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const savePlan = async (reason?: string): Promise<boolean> => {
     if (!realCycleId) return false
     setSaving(true)
 
     try {
-      const saved = await updatePerfCyclePlan(realCycleId, plan)
+      const saved = await updatePerfCyclePlan(realCycleId, { ...plan, reason })
 
       setPlan(saved)
       toast.success('计划与通知规则已保存')
@@ -418,7 +475,11 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
     <div className='flex flex-col gap-6'>
       <PageHeader
         title={title}
-        description='通过四步完成周期快照、参与者匹配、实际计划与启动检查'
+        description={
+          status === 'ACTIVE'
+            ? '调整进行中周期的参与者、任务时间、通知规则与计算配置'
+            : '通过四步完成周期快照、参与者匹配、实际计划与启动检查'
+        }
         backHref={realCycleId ? `/cycles/${realCycleId}` : '/cycles'}
         backLabel={realCycleId ? '周期详情' : '绩效周期'}
       />
@@ -435,6 +496,7 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
         checkItems={checkItems}
         checkOk={checkOk}
         editable={editable}
+        participantAction={participantAction}
         saving={saving}
         setupReady={realCycleId != null && snapshot != null}
         onDraftChange={setDraft}
@@ -473,6 +535,39 @@ const CycleEdit = ({ cycleId }: { cycleId: string }) => {
           onConfirm={applyActiveConfig}
         />
       )}
+
+      <Dialog open={withdrawTarget != null} onOpenChange={open => !open && setWithdrawTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>将参与者设为中途退出</DialogTitle>
+            <DialogDescription>
+              {withdrawTarget?.name} 将不再继续本周期评审，未完成任务会收口；已有答卷与过程数据会完整保留。
+            </DialogDescription>
+          </DialogHeader>
+          <Field className='gap-2'>
+            <FieldLabel htmlFor='participant-withdraw-reason'>退出原因</FieldLabel>
+            <Textarea
+              id='participant-withdraw-reason'
+              value={withdrawReason}
+              maxLength={500}
+              placeholder='例如：员工离职、组织调整'
+              onChange={event => setWithdrawReason(event.target.value)}
+            />
+          </Field>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setWithdrawTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant='destructive'
+              disabled={saving || !withdrawReason.trim()}
+              onClick={() => void confirmWithdraw()}
+            >
+              确认中途退出
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

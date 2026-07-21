@@ -184,26 +184,15 @@ export class ParticipantService {
     };
   }
 
-  /**
-   * 移除名单校验（角色感知）：
-   * - ADMIN：除已归档外的任何状态都可移除考核人员；
-   * - 其余（HR）：仅 DRAFT/SCHEDULED 可移除。
-   */
-  private async assertRemovableByRole(
-    cycleStatus: PerfCycleStatus,
-    operatorOpenId: string,
-  ) {
-    if (await this.rbacService.isAdmin(operatorOpenId)) {
-      if (cycleStatus === PerfCycleStatus.ARCHIVED) {
-        throw new ConflictException('周期已归档，考核人员名单不可移除');
-      }
-      return;
-    }
+  /** 启动前可以物理移除名单；ACTIVE 必须改走中途退出并永久保留过程数据。 */
+  private assertRemovable(cycleStatus: PerfCycleStatus) {
     if (
       cycleStatus !== PerfCycleStatus.DRAFT &&
       cycleStatus !== PerfCycleStatus.SCHEDULED
     ) {
-      throw new ConflictException('周期已启动，HR 不可移除考核人员');
+      throw new ConflictException(
+        '周期已启动，请使用中途退出保留参与者过程数据',
+      );
     }
   }
 
@@ -440,38 +429,6 @@ export class ParticipantService {
     }
   }
 
-  /**
-   * 进行中移除考核人员的守卫：
-   * - 已产生结果/校准/AI/申诉/面谈（Restrict 外键）→ 直接拒绝，无法移除；
-   * - 仅有自评/评审等 Cascade 数据 → 需二次确认（confirm）。
-   */
-  private async assertRemovable(participantId: number, confirm?: boolean) {
-    const [results, calibrations, aiReports, appeals, interviews] =
-      await Promise.all([
-        this.prisma.perfResultVersion.count({ where: { participantId } }),
-        this.prisma.perfCalibration.count({ where: { participantId } }),
-        this.prisma.perfAiReport.count({ where: { participantId } }),
-        this.prisma.perfAppeal.count({ where: { participantId } }),
-        this.prisma.perfInterview.count({ where: { participantId } }),
-      ]);
-    if (results + calibrations + aiReports + appeals + interviews > 0) {
-      throw new ConflictException(
-        '该员工已产生结果/校准/AI分析/申诉/面谈等数据，无法移除',
-      );
-    }
-    const submissions = await this.prisma.perfEvaluationSubmission.count({
-      where: { participantId },
-    });
-    const affectedData = { submissions };
-    if (Object.values(affectedData).some((count) => count > 0) && !confirm) {
-      throw new ConflictException({
-        code: 'DESTRUCTIVE_EDIT_REQUIRES_CONFIRM',
-        message: '移除该考核人员会删除其统一评估提交，请确认后继续',
-        impact: { changes: ['移除考核人员'], affectedData },
-      });
-    }
-  }
-
   /** 按 open_id 名单批量加人（幂等；唯一约束兜底） */
   async addByOpenIds(
     operatorOpenId: string,
@@ -563,22 +520,13 @@ export class ParticipantService {
     );
   }
 
-  async remove(
-    operatorOpenId: string,
-    cycleId: number,
-    participantId: number,
-    confirm?: boolean,
-  ) {
+  async remove(operatorOpenId: string, cycleId: number, participantId: number) {
     const cycle = await this.requireCycle(cycleId);
-    await this.assertRemovableByRole(cycle.status, operatorOpenId);
+    this.assertRemovable(cycle.status);
     const participant = await this.prisma.perfParticipant.findFirst({
       where: { id: participantId, cycleId },
     });
     if (!participant) throw new NotFoundException('参与者不存在');
-    // 进行中删除：Restrict 数据直接拒绝，Cascade 数据需二次确认；启动前过程数据为空可直接删
-    if (this.isInProgress(cycle.status)) {
-      await this.assertRemovable(participantId, confirm);
-    }
     try {
       await this.prisma.$transaction(async (tx) => {
         const locked = await this.lockParticipantCycle(tx, participantId);
@@ -604,9 +552,62 @@ export class ParticipantService {
       targetType: 'perf_participant',
       targetId: String(participantId),
       before: participant,
-      reason: this.isInProgress(cycle.status) ? '管理员进行中编辑' : undefined,
     });
     return { ok: true };
+  }
+
+  /** ACTIVE 周期通过中途退出收口参与者，保留全部答卷与结果链证据。 */
+  async withdraw(
+    operatorOpenId: string,
+    cycleId: number,
+    participantId: number,
+    reason: string,
+  ) {
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      throw new BadRequestException('中途退出必须填写原因');
+    }
+    const now = new Date();
+    const { participant, updated } = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await this.lockParticipantCycle(tx, participantId);
+        if (locked.cycle_id !== cycleId) {
+          throw new NotFoundException('参与者不存在');
+        }
+        if (locked.cycle_status !== PerfCycleStatus.ACTIVE) {
+          throw new ConflictException('只有进行中周期可以将参与者设为中途退出');
+        }
+        const participant = await tx.perfParticipant.findUnique({
+          where: { id: participantId },
+        });
+        if (!participant) throw new NotFoundException('参与者不存在');
+        assertParticipantTransition(
+          participant.status,
+          PerfParticipantStatus.WITHDRAWN,
+        );
+        const updated = await tx.perfParticipant.update({
+          where: { id: participantId },
+          data: { status: PerfParticipantStatus.WITHDRAWN },
+        });
+        // 中途退出后不再产生待办；过程数据保留，未完成任务只做事实收口。
+        await tx.perfEvaluationTask.updateMany({
+          where: { participantId, completedAt: null },
+          data: { completedAt: now },
+        });
+        return { participant, updated };
+      },
+    );
+
+    await this.auditService.record({
+      operatorOpenId,
+      action: 'participant.withdraw',
+      targetType: 'perf_participant',
+      targetId: String(participantId),
+      before: { status: participant.status },
+      after: { status: updated.status },
+      reason: normalizedReason,
+    });
+    return updated;
   }
 
   /** 参与者状态流转（各业务模块统一入口，保证经过状态机 + 审计） */

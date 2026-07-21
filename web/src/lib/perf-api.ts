@@ -795,7 +795,7 @@ export const getPerfCycleParticipantPrefixCheck = (cycleId: number) =>
 
 export const getPerfCyclePlan = (cycleId: number) => apiFetch<PerfCyclePlan>(`/cycles/${cycleId}/plan`)
 
-export const updatePerfCyclePlan = (cycleId: number, input: PerfCyclePlan) =>
+export const updatePerfCyclePlan = (cycleId: number, input: PerfCyclePlan & { reason?: string }) =>
   apiFetch<PerfCyclePlan>(`/cycles/${cycleId}/plan`, { method: 'PUT', body: JSON.stringify(input) })
 
 export const getPerfCycleStartCheck = (cycleId: number) =>
@@ -959,6 +959,7 @@ export type PerfPeerEvaluationContext = {
   form: {
     formSnapshotId: number | null
     subforms: PerfEvalFormSubform[]
+
     /** SELF 子表单，供左侧员工自评参考区解析标题 */
     selfSubforms?: PerfEvalFormSubform[]
   } | null
@@ -1122,6 +1123,7 @@ export type PerfManagerEvaluationContext = {
   form: {
     formSnapshotId: number | null
     subforms: PerfEvalFormSubform[]
+
     /** SELF 子表单，供左侧员工自评参考区解析标题 */
     selfSubforms?: PerfEvalFormSubform[]
   } | null

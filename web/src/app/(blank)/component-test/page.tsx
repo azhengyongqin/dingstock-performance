@@ -865,7 +865,7 @@ const CYCLE_SETUP_PREFIX_CHECKS: PerfParticipantPrefixCheck[] = [
  * onReapplyTemplate 只 toast 提示并返回 true，不做真实覆盖，供人工验证覆盖确认弹窗与入口可达性。
  */
 const CycleSetupPreview = () => {
-  const [status, setStatus] = useState<'DRAFT' | 'SCHEDULED'>('DRAFT')
+  const [status, setStatus] = useState<'DRAFT' | 'SCHEDULED' | 'ACTIVE'>('DRAFT')
   const [snapshotManuallyModified, setSnapshotManuallyModified] = useState(false)
 
   const [draft, setDraft] = useState<CycleSetupDraft>({
@@ -892,13 +892,26 @@ const CycleSetupPreview = () => {
           <CardDescription>模拟「快照是否已被手动修改」，验证套用时静默替换 / 覆盖确认两种路径。</CardDescription>
         </CardHeader>
         <CardContent>
-          <label className='flex items-center justify-between gap-3 rounded-md border p-3 text-sm'>
-            当前快照已被手动修改（snapshotManuallyModified）
-            <Switch
-              checked={snapshotManuallyModified}
-              onCheckedChange={checked => setSnapshotManuallyModified(Boolean(checked))}
-            />
-          </label>
+          <div className='flex flex-col gap-3'>
+            <div className='flex flex-wrap gap-2'>
+              <Button variant={status === 'DRAFT' ? 'default' : 'outline'} onClick={() => setStatus('DRAFT')}>
+                草稿
+              </Button>
+              <Button variant={status === 'SCHEDULED' ? 'default' : 'outline'} onClick={() => setStatus('SCHEDULED')}>
+                待启动
+              </Button>
+              <Button variant={status === 'ACTIVE' ? 'default' : 'outline'} onClick={() => setStatus('ACTIVE')}>
+                进行中
+              </Button>
+            </div>
+            <label className='flex items-center justify-between gap-3 rounded-md border p-3 text-sm'>
+              当前快照已被手动修改（snapshotManuallyModified）
+              <Switch
+                checked={snapshotManuallyModified}
+                onCheckedChange={checked => setSnapshotManuallyModified(Boolean(checked))}
+              />
+            </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -918,6 +931,7 @@ const CycleSetupPreview = () => {
         ]}
         checkOk
         editable
+        participantAction={status === 'ACTIVE' ? 'WITHDRAW' : 'REMOVE'}
         saving={false}
         onDraftChange={setDraft}
         onSaveBasic={async () => true}

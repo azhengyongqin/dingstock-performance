@@ -129,7 +129,7 @@ export class CycleController {
   }
 
   @Put(':id/plan')
-  @ApiOperation({ summary: '调整三阶段计划与通知规则' })
+  @ApiOperation({ summary: '调整三阶段计划与通知规则（含进行中任务同步）' })
   updatePlan(
     @Req() req: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,

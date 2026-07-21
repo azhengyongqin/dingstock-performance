@@ -144,7 +144,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
     )
   }
 
-  const canEdit = cycle.status === 'DRAFT' || cycle.status === 'SCHEDULED'
+  const canEdit = cycle.status !== 'ARCHIVED'
 
   return (
     <div className='flex flex-col gap-6'>
@@ -177,7 +177,7 @@ const CycleDetail = ({ cycleId }: { cycleId: string }) => {
             <CycleProgressDashboard
               progress={progress}
               onNavigate={target => {
-                if (progress.cycle.status === 'DRAFT' || progress.cycle.status === 'SCHEDULED') {
+                if (progress.cycle.status !== 'ARCHIVED') {
                   router.push(`/cycles/${cycleId}/edit`)
 
                   return

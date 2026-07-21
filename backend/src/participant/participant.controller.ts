@@ -6,16 +6,10 @@ import {
   Param,
   ParseIntPipe,
   Post,
-  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiQuery,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   ArrayNotEmpty,
   IsArray,
@@ -100,21 +94,32 @@ export class ParticipantController {
   }
 
   @Delete(':participantId')
-  @ApiOperation({
-    summary: '移除考核人员（启动前；ADMIN 进行中移除需 confirm=true 二次确认）',
-  })
-  @ApiQuery({ name: 'confirm', required: false, type: Boolean })
+  @ApiOperation({ summary: '启动前移除考核人员' })
   remove(
     @Req() req: AuthenticatedRequest,
     @Param('cycleId', ParseIntPipe) cycleId: number,
     @Param('participantId', ParseIntPipe) participantId: number,
-    @Query('confirm') confirm?: string,
   ) {
     return this.participantService.remove(
       req.user.open_id,
       cycleId,
       participantId,
-      confirm === 'true',
+    );
+  }
+
+  @Post(':participantId/withdraw')
+  @ApiOperation({ summary: '进行中将参与者设为中途退出并保留过程数据' })
+  withdraw(
+    @Req() req: AuthenticatedRequest,
+    @Param('cycleId', ParseIntPipe) cycleId: number,
+    @Param('participantId', ParseIntPipe) participantId: number,
+    @Body() dto: ParticipantReasonDto,
+  ) {
+    return this.participantService.withdraw(
+      req.user.open_id,
+      cycleId,
+      participantId,
+      dto.reason,
     );
   }
 

@@ -1,7 +1,7 @@
 'use client'
 
 import type { ColumnDef } from '@tanstack/react-table'
-import { Trash2Icon } from 'lucide-react'
+import { LogOutIcon, Trash2Icon } from 'lucide-react'
 
 import { UserAvatar } from '@/components/shared/lark'
 import { Badge } from '@/components/ui/badge'
@@ -19,11 +19,11 @@ const MATCH_STATUS_LABEL: Record<PerfParticipantPrefixCheck['status'], string> =
 
 export const getParticipantSetupColumns = ({
   prefixChecks,
-  editable,
+  action,
   onRemove
 }: {
   prefixChecks: PerfParticipantPrefixCheck[]
-  editable: boolean
+  action: 'REMOVE' | 'WITHDRAW' | 'NONE'
   onRemove: (participantId: number) => void
 }): ColumnDef<PerfCycleSetupParticipant>[] => [
   {
@@ -86,14 +86,18 @@ export const getParticipantSetupColumns = ({
     enableSorting: false,
     meta: { headClassName: 'text-right', cellClassName: 'text-right' },
     cell: ({ row }) =>
-      editable ? (
+      action !== 'NONE' ? (
         <Button
           variant='ghost'
           size='icon-sm'
-          aria-label={`移除 ${row.original.employee?.name ?? row.original.employeeOpenId}`}
+          aria-label={`${action === 'WITHDRAW' ? '中途退出' : '移除'} ${row.original.employee?.name ?? row.original.employeeOpenId}`}
           onClick={() => onRemove(row.original.id)}
         >
-          <Trash2Icon className='text-destructive size-4' />
+          {action === 'WITHDRAW' ? (
+            <LogOutIcon className='text-destructive size-4' />
+          ) : (
+            <Trash2Icon className='text-destructive size-4' />
+          )}
         </Button>
       ) : null
   }

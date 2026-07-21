@@ -5,8 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
-import { PerfCycleStatus, PerfRole } from '../generated/prisma/enums';
+import {
+  PerfAssignmentStatus,
+  PerfCycleStatus,
+  PerfEvaluationTaskType,
+  PerfParticipantStatus,
+  PerfRole,
+} from '../generated/prisma/enums';
 import { AuditService } from '../audit/audit.service';
+import { NotificationEventService } from '../notification/notification-event.service';
 import { RbacService } from '../rbac/rbac.service';
 import { PrismaService } from '../shared/database/prisma.service';
 import type { SchedulePreset } from '../config-template/config-template.contract';
@@ -120,6 +127,7 @@ export class CycleSetupService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly rbacService: RbacService,
+    private readonly notificationEventService: NotificationEventService,
   ) {}
 
   async createFromPublishedConfig(operatorOpenId: string, dto: CreateCycleDto) {
@@ -594,6 +602,7 @@ export class CycleSetupService {
     cycleId: number,
     dto: UpsertCyclePlanDto,
   ) {
+    const now = new Date();
     const plan: CyclePlan = {
       allowStageOverlap: dto.allowStageOverlap,
       stages: dto.stages,
@@ -607,9 +616,16 @@ export class CycleSetupService {
       });
     }
 
+    let active = false;
     await this.prisma.$transaction(async (tx) => {
       await this.lockCycle(tx, cycleId);
       const cycle = await this.requireEditableSetup(cycleId, tx);
+      active = cycle.status === PerfCycleStatus.ACTIVE;
+      if (active && !dto.reason?.trim()) {
+        throw new BadRequestException(
+          '进行中调整任务时间或通知规则必须填写原因',
+        );
+      }
       if (!cycle.plannedStartAt || !cycle.currentConfigVersionId) {
         throw new ConflictException('周期缺少计划锚点或配置快照');
       }
@@ -632,16 +648,117 @@ export class CycleSetupService {
           notificationRules: this.inputJson(dto.notificationRules),
         },
       });
+
+      if (active) {
+        await this.syncActiveEvaluationTasks(tx, cycle, dto, now);
+      }
     });
 
+    const { reason, ...auditedPlan } = dto;
     await this.auditService.record({
       operatorOpenId,
       action: 'cycle.plan.update',
       targetType: 'perf_cycle',
       targetId: String(cycleId),
-      after: dto,
+      after: auditedPlan,
+      reason: active ? reason?.trim() : undefined,
     });
     return this.getPlan(cycleId);
+  }
+
+  /**
+   * ACTIVE 周期的计划不仅是配置展示值，还必须同步到已经创建的任务事实。
+   * 已开放任务只更新时间与提醒配置，不清空 openedAt；未开放任务的新开始时间若已到达则立即开放并入队通知。
+   */
+  private async syncActiveEvaluationTasks(
+    tx: Prisma.TransactionClient,
+    cycle: {
+      id: number;
+      name: string;
+      ownerOpenId: string;
+    },
+    dto: UpsertCyclePlanDto,
+    now: Date,
+  ) {
+    for (const stage of dto.stages) {
+      // 未开放任务可调整硬开始门槛与提醒时间；终态参与者的任务保留历史值。
+      await tx.perfEvaluationTask.updateMany({
+        where: {
+          cycleId: cycle.id,
+          type: PerfEvaluationTaskType[stage.stage],
+          openedAt: null,
+          participant: { status: PerfParticipantStatus.ACTIVE },
+        },
+        data: {
+          startAt: new Date(stage.startAt),
+          reminderDeadlineAt: new Date(stage.reminderDeadlineAt),
+        },
+      });
+      // openedAt 是不可逆事实：已开放任务只允许调整软提醒，不改写其历史开始时间。
+      await tx.perfEvaluationTask.updateMany({
+        where: {
+          cycleId: cycle.id,
+          type: PerfEvaluationTaskType[stage.stage],
+          openedAt: { not: null },
+          participant: { status: PerfParticipantStatus.ACTIVE },
+        },
+        data: { reminderDeadlineAt: new Date(stage.reminderDeadlineAt) },
+      });
+    }
+
+    const dueTasks = await tx.perfEvaluationTask.findMany({
+      where: {
+        cycleId: cycle.id,
+        openedAt: null,
+        startAt: { not: null, lte: now },
+        type: { not: PerfEvaluationTaskType.AI },
+        participant: { status: PerfParticipantStatus.ACTIVE },
+      },
+      orderBy: { id: 'asc' },
+      include: {
+        participant: {
+          select: {
+            leaderOpenIdSnapshot: true,
+            reviewerAssignments: {
+              where: { status: { not: PerfAssignmentStatus.REPLACED } },
+              select: { reviewerOpenId: true },
+            },
+          },
+        },
+      },
+    });
+
+    for (const task of dueTasks) {
+      // 条件更新避免与定时开放器或填写入口并发时重复发送开放通知。
+      const changed = await tx.perfEvaluationTask.updateMany({
+        where: { id: task.id, openedAt: null },
+        data: { openedAt: now },
+      });
+      if (changed.count !== 1) continue;
+
+      const rule = dto.notificationRules.stages.find(
+        (item) => item.stage === task.type,
+      )?.taskOpened;
+      if (!rule) continue;
+      await this.notificationEventService.enqueueTaskOpenedEvents(
+        {
+          id: task.id,
+          cycleId: cycle.id,
+          type: task.type,
+          assigneeOpenId: task.assigneeOpenId,
+          openedAt: now,
+          reminderDeadlineAt: task.reminderDeadlineAt,
+          cycleName: cycle.name,
+          cycleOwnerOpenId: cycle.ownerOpenId,
+          leaderOpenId: task.participant.leaderOpenIdSnapshot,
+          peerReviewerOpenIds: task.participant.reviewerAssignments.map(
+            (assignment) => assignment.reviewerOpenId,
+          ),
+          rule,
+        },
+        tx,
+      );
+    }
   }
 
   async startCheck(
@@ -834,9 +951,10 @@ export class CycleSetupService {
     if (!cycle) throw new NotFoundException('绩效周期不存在');
     if (
       cycle.status !== PerfCycleStatus.DRAFT &&
-      cycle.status !== PerfCycleStatus.SCHEDULED
+      cycle.status !== PerfCycleStatus.SCHEDULED &&
+      cycle.status !== PerfCycleStatus.ACTIVE
     ) {
-      throw new ConflictException('只有草稿或待启动周期允许调整');
+      throw new ConflictException('周期已归档，任务时间与通知规则不可调整');
     }
     return cycle;
   }

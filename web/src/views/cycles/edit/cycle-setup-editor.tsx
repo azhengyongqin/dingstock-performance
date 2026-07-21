@@ -33,6 +33,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { Textarea } from '@/components/ui/textarea'
 import {
   CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT,
   type PerfConfigScheduleStage,
@@ -72,15 +73,17 @@ type Props = {
   checkItems: StartCheckItem[]
   checkOk: boolean
   editable: boolean
+  participantAction: 'REMOVE' | 'WITHDRAW' | 'NONE'
   saving: boolean
   setupReady?: boolean
   onDraftChange: (draft: CycleSetupDraft) => void
   onSaveBasic: () => Promise<boolean>
+
   /** 组织多选确认后：直接勾选的人 + 勾选的部门（部门由后端含子树展开） */
   onAddParticipants: (payload: { openIds: string[]; departmentIds: string[] }) => void
   onRemoveMember: (participantId: number) => void
   onPlanChange: (plan: PerfCyclePlan) => void
-  onSavePlan: () => Promise<boolean>
+  onSavePlan: (reason?: string) => Promise<boolean>
   onRunChecks: () => void
   onSaveDraft: () => void
   onSchedule: () => void
@@ -94,17 +97,17 @@ const EMPTY_NOTIFICATIONS: PerfCyclePlan['notificationRules'] = { stages: [] }
 const ParticipantTable = ({
   participants,
   prefixChecks,
-  editable,
+  participantAction,
   onRemoveMember
-}: Pick<Props, 'participants' | 'prefixChecks' | 'editable' | 'onRemoveMember'>) => {
+}: Pick<Props, 'participants' | 'prefixChecks' | 'participantAction' | 'onRemoveMember'>) => {
   const columns = useMemo(
     () =>
       getParticipantSetupColumns({
         prefixChecks,
-        editable,
+        action: participantAction,
         onRemove: onRemoveMember
       }),
-    [prefixChecks, editable, onRemoveMember]
+    [prefixChecks, participantAction, onRemoveMember]
   )
 
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -154,6 +157,7 @@ const CycleSetupEditor = ({
   checkItems,
   checkOk,
   editable,
+  participantAction,
   saving,
   setupReady = true,
   onDraftChange,
@@ -176,35 +180,68 @@ const CycleSetupEditor = ({
   const [reapplyStep, setReapplyStep] = useState<'pick' | 'confirm'>('pick')
   const [reapplyVersionId, setReapplyVersionId] = useState('')
   const [reapplying, setReapplying] = useState(false)
+  const [planReasonOpen, setPlanReasonOpen] = useState(false)
+  const [planReason, setPlanReason] = useState('')
+  const [pendingPlanTarget, setPendingPlanTarget] = useState<CycleSetupStepKey | null>(null)
   const templateOptions = toConfigTemplateOptions(configTemplates)
   const prefixSummary = summarizePrefixChecks(prefixChecks)
   const stepIndex = CYCLE_SETUP_STEPS.findIndex(step => step.key === currentStep)
   const notification = plan.notificationRules?.stages.find(item => item.stage === notificationStage)
+  const preActivationEditable = editable && (status === 'DRAFT' || status === 'SCHEDULED')
 
   const goToStep = (step: CycleSetupStepKey) => {
     setCurrentStep(step)
     if (step === 'checks') onRunChecks()
   }
 
-  const handleNext = async () => {
-    let allowed = true
+  const requestActivePlanSave = (target: CycleSetupStepKey) => {
+    setPendingPlanTarget(target)
+    setPlanReason('')
+    setPlanReasonOpen(true)
+  }
 
-    if (currentStep === 'basic') allowed = await onSaveBasic()
-    if (currentStep === 'plan') allowed = await onSavePlan()
+  const confirmActivePlanSave = async () => {
+    if (!pendingPlanTarget || !planReason.trim()) return
+    const allowed = await onSavePlan(planReason.trim())
+
     if (!allowed) return
+    const target = pendingPlanTarget
 
+    setPlanReasonOpen(false)
+    setPendingPlanTarget(null)
+    setPlanReason('')
+    goToStep(target)
+  }
+
+  /** 离开可编辑步骤前统一保存；ACTIVE 计划必须先收集审计原因。 */
+  const saveBeforeLeaving = async (target: CycleSetupStepKey) => {
+    if (currentStep === 'basic') return onSaveBasic()
+
+    if (currentStep === 'plan') {
+      if (status === 'ACTIVE') {
+        requestActivePlanSave(target)
+
+        return false
+      }
+
+      return onSavePlan()
+    }
+
+    return true
+  }
+
+  const handleNext = async () => {
     const nextStep = CYCLE_SETUP_STEPS[Math.min(stepIndex + 1, CYCLE_SETUP_STEPS.length - 1)]
+    const allowed = await saveBeforeLeaving(nextStep.key)
 
-    goToStep(nextStep.key)
+    if (allowed) goToStep(nextStep.key)
   }
 
   /** 左侧步骤可点击，但离开可编辑步骤前必须先保存，避免跳步丢失本地修改。 */
   const handleStepSelection = async (target: CycleSetupStepKey) => {
     if (target === currentStep) return
-    let allowed = true
+    const allowed = await saveBeforeLeaving(target)
 
-    if (currentStep === 'basic') allowed = await onSaveBasic()
-    if (currentStep === 'plan') allowed = await onSavePlan()
     if (allowed) goToStep(target)
   }
 
@@ -319,7 +356,7 @@ const CycleSetupEditor = ({
                   <Input
                     id='cycle-name'
                     value={draft.name}
-                    disabled={!editable}
+                    disabled={!preActivationEditable}
                     placeholder='例如：2026 上半年绩效评定'
                     onChange={event => onDraftChange({ ...draft, name: event.target.value })}
                   />
@@ -331,11 +368,13 @@ const CycleSetupEditor = ({
                     <FieldLabel>来源配置模板版本</FieldLabel>
                     <div className='rounded-md border p-3 text-sm'>
                       <span className='font-medium'>{sourceConfigLabel}</span>
-                      <p className='text-muted-foreground mt-1 text-xs'>周期已保存独立快照，来源模板后续变化不会影响本周期。</p>
+                      <p className='text-muted-foreground mt-1 text-xs'>
+                        周期已保存独立快照，来源模板后续变化不会影响本周期。
+                      </p>
                       {snapshotManuallyModified && (
-                        <p className='text-amber-600 mt-1 text-xs'>当前{CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT}。</p>
+                        <p className='mt-1 text-xs text-amber-600'>当前{CYCLE_SNAPSHOT_MANUALLY_MODIFIED_HINT}。</p>
                       )}
-                      {editable && (
+                      {preActivationEditable && (
                         <Button variant='outline' size='sm' className='mt-3' onClick={openReapplyDialog}>
                           重新套用模板
                         </Button>
@@ -348,16 +387,12 @@ const CycleSetupEditor = ({
                     <Select
                       value={draft.configTemplateVersionId || null}
                       items={templateOptions}
-                      disabled={!editable}
+                      disabled={!preActivationEditable}
                       onValueChange={value =>
                         onDraftChange({ ...draft, configTemplateVersionId: (value as string | null) ?? '' })
                       }
                     >
-                      <SelectTrigger
-                        id='config-template-version'
-                        aria-label='配置模板版本'
-                        className='w-full'
-                      >
+                      <SelectTrigger id='config-template-version' aria-label='配置模板版本' className='w-full'>
                         <SelectValue placeholder='请选择已发布配置模板版本' />
                       </SelectTrigger>
                       <SelectContent>
@@ -365,7 +400,9 @@ const CycleSetupEditor = ({
                           <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
                             <span className='flex min-w-0 flex-col items-start'>
                               <span>{option.label}</span>
-                              {option.reason && <span className='text-muted-foreground text-xs whitespace-normal'>{option.reason}</span>}
+                              {option.reason && (
+                                <span className='text-muted-foreground text-xs whitespace-normal'>{option.reason}</span>
+                              )}
                             </span>
                           </SelectItem>
                         ))}
@@ -379,10 +416,14 @@ const CycleSetupEditor = ({
                   <DateTimePicker
                     id='planned-start-at'
                     value={draft.plannedStartAt}
-                    disabled={!editable}
+                    disabled={!preActivationEditable}
                     onChange={value => onDraftChange({ ...draft, plannedStartAt: value })}
                   />
-                  <FieldDescription>系统根据此时间与模板相对偏移生成三类任务的实际日程。</FieldDescription>
+                  <FieldDescription>
+                    {status === 'ACTIVE'
+                      ? '周期已经启动，该时间作为历史锚点保留；请在“计划预览”中调整实际任务时间。'
+                      : '系统根据此时间与模板相对偏移生成三类任务的实际日程。'}
+                  </FieldDescription>
                 </Field>
               </FieldGroup>
             )}
@@ -393,7 +434,9 @@ const CycleSetupEditor = ({
                   <Badge variant='outline'>共 {prefixSummary.total} 人</Badge>
                   <Badge variant='outline'>D 匹配 {prefixSummary.matchedD} 人</Badge>
                   <Badge variant='outline'>M 匹配 {prefixSummary.matchedM} 人</Badge>
-                  <Badge variant={prefixSummary.errors ? 'destructive' : 'outline'}>异常 {prefixSummary.errors} 人</Badge>
+                  <Badge variant={prefixSummary.errors ? 'destructive' : 'outline'}>
+                    异常 {prefixSummary.errors} 人
+                  </Badge>
                 </div>
 
                 {editable && (
@@ -422,7 +465,7 @@ const CycleSetupEditor = ({
                 <ParticipantTable
                   participants={participants}
                   prefixChecks={prefixChecks}
-                  editable={editable}
+                  participantAction={participantAction}
                   onRemoveMember={onRemoveMember}
                 />
               </div>
@@ -433,7 +476,10 @@ const CycleSetupEditor = ({
                 <Alert>
                   <AlertTriangleIcon />
                   <AlertTitle>填写提醒时间是软截止</AlertTitle>
-                  <AlertDescription>提醒到期后任务仍可填写，不会自动关闭、锁定或改变状态。</AlertDescription>
+                  <AlertDescription>
+                    提醒到期后任务仍可填写，不会自动关闭、锁定或改变状态。
+                    {status === 'ACTIVE' && ' 已开放任务调整开始时间后也不会重新关闭。'}
+                  </AlertDescription>
                 </Alert>
                 <div className='flex items-center justify-between rounded-lg border p-3 text-sm'>
                   <span>允许三类任务日程重叠</span>
@@ -476,7 +522,9 @@ const CycleSetupEditor = ({
                           {!item.ok && item.issues && item.issues.length > 0 && (
                             <ul className='text-destructive list-disc space-y-1 pl-5 text-xs'>
                               {item.issues.map(issue => (
-                                <li key={`${issue.code}-${issue.path}-${issue.participantId ?? ''}`}>{issue.message}</li>
+                                <li key={`${issue.code}-${issue.path}-${issue.participantId ?? ''}`}>
+                                  {issue.message}
+                                </li>
                               ))}
                             </ul>
                           )}
@@ -507,7 +555,7 @@ const CycleSetupEditor = ({
             <Button
               variant='outline'
               disabled={stepIndex === 0}
-              onClick={() => goToStep(CYCLE_SETUP_STEPS[Math.max(0, stepIndex - 1)].key)}
+              onClick={() => void handleStepSelection(CYCLE_SETUP_STEPS[Math.max(0, stepIndex - 1)].key)}
             >
               <ChevronLeftIcon />
               上一步
@@ -518,6 +566,10 @@ const CycleSetupEditor = ({
                 {status === 'SCHEDULED' ? (
                   <Button variant='outline' disabled={!editable || saving} onClick={onReturnToDraft}>
                     退回草稿
+                  </Button>
+                ) : status === 'ACTIVE' ? (
+                  <Button variant='outline' disabled={saving} onClick={onSaveDraft}>
+                    保存并退出
                   </Button>
                 ) : (
                   <>
@@ -541,6 +593,36 @@ const CycleSetupEditor = ({
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={planReasonOpen} onOpenChange={setPlanReasonOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认调整进行中的任务计划</DialogTitle>
+            <DialogDescription>
+              新时间会同步到现有任务；已经开放的任务不会重新关闭，尚未开放但新开始时间已到达的任务会立即开放。
+            </DialogDescription>
+          </DialogHeader>
+          <Field className='gap-2'>
+            <FieldLabel htmlFor='active-plan-change-reason'>调整原因</FieldLabel>
+            <Textarea
+              id='active-plan-change-reason'
+              value={planReason}
+              maxLength={500}
+              placeholder='请说明本次调整任务时间或通知规则的原因'
+              onChange={event => setPlanReason(event.target.value)}
+            />
+          </Field>
+          <DialogFooter>
+            <Button variant='outline' onClick={() => setPlanReasonOpen(false)}>
+              取消
+            </Button>
+            <Button disabled={!planReason.trim() || saving} onClick={() => void confirmActivePlanSave()}>
+              {saving && <Loader2Icon className='animate-spin' />}
+              保存调整
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={notificationStage != null} onOpenChange={open => !open && setNotificationStage(null)}>
         <DialogContent>
@@ -636,7 +718,9 @@ const CycleSetupEditor = ({
                     })
                   }
                 >
-                  <SelectTrigger className='w-full'><SelectValue /></SelectTrigger>
+                  <SelectTrigger className='w-full'>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value='ONCE_AT_DEADLINE'>提醒时间到达时一次</SelectItem>
                     <SelectItem value='DAILY_AFTER_DEADLINE'>提醒时间后每天</SelectItem>
@@ -679,7 +763,9 @@ const CycleSetupEditor = ({
                     <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
                       <span className='flex min-w-0 flex-col items-start'>
                         <span>{option.label}</span>
-                        {option.reason && <span className='text-muted-foreground text-xs whitespace-normal'>{option.reason}</span>}
+                        {option.reason && (
+                          <span className='text-muted-foreground text-xs whitespace-normal'>{option.reason}</span>
+                        )}
                       </span>
                     </SelectItem>
                   ))}
@@ -691,7 +777,9 @@ const CycleSetupEditor = ({
           <DialogFooter>
             {reapplyStep === 'pick' ? (
               <>
-                <Button variant='outline' onClick={closeReapplyDialog}>取消</Button>
+                <Button variant='outline' onClick={closeReapplyDialog}>
+                  取消
+                </Button>
                 <Button disabled={!reapplyVersionId || reapplying} onClick={() => void handleReapplyApply()}>
                   {reapplying && <Loader2Icon className='animate-spin' />}
                   套用
@@ -699,7 +787,9 @@ const CycleSetupEditor = ({
               </>
             ) : (
               <>
-                <Button variant='outline' onClick={closeReapplyDialog}>取消</Button>
+                <Button variant='outline' onClick={closeReapplyDialog}>
+                  取消
+                </Button>
                 <Button variant='destructive' disabled={reapplying} onClick={() => void performReapply()}>
                   {reapplying && <Loader2Icon className='animate-spin' />}
                   确认覆盖
