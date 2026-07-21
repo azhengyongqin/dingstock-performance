@@ -8,6 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 教程/操作说明写成可照做的步骤，并标注每一步的成功标志。
 - 需要用户作出决策或确认时，尽量提供清晰、互斥的选项，并明确标注推荐选项；每次只聚焦一个决策问题。
 
+## Git Commit 强制规则
+
+- 所有提交信息必须遵守 [约定式提交 1.0.0](https://www.conventionalcommits.org/zh-hans/v1.0.0/)；格式为 `<type>[可选 scope][可选 !]: <中文描述>`，正文和脚注按该规范填写。
+- `type` 使用规范定义或兼容的英文类型，例如 `feat`、`fix`、`docs`、`test`、`refactor`、`perf`、`build`、`ci`、`chore`；新增功能必须使用 `feat`，修复缺陷必须使用 `fix`。
+- commit message 的描述、正文和脚注说明必须使用中文；规范要求的 `type`、`scope`、`BREAKING CHANGE` 等结构化标记保留英文。
+- 破坏性变更必须在类型或范围后添加 `!`，或在脚注中使用 `BREAKING CHANGE: <中文说明>` 明确标记。
+- 一次提交包含多种独立变更类型时，应拆分为多个提交；用户明确要求合并提交时，选择能准确表达主要意图的类型，并在中文正文中说明其余变更。
+
 ## Agent skills
 
 ### Issue tracker
