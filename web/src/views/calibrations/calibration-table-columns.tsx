@@ -2,6 +2,7 @@
 
 // Third-party Imports
 import type { ColumnDef } from '@tanstack/react-table'
+import { ArrowRightIcon } from 'lucide-react'
 
 // Component Imports
 import { UserAvatar } from '@/components/shared/lark'
@@ -66,7 +67,7 @@ export type CalibrationColumnsContext = {
   onNoResult: (row: CalibrationRow) => void
 }
 
-/** 员工校准列定义：行选择 + 当前评级筛选（filters + 行选择变体） */
+/** 员工校准列定义：精简列（员工 / 初评→当前 / 状态 / 操作）+ 行选择 */
 export const buildCalibrationTableColumns = ({
   onAdjust,
   onNoResult
@@ -94,20 +95,6 @@ export const buildCalibrationTableColumns = ({
     enableHiding: false
   },
   {
-    id: 'requiredEvaluations',
-    header: '校准条件',
-    enableSorting: false,
-    cell: ({ row }) => (
-      <span
-        className={
-          row.original.requiredEvaluations.ready ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'
-        }
-      >
-        {calibrationBlockerText(row.original)}
-      </span>
-    )
-  },
-  {
     id: 'name',
     accessorFn: row => row.employee?.name ?? '',
     header: '员工',
@@ -116,7 +103,6 @@ export const buildCalibrationTableColumns = ({
 
       return (
         <div className='flex items-center gap-3'>
-          {/* 统一人员头像组件：点击弹出飞书成员名片 */}
           <UserAvatar
             openId={employee?.open_id}
             name={employee?.name}
@@ -125,58 +111,47 @@ export const buildCalibrationTableColumns = ({
           />
           <div className='flex flex-col'>
             <span className='font-medium whitespace-nowrap'>{employee?.name ?? '-'}</span>
-            {employee?.job_title && <span className='text-muted-foreground text-xs'>{employee.job_title}</span>}
+            <span className='text-muted-foreground text-xs'>
+              {row.original.requiredEvaluations.ready
+                ? (employee?.job_title ?? '—')
+                : calibrationBlockerText(row.original)}
+            </span>
           </div>
         </div>
       )
     }
   },
   {
-    id: 'initialLevel',
-    header: '初评评级',
-    enableSorting: false,
-    cell: ({ row }) =>
-      row.original.initialLevel ? (
-        <Badge variant='outline'>{row.original.initialLevel}</Badge>
-      ) : (
-        <span className='text-muted-foreground'>-</span>
-      )
-  },
-  {
     id: 'currentLevel',
     accessorFn: row => row.currentLevel ?? '',
-    header: '当前评级',
+    header: '评级',
     filterFn: 'equalsString',
     enableSorting: false,
-    cell: ({ row }) =>
-      row.original.currentLevel ? (
-        <Badge className='bg-primary/10 text-primary'>{row.original.currentLevel}</Badge>
-      ) : (
-        <span className='text-muted-foreground'>-</span>
+    cell: ({ row }) => {
+      const { initialLevel, currentLevel, adjusted } = row.original
+
+      return (
+        <div className='flex items-center gap-1.5'>
+          <Badge variant='outline'>{initialLevel ?? '-'}</Badge>
+          <ArrowRightIcon className='text-muted-foreground size-3.5' />
+          <Badge className='bg-primary/10 text-primary'>{currentLevel ?? '-'}</Badge>
+          {adjusted && (
+            <Badge variant='outline' className='text-yellow-600 dark:text-yellow-400'>
+              已调整
+            </Badge>
+          )}
+        </div>
       )
-  },
-  {
-    id: 'promotionConclusion',
-    header: '晋升结论',
-    enableSorting: false,
-    cell: ({ row }) => <span className='text-muted-foreground'>{row.original.promotionConclusion ?? '-'}</span>
+    }
   },
   {
     id: 'status',
     header: '状态',
     enableSorting: false,
     cell: ({ row }) => (
-      <div className='flex items-center gap-1.5'>
-        <Badge className={STATUS_BADGE[row.original.status] ?? 'bg-muted text-muted-foreground'}>
-          {PARTICIPANT_STATUS_LABEL[row.original.status]}
-        </Badge>
-        {/* 校准中发生过评级调整的行加小徽标提示 */}
-        {row.original.adjusted && (
-          <Badge variant='outline' className='text-yellow-600 dark:text-yellow-400'>
-            已调整
-          </Badge>
-        )}
-      </div>
+      <Badge className={STATUS_BADGE[row.original.status] ?? 'bg-muted text-muted-foreground'}>
+        {PARTICIPANT_STATUS_LABEL[row.original.status]}
+      </Badge>
     )
   },
   {

@@ -1,9 +1,11 @@
 'use client'
 
-// React Imports
+/**
+ * 校准工作台（HR）：全宽精简表 + 顶部评级分布 StatsCards。
+ * 布局来自原型方案 A：去掉侧栏柱状图，列精简为员工 / 初评→当前 / 状态。
+ */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-// Third-party Imports
 import type { ColumnFiltersState, PaginationState, RowSelectionState, SortingState } from '@tanstack/react-table'
 import {
   getCoreRowModel,
@@ -13,10 +15,8 @@ import {
   useReactTable
 } from '@tanstack/react-table'
 import { CheckIcon, Loader2Icon, SendIcon } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 
-// Component Imports
 import {
   DataTable,
   DataTableBulkActionBar,
@@ -25,11 +25,12 @@ import {
   DataTableToolbar
 } from '@/components/datatable'
 import PageHeader from '@/components/shared/PageHeader'
+import { isPerfPerformanceLevel, RATING_SOFT } from '@/components/shared/PerformanceLevelBadge'
 import { EmptyState, RequestErrorState } from '@/components/shared/RequestErrorState'
-import { StatsCards } from '@/components/shared/StatsCards'
+import SearchInput from '@/components/shared/SearchInput'
+import { StatsCards, type StatCardItem } from '@/components/shared/StatsCards'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -39,40 +40,26 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-
-// Util Imports
 import { ApiError, apiFetch } from '@/lib/api'
 import type { EvaluationRating, ListResponse, PerfCycle } from '@/lib/perf-api'
 import { CYCLE_STATUS_LABEL } from '@/lib/perf-api'
 import { requestErrorMessage } from '@/lib/request-error'
+import { cn } from '@/lib/utils'
 
-import { buildCalibrationTableColumns } from './calibration-table-columns'
-import type { CalibrationRow } from './calibration-table-columns'
-
-// ===== 后端数据类型（NestJS /calibrations 模块） =====
+import { buildCalibrationTableColumns, type CalibrationRow } from './calibration-table-columns'
 
 /** GET /cycles/:cycleId/calibrations 响应 */
 type CalibrationData = {
   items: CalibrationRow[]
   total: number
-
-  /** 当前评级人数分布，如 { S: 4, A: 15 } */
   distribution: Record<string, number>
-
-  /** 本周期的评级序列（低 → 高由后端保证顺序） */
   levels: EvaluationRating[]
 }
 
-const gradeChartConfig = {
-  count: {
-    label: '人数',
-    color: 'var(--primary)'
-  }
-} satisfies ChartConfig
-
-// 「已校准及之后」的参与者状态：用于统计卡
+/** 「已校准及之后」的参与者状态：用于进度统计 */
 const CALIBRATED_STATUSES = new Set([
   'CALIBRATED',
   'RESULT_PUBLISHED',
@@ -81,45 +68,32 @@ const CALIBRATED_STATUSES = new Set([
   'RE_CONFIRMING'
 ])
 
-/**
- * 校准工作台（HR 视角）：周期选择 + 员工校准 Data Table（filters + 行选择变体）+ 评级分布柱状图。
- * 支持行内评级调整（弹窗）、勾选多行后批量确认校准、以及向全部已校准者推送结果。
- */
 const Calibrations = () => {
-  // 周期列表与当前选中周期
   const [cycles, setCycles] = useState<PerfCycle[]>([])
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(null)
-
-  // 校准数据
   const [data, setData] = useState<CalibrationData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<unknown>(null)
-
-  // 403：需要 HR 权限
   const [forbidden, setForbidden] = useState(false)
 
-  // 行选择、列筛选、排序与分页状态
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [sorting, setSorting] = useState<SortingState>([])
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 })
+  const [search, setSearch] = useState('')
 
-  // 调整弹窗：目标行 + 表单（评级下拉 + 调整原因）
   const [adjustTarget, setAdjustTarget] = useState<CalibrationRow | null>(null)
   const [afterLevel, setAfterLevel] = useState('')
   const [adjustReason, setAdjustReason] = useState('')
   const [adjusting, setAdjusting] = useState(false)
 
-  // 当前周期无绩效结果：只有缺失 SELF 时可标记，归档前可带原因撤销。
   const [noResultTarget, setNoResultTarget] = useState<CalibrationRow | null>(null)
   const [noResultReason, setNoResultReason] = useState('')
   const [noResultSubmitting, setNoResultSubmitting] = useState(false)
 
-  // 批量确认 / 推送结果进行中状态
   const [confirming, setConfirming] = useState(false)
   const [pushing, setPushing] = useState(false)
 
-  // 拉取周期列表：默认选中第一个非草稿周期
   const fetchCycles = useCallback(async () => {
     try {
       const result = await apiFetch<ListResponse<PerfCycle>>('/cycles')
@@ -127,12 +101,10 @@ const Calibrations = () => {
 
       setCycles(items)
 
-      // 待启动周期尚未生成评估任务，不能成为校准页默认周期。
       const defaultCycle = items[0]
 
       setSelectedCycleId(defaultCycle ? String(defaultCycle.id) : null)
 
-      // 没有任何周期时直接结束加载态
       if (!defaultCycle) setLoading(false)
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
@@ -145,7 +117,6 @@ const Calibrations = () => {
     }
   }, [])
 
-  // 拉取选中周期的校准数据
   const fetchCalibrations = useCallback(async (cycleId: string) => {
     setLoading(true)
     setError(null)
@@ -169,7 +140,6 @@ const Calibrations = () => {
     void fetchCycles()
   }, [fetchCycles])
 
-  // 切换周期时重新拉取校准数据并清空行选择
   useEffect(() => {
     if (!selectedCycleId) return
 
@@ -177,37 +147,44 @@ const Calibrations = () => {
     void fetchCalibrations(selectedCycleId)
   }, [selectedCycleId, fetchCalibrations])
 
-  const items = data?.items ?? []
-
-  // 评级序列（memo 保证 distributionData 的依赖稳定）
+  const items = useMemo(() => data?.items ?? [], [data])
   const levels = useMemo(() => data?.levels ?? [], [data])
-
-  // 评级筛选候选值（来自周期评估规则的评级序列）
   const levelOptions = levels.map(item => item.symbol)
 
-  // 分布柱状图数据：按评级序列排序，缺失评级补 0
   const distributionData = useMemo(() => {
     const distribution = data?.distribution ?? {}
 
     if (levels.length > 0) {
-      return levels.map(item => ({ level: item.symbol, count: distribution[item.symbol] ?? 0 }))
+      return levels.map(item => ({
+        level: item.symbol,
+        name: item.name,
+        count: distribution[item.symbol] ?? 0
+      }))
     }
 
-    // 后端未返回评级序列时按 distribution 自身键值兜底
-    return Object.entries(distribution).map(([level, count]) => ({ level, count }))
+    return Object.entries(distribution).map(([level, count]) => ({ level, name: '', count }))
   }, [data, levels])
 
-  // 顶部统计卡：从校准列表推导
   const calibratedCount = items.filter(item => CALIBRATED_STATUSES.has(item.status)).length
+  const pendingCount = items.length - calibratedCount
+  const total = data?.total ?? 0
+  const progressPct = total > 0 ? Math.round((calibratedCount / total) * 100) : 0
+  const distTotal = distributionData.reduce((sum, item) => sum + item.count, 0) || 1
 
-  const stats = [
-    { label: '参与人数', value: `${data?.total ?? 0} 人` },
-    { label: '已校准', value: `${calibratedCount} 人` },
-    { label: '待校准', value: `${items.length - calibratedCount} 人` },
-    { label: '评级调整', value: `${items.filter(item => item.adjusted).length} 人` }
-  ]
+  // 评级分布：StatsCards 卡片（S/A/B/C）
+  const gradeStatCards: StatCardItem[] = distributionData.map(item => {
+    const soft = isPerfPerformanceLevel(item.level) ? RATING_SOFT[item.level] : null
+    const pct = Math.round((item.count / distTotal) * 100)
 
-  // 打开调整弹窗：评级默认取当前评级
+    return {
+      label: item.name ? `${item.level} · ${item.name}` : item.level,
+      value: `${item.count} 人`,
+      description: `占比 ${pct}%`,
+      icon: <span className='text-sm font-semibold'>{item.level}</span>,
+      iconClassName: soft ? cn(soft.bg, soft.text) : 'bg-primary/10 text-primary'
+    }
+  })
+
   const handleOpenAdjust = useCallback((row: CalibrationRow) => {
     setAdjustTarget(row)
     setAfterLevel(row.currentLevel ?? '')
@@ -219,15 +196,27 @@ const Calibrations = () => {
     setNoResultReason('')
   }, [])
 
-  // 列定义：行内「调整」按钮回调走工厂注入
   const columns = useMemo(
     () => buildCalibrationTableColumns({ onAdjust: handleOpenAdjust, onNoResult: handleOpenNoResult }),
     [handleOpenAdjust, handleOpenNoResult]
   )
 
+  const filteredItems = useMemo(() => {
+    const keyword = search.trim().toLowerCase()
+
+    if (!keyword) return items
+
+    return items.filter(item => {
+      const name = item.employee?.name?.toLowerCase() ?? ''
+      const title = item.employee?.job_title?.toLowerCase() ?? ''
+
+      return name.includes(keyword) || title.includes(keyword)
+    })
+  }, [items, search])
+
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
-    data: items,
+    data: filteredItems,
     columns,
     state: { rowSelection, columnFilters, sorting, pagination },
     onRowSelectionChange: setRowSelection,
@@ -235,9 +224,8 @@ const Calibrations = () => {
     onSortingChange: setSorting,
     onPaginationChange: setPagination,
     getRowId: row => String(row.id),
-
-    // 只有必交 SELF/MANAGER 均已有当前有效提交的行才允许进入批量校准。
-    enableRowSelection: row => row.original.requiredEvaluations.ready && row.original.status !== 'NO_RESULT',
+    enableRowSelection: row =>
+      row.original.requiredEvaluations.ready && row.original.status !== 'NO_RESULT',
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -248,7 +236,6 @@ const Calibrations = () => {
   const selectedRows = table.getSelectedRowModel().rows
   const selectedCount = selectedRows.length
 
-  // 提交评级调整：原因必填
   const handleAdjust = async () => {
     if (!adjustTarget) return
 
@@ -311,7 +298,6 @@ const Calibrations = () => {
     }
   }
 
-  // 批量确认校准（选中行的 participantId）
   const handleBulkConfirm = async () => {
     if (!selectedCycleId || selectedCount === 0) return
 
@@ -342,17 +328,19 @@ const Calibrations = () => {
     }
   }
 
-  // 推送结果：对全部已校准者生效
   const handlePush = async () => {
     if (!selectedCycleId) return
 
     setPushing(true)
 
     try {
-      const result = await apiFetch<{ published: number; unchanged: number }>(`/cycles/${selectedCycleId}/results/push`, {
-        method: 'POST',
-        body: JSON.stringify({})
-      })
+      const result = await apiFetch<{ published: number; unchanged: number }>(
+        `/cycles/${selectedCycleId}/results/push`,
+        {
+          method: 'POST',
+          body: JSON.stringify({})
+        }
+      )
 
       toast.success(
         result.unchanged > 0
@@ -367,7 +355,6 @@ const Calibrations = () => {
     }
   }
 
-  // 403：需要 HR 权限
   if (forbidden) {
     return (
       <div className='flex flex-col gap-6'>
@@ -391,8 +378,6 @@ const Calibrations = () => {
         title='绩效校准'
         description='校准会议工作台：对齐评估尺度，确认绩效评级'
         actions={
-
-          // 周期选择：默认选中第一个非草稿周期
           <Select
             items={cycles.map(cycle => ({
               label: `${cycle.name}（${CYCLE_STATUS_LABEL[cycle.status]}）`,
@@ -442,70 +427,66 @@ const Calibrations = () => {
         </Card>
       ) : (
         <>
-          {/* 顶部统计卡 */}
-          <StatsCards items={stats} />
+          {/* 评级分布：小屏 1 → sm~md 之间 2 → 中屏及以上 4 */}
+          {gradeStatCards.length > 0 && (
+            <StatsCards items={gradeStatCards} className='grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-4' />
+          )}
 
-          <div className='grid gap-6 lg:grid-cols-3'>
-            {/* 员工校准列表 */}
-            <Card className='lg:col-span-2'>
-              <CardHeader>
-                <CardTitle>员工校准列表</CardTitle>
-                <CardDescription>初评评级 vs 校准后当前评级</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {/* 工具栏：当前评级筛选 + 推送结果 */}
-                <DataTableToolbar table={table}>
-                  <DataTableColumnFilter column={table.getColumn('currentLevel')} label='评级' options={levelOptions} />
-                  <Button variant='outline' size='sm' onClick={handlePush} disabled={pushing}>
-                    {pushing ? <Loader2Icon className='animate-spin' /> : <SendIcon />}
-                    推送结果
-                  </Button>
-                </DataTableToolbar>
-
-                {/* 批量操作条：勾选后展示已选数量与批量操作 */}
-                {selectedCount > 0 && (
-                  <div className='pb-4'>
-                    <DataTableBulkActionBar
-                      selectedCount={selectedCount}
-                      onClearSelection={() => table.resetRowSelection()}
-                    >
-                      <Button size='sm' onClick={handleBulkConfirm} disabled={confirming}>
-                        {confirming ? <Loader2Icon className='animate-spin' /> : <CheckIcon />}
-                        确认校准
-                      </Button>
-                    </DataTableBulkActionBar>
-                  </div>
-                )}
-
-                <DataTable table={table} emptyText='当前周期暂无校准对象' />
-
-                <DataTablePagination table={table} />
-              </CardContent>
-            </Card>
-
-            {/* 评级分布柱状图 */}
-            <Card>
-              <CardHeader>
-                <CardTitle>评级分布</CardTitle>
-                <CardDescription>当前评级人数分布（低 → 高）</CardDescription>
-              </CardHeader>
-              <CardContent className='flex flex-col gap-4'>
-                <ChartContainer config={gradeChartConfig} className='h-64 w-full'>
-                  <BarChart accessibilityLayer data={distributionData}>
-                    <CartesianGrid vertical={false} />
-                    <XAxis dataKey='level' tickLine={false} axisLine={false} />
-                    <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
-                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                    <Bar dataKey='count' fill='var(--color-count)' radius={6} />
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
+          <div className='flex flex-col gap-2'>
+            <div className='flex flex-wrap items-baseline justify-between gap-2 text-sm'>
+              <span className='font-medium'>校准进度 {progressPct}%</span>
+              <span className='text-muted-foreground'>
+                已校准 {calibratedCount} · 待校准 {pendingCount} · 共 {total}
+              </span>
+            </div>
+            <Progress value={progressPct} className='w-full gap-0' />
           </div>
+
+          <Card className='gap-0 py-0 shadow-none'>
+            <div className='flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3'>
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder='搜索员工姓名或职位…'
+                className='max-w-64'
+              />
+              <DataTableToolbar table={table}>
+                <DataTableColumnFilter
+                  column={table.getColumn('currentLevel')}
+                  label='评级'
+                  options={levelOptions}
+                />
+                <Button variant='outline' size='sm' onClick={handlePush} disabled={pushing}>
+                  {pushing ? <Loader2Icon className='animate-spin' /> : <SendIcon />}
+                  推送结果
+                </Button>
+              </DataTableToolbar>
+            </div>
+
+            {selectedCount > 0 && (
+              <div className='border-b px-4 py-2'>
+                <DataTableBulkActionBar
+                  selectedCount={selectedCount}
+                  onClearSelection={() => table.resetRowSelection()}
+                >
+                  <Button size='sm' onClick={handleBulkConfirm} disabled={confirming}>
+                    {confirming ? <Loader2Icon className='animate-spin' /> : <CheckIcon />}
+                    确认校准
+                  </Button>
+                </DataTableBulkActionBar>
+              </div>
+            )}
+
+            <div className='px-2'>
+              <DataTable table={table} emptyText='当前周期暂无校准对象' />
+            </div>
+            <div className='border-t px-4 py-2'>
+              <DataTablePagination table={table} />
+            </div>
+          </Card>
         </>
       )}
 
-      {/* 评级调整弹窗：评级下拉（选项来自评估规则评级序列）+ 调整原因（必填） */}
       <Dialog open={!!adjustTarget} onOpenChange={open => !open && setAdjustTarget(null)}>
         <DialogContent>
           <DialogHeader>
