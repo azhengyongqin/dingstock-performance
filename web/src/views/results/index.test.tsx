@@ -1,0 +1,101 @@
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { apiFetch } from '@/lib/api'
+
+import Results from './index'
+
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }))
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+
+const apiFetchMock = vi.mocked(apiFetch)
+
+const currentResult = (status: 'RESULT_PUBLISHED' | 'APPEALING' | 'RE_CONFIRMING' | 'CONFIRMED') => ({
+  participant: {
+    id: 7,
+    status,
+    cycle: { id: 3, name: '2026 年中绩效评定' }
+  },
+  result: {
+    id: 41,
+    version: 1,
+    finalLevel: 'A',
+    previousFinalLevel: null,
+    employeeExplanation: '表现优秀',
+    resultSnapshot: {
+      manager: { compositeScore: '90', level: 'A', dimensions: [], fields: [] },
+      self: { level: 'A', fields: [] },
+      promotion: null
+    },
+    publishedAt: '2026-07-21T08:00:00.000Z',
+    confirmedAt: null
+  },
+  appeals: []
+})
+
+describe('Results 结果确认与申诉', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('发起申诉时精确绑定当前参与者和结果版本', async () => {
+    const user = userEvent.setup()
+
+    apiFetchMock.mockImplementation((path: string) => {
+      if (path === '/results/current') return Promise.resolve(currentResult('RESULT_PUBLISHED'))
+      if (path === '/appeals') return Promise.resolve({})
+
+      throw new Error(`未预期的接口：${path}`)
+    })
+
+    render(<Results />)
+
+    await user.click(await screen.findByRole('button', { name: '发起申诉' }))
+    await user.type(screen.getByPlaceholderText('请填写申诉理由（必填）…'), '结果与实际贡献不符')
+    await user.click(screen.getByRole('button', { name: '提交申诉' }))
+
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith('/appeals', {
+        method: 'POST',
+        body: JSON.stringify({
+          participantId: 7,
+          resultVersionId: 41,
+          reason: '结果与实际贡献不符'
+        })
+      })
+    )
+  })
+
+  it('申诉处理后的再次确认阶段不再提供二次申诉入口', async () => {
+    apiFetchMock.mockResolvedValue(currentResult('RE_CONFIRMING'))
+
+    render(<Results />)
+
+    expect(await screen.findByRole('button', { name: '确认结果' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '发起申诉' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/若对结果有异议/)).not.toBeInTheDocument()
+    expect(screen.getByText(/申诉处理后请确认复核结果/)).toBeInTheDocument()
+  })
+
+  it('申诉处理中展示等待提示而不是已确认状态', async () => {
+    apiFetchMock.mockResolvedValue(currentResult('APPEALING'))
+
+    render(<Results />)
+
+    expect(await screen.findByText('申诉处理中')).toBeInTheDocument()
+    expect(screen.getByText(/申诉正在处理中/)).toBeInTheDocument()
+    expect(screen.queryByText('结果已确认')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '确认结果' })).not.toBeInTheDocument()
+  })
+
+  it('结果已确认后不再提示确认复核结果', async () => {
+    apiFetchMock.mockResolvedValue(currentResult('CONFIRMED'))
+
+    render(<Results />)
+
+    expect(await screen.findByText('结果已确认')).toBeInTheDocument()
+    expect(screen.getByText(/本周期结果已确认，已进入面谈闭环/)).toBeInTheDocument()
+    expect(screen.queryByText(/请确认复核结果/)).not.toBeInTheDocument()
+  })
+})

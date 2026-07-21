@@ -3,7 +3,7 @@
 /**
  * 结果确认（员工视角，真实后端 /results/current）：
  * Alert 状态条 + StatsCards 摘要 + Tabs 结果明细（维度 / 上级评语 / 自评 / 申诉）。
- * participant.status 为 RESULT_PUBLISHED / RE_CONFIRMING 时可确认或发起申诉。
+ * RESULT_PUBLISHED 可确认或申诉；申诉处理后的 RE_CONFIRMING 仅可再次确认。
  */
 
 // React Imports
@@ -148,6 +148,10 @@ const Results = () => {
   const result = data?.result ?? null
   const appeals = data?.appeals ?? []
   const actionable = participant?.status === 'RESULT_PUBLISHED' || participant?.status === 'RE_CONFIRMING'
+  const appealPending = participant?.status === 'APPEALING'
+
+  // 申诉处理后只能再次确认，不能对同一有效结果链发起第二次申诉。
+  const canAppeal = participant?.status === 'RESULT_PUBLISHED'
 
   const fetchCurrent = useCallback(async () => {
     setLoading(true)
@@ -190,7 +194,7 @@ const Results = () => {
   }
 
   const handleAppeal = async () => {
-    if (!participant) return
+    if (!participant || !result || !canAppeal) return
 
     if (!appealReason.trim()) {
       toast.error('请填写申诉理由')
@@ -203,7 +207,13 @@ const Results = () => {
     try {
       await apiFetch('/appeals', {
         method: 'POST',
-        body: JSON.stringify({ cycleId: participant.cycle.id, reason: appealReason.trim() })
+
+        // 申诉必须精确绑定员工当前看到的不可变结果版本，防止刷新前后错绑旧结果。
+        body: JSON.stringify({
+          participantId: participant.id,
+          resultVersionId: result.id,
+          reason: appealReason.trim()
+        })
       })
       toast.success('申诉已提交，HR 将安排申诉面谈')
       setAppealOpen(false)
@@ -275,17 +285,25 @@ const Results = () => {
           <AlertDescription>
             等级 {result.finalLevel}
             {composite ? ` · 综合分 ${composite}` : ''}
-            。确认后进入面谈闭环；有异议可发起申诉。
+            {canAppeal ? '。确认后进入面谈闭环；有异议可发起申诉。' : '。请再次确认申诉处理结果。'}
           </AlertDescription>
           <div className='col-span-full mt-3 flex justify-end gap-2'>
-            <Button variant='outline' disabled={confirming} onClick={() => setAppealOpen(true)}>
-              发起申诉
-            </Button>
+            {canAppeal && (
+              <Button variant='outline' disabled={confirming} onClick={() => setAppealOpen(true)}>
+                发起申诉
+              </Button>
+            )}
             <Button disabled={confirming} onClick={() => void handleConfirm()}>
               {confirming && <Loader2Icon className='size-4 animate-spin' />}
               确认结果
             </Button>
           </div>
+        </Alert>
+      ) : appealPending ? (
+        <Alert className='border-blue-500/30 bg-blue-500/5'>
+          <AlertCircleIcon />
+          <AlertTitle>申诉处理中</AlertTitle>
+          <AlertDescription>申诉已提交，请等待 HR 完成申诉处理；处理完成后请再次确认结果。</AlertDescription>
         </Alert>
       ) : (
         <Alert>
@@ -420,7 +438,13 @@ const Results = () => {
       </Card>
 
       <p className='text-muted-foreground text-center text-xs'>
-        确认结果后进入面谈闭环；若对结果有异议，请在确认窗口内点击「发起申诉」。逾期未操作视为默认确认。
+        {canAppeal
+          ? '确认结果后进入面谈闭环；若对结果有异议，请在确认窗口内点击「发起申诉」。逾期未操作视为默认确认。'
+          : participant.status === 'RE_CONFIRMING'
+            ? '申诉处理后请确认复核结果；确认后进入面谈闭环。逾期未操作视为默认确认。'
+            : appealPending
+              ? '申诉正在处理中，处理完成后可在此查看并确认复核结果。'
+              : '本周期结果已确认，已进入面谈闭环。'}
       </p>
 
       <Dialog open={appealOpen} onOpenChange={setAppealOpen}>
