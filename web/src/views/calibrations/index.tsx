@@ -318,11 +318,19 @@ const Calibrations = () => {
     try {
       const participantIds = selectedRows.map(row => row.original.id)
 
-      await apiFetch(`/cycles/${selectedCycleId}/calibrations/confirm`, {
-        method: 'POST',
-        body: JSON.stringify({ participantIds })
-      })
-      toast.success(`已确认 ${participantIds.length} 人的校准结果`)
+      const result = await apiFetch<{ confirmed: number; skipped: number[] }>(
+        `/cycles/${selectedCycleId}/calibrations/confirm`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ participantIds })
+        }
+      )
+
+      toast.success(
+        result.skipped.length > 0
+          ? `已确认 ${result.confirmed} 人，跳过 ${result.skipped.length} 名已有校准决定的员工`
+          : `已确认 ${result.confirmed} 人的校准结果`
+      )
       table.resetRowSelection()
       await fetchCalibrations(selectedCycleId)
     } catch (err) {
@@ -339,12 +347,16 @@ const Calibrations = () => {
     setPushing(true)
 
     try {
-      const result = await apiFetch<{ pushed: number }>(`/cycles/${selectedCycleId}/results/push`, {
+      const result = await apiFetch<{ published: number; unchanged: number }>(`/cycles/${selectedCycleId}/results/push`, {
         method: 'POST',
         body: JSON.stringify({})
       })
 
-      toast.success(`已向 ${result.pushed ?? 0} 人推送绩效结果`)
+      toast.success(
+        result.unchanged > 0
+          ? `已向 ${result.published} 人推送绩效结果，${result.unchanged} 人结果未变化`
+          : `已向 ${result.published} 人推送绩效结果`
+      )
       await fetchCalibrations(selectedCycleId)
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : '推送结果失败')

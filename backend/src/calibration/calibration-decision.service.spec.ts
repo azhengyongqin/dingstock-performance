@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { CalibrationDecisionService } from './calibration-decision.service';
 
@@ -74,6 +75,7 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     larkUser: { findMany: jest.fn() },
   };
   const prisma = {
+    perfParticipant: { findMany: jest.fn() },
     $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
       callback(tx),
     ),
@@ -132,12 +134,54 @@ describe('CalibrationDecisionService 逐员工校准决定', () => {
     requiredEvaluation.assertCalibrationReady.mockResolvedValue({
       ready: true,
     });
+    prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }]);
     service = new CalibrationDecisionService(
       prisma as never,
       audit as never,
       rbac as never,
       requiredEvaluation as never,
     );
+  });
+
+  it('批量确认给首次校准者追加 KEEP，并跳过已有显式决定者', async () => {
+    prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }, { id: 8 }]);
+    const getContext = jest
+      .spyOn(service, 'getContext')
+      .mockResolvedValueOnce({
+        calibrationRevision: null,
+        inputRevision: 'a'.repeat(64),
+      } as never)
+      .mockResolvedValueOnce({
+        calibrationRevision: 402,
+        inputRevision: 'b'.repeat(64),
+      } as never);
+    const decide = jest.spyOn(service, 'decide').mockResolvedValue({} as never);
+
+    await expect(service.confirmCycle('ou_hr', 3, [7, 8, 7])).resolves.toEqual({
+      confirmed: 1,
+      skipped: [8],
+    });
+
+    expect(prisma.perfParticipant.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [7, 8] }, cycleId: 3 },
+      select: { id: true },
+    });
+    expect(getContext).toHaveBeenCalledTimes(2);
+    expect(decide).toHaveBeenCalledWith('ou_hr', 7, {
+      decision: 'KEEP',
+      expectedCalibrationRevision: null,
+      expectedInputRevision: 'a'.repeat(64),
+    });
+  });
+
+  it('批量确认拒绝混入其他周期或不存在的参与者', async () => {
+    prisma.perfParticipant.findMany.mockResolvedValue([{ id: 7 }]);
+    const getContext = jest.spyOn(service, 'getContext');
+
+    await expect(service.confirmCycle('ou_hr', 3, [7, 8])).rejects.toThrow(
+      NotFoundException,
+    );
+    expect(getContext).not.toHaveBeenCalled();
   });
 
   it('首次 KEEP 显式追加决定，并在同一事务锁定人工评估与进入 CALIBRATED', async () => {

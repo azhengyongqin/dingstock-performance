@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import {
+  ArrayNotEmpty,
   IsArray,
   IsDefined,
   IsEnum,
@@ -92,6 +93,13 @@ class PushResultsDto {
   @IsArray()
   @IsInt({ each: true })
   participantIds?: number[];
+}
+
+class ConfirmCalibrationsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  participantIds!: number[];
 }
 
 class ConfirmResultDto {
@@ -193,6 +201,21 @@ export class CalibrationController {
       participantId,
       findingId,
       dto.reason,
+    );
+  }
+
+  @Post('cycles/:cycleId/calibrations/confirm')
+  @Roles(PerfRole.HR, PerfRole.ADMIN)
+  @ApiOperation({ summary: '批量确认校准并补齐显式 KEEP 决定' })
+  confirmCalibrations(
+    @Req() req: AuthenticatedRequest,
+    @Param('cycleId', ParseIntPipe) cycleId: number,
+    @Body() dto: ConfirmCalibrationsDto,
+  ) {
+    return this.calibrationDecisionService.confirmCycle(
+      req.user.open_id,
+      cycleId,
+      dto.participantIds,
     );
   }
 

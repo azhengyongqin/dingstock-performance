@@ -62,6 +62,42 @@ export class CalibrationDecisionService {
     });
   }
 
+  /**
+   * 批量确认保留旧 HTTP 契约，但落库统一使用新版显式 KEEP/ADJUST 决定。
+   * 已有决定的参与者必须跳过，避免批量确认把人工 ADJUST 重置为 MANAGER 等级。
+   */
+  async confirmCycle(
+    operatorOpenId: string,
+    cycleId: number,
+    participantIds: number[],
+  ) {
+    const uniqueParticipantIds = [...new Set(participantIds)];
+    const participants = await this.prisma.perfParticipant.findMany({
+      where: { id: { in: uniqueParticipantIds }, cycleId },
+      select: { id: true },
+    });
+    if (participants.length !== uniqueParticipantIds.length) {
+      throw new NotFoundException('参与者不存在或不属于当前绩效周期');
+    }
+
+    let confirmed = 0;
+    const skipped: number[] = [];
+    for (const participantId of uniqueParticipantIds) {
+      const context = await this.getContext(operatorOpenId, participantId);
+      if (context.calibrationRevision !== null) {
+        skipped.push(participantId);
+        continue;
+      }
+      await this.decide(operatorOpenId, participantId, {
+        decision: PerfCalibrationDecision.KEEP,
+        expectedCalibrationRevision: context.calibrationRevision,
+        expectedInputRevision: context.inputRevision,
+      });
+      confirmed += 1;
+    }
+    return { confirmed, skipped };
+  }
+
   async decide(
     operatorOpenId: string,
     participantId: number,
