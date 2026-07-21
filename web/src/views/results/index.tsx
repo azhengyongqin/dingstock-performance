@@ -140,6 +140,7 @@ const Results = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [appealOpen, setAppealOpen] = useState(false)
   const [appealReason, setAppealReason] = useState('')
   const [appealSubmitting, setAppealSubmitting] = useState(false)
@@ -185,6 +186,7 @@ const Results = () => {
         body: JSON.stringify({ participantId: participant.id, resultVersionId: result.id })
       })
       toast.success('绩效结果已确认')
+      setConfirmOpen(false)
       await fetchCurrent()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '确认失败，请稍后重试')
@@ -293,8 +295,7 @@ const Results = () => {
                 发起申诉
               </Button>
             )}
-            <Button disabled={confirming} onClick={() => void handleConfirm()}>
-              {confirming && <Loader2Icon className='size-4 animate-spin' />}
+            <Button disabled={confirming} onClick={() => setConfirmOpen(true)}>
               确认结果
             </Button>
           </div>
@@ -446,6 +447,32 @@ const Results = () => {
               ? '申诉正在处理中，处理完成后可在此查看并确认复核结果。'
               : '本周期结果已确认，已进入面谈闭环。'}
       </p>
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={open => {
+          if (confirming) return
+          setConfirmOpen(open)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认绩效结果？</DialogTitle>
+            <DialogDescription>
+              确认后本周期绩效结果将正式生效：此后无法再发起申诉，也无法更改绩效等级。请确认已充分了解当前结果后再继续。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant='outline' disabled={confirming} onClick={() => setConfirmOpen(false)}>
+              取消
+            </Button>
+            <Button disabled={confirming} onClick={() => void handleConfirm()}>
+              {confirming && <Loader2Icon className='size-4 animate-spin' />}
+              确认结果
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={appealOpen} onOpenChange={setAppealOpen}>
         <DialogContent>
