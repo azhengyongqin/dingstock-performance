@@ -10,6 +10,7 @@ jest.mock('../generated/prisma/enums', () => ({
     AI: 'AI',
   },
   PerfAssignmentStatus: { REPLACED: 'REPLACED' },
+  PerfParticipantStatus: { ACTIVE: 'ACTIVE' },
 }));
 jest.mock('../shared/database/prisma.service', () => ({
   PrismaService: class {},
@@ -108,7 +109,12 @@ describe('EvaluationTaskAccessService', () => {
       service.ensureWritable(101, 'SELF', afterDeadline),
     ).resolves.toMatchObject({ id: 1 });
     expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 1, openedAt: null },
+      where: {
+        id: 1,
+        openedAt: null,
+        completedAt: null,
+        participant: { status: 'ACTIVE' },
+      },
       data: { openedAt: afterDeadline },
     });
     expect(notificationEvents.enqueueTaskOpenedEvents).toHaveBeenCalledWith(
@@ -217,5 +223,38 @@ describe('EvaluationTaskAccessService', () => {
       { id: 1, openedAt: now },
     );
     expect(updateMany).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['参与者已中途退出', null, 'WITHDRAWN'],
+    ['任务已被收口', new Date('2026-07-14T01:30:00.000Z'), 'ACTIVE'],
+  ])('读取路径遇到%s时不再开放任务', async (_, completedAt, status) => {
+    const updateMany = jest.fn();
+    prisma.$transaction.mockImplementation((callback: never) =>
+      Promise.resolve(
+        (callback as (tx: unknown) => unknown)({
+          perfEvaluationTask: {
+            findUnique: jest.fn().mockResolvedValue({
+              id: 1,
+              startAt: new Date('2026-07-14T01:00:00.000Z'),
+              openedAt: null,
+              completedAt,
+              cycle: { status: 'ACTIVE', deletedAt: null },
+              participant: { status },
+            }),
+            updateMany,
+          },
+        }),
+      ),
+    );
+    const service = new EvaluationTaskAccessService(
+      prisma as never,
+      notificationEvents as never,
+    );
+
+    await service.openIfDue(101, 'SELF', new Date('2026-07-14T02:00:00.000Z'));
+
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(notificationEvents.enqueueTaskOpenedEvents).not.toHaveBeenCalled();
   });
 });

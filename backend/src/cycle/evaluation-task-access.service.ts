@@ -7,6 +7,7 @@ import {
   PerfCycleStatus,
   PerfEvaluationTaskType,
   PerfAssignmentStatus,
+  PerfParticipantStatus,
 } from '../generated/prisma/enums';
 import type { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../shared/database/prisma.service';
@@ -41,6 +42,8 @@ export class EvaluationTaskAccessService {
         task.cycle.deletedAt ||
         task.cycle.status !== PerfCycleStatus.ACTIVE ||
         task.openedAt ||
+        task.completedAt ||
+        task.participant.status !== PerfParticipantStatus.ACTIVE ||
         !task.startAt ||
         task.startAt.getTime() > now.getTime()
       ) {
@@ -126,7 +129,13 @@ export class EvaluationTaskAccessService {
   ) {
     // 条件更新只允许一个并发请求成为开放者，避免重复发出任务开放通知。
     const result = await tx.perfEvaluationTask.updateMany({
-      where: { id: task.id, openedAt: null },
+      where: {
+        id: task.id,
+        openedAt: null,
+        completedAt: null,
+        // 防止查询任务后、写入 openedAt 前恰好发生中途退出。
+        participant: { status: PerfParticipantStatus.ACTIVE },
+      },
       data: { openedAt: now },
     });
     if (result.count === 0) {
