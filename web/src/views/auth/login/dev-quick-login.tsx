@@ -187,7 +187,7 @@ const DevQuickLogin = () => {
         <form className='space-y-3' onSubmit={handleVerifyPassword}>
           <div className='space-y-1.5'>
             <label htmlFor='dev-login-password' className='text-sm font-medium'>
-              32 位访问密码
+              访问密码
             </label>
             <Input
               id='dev-login-password'

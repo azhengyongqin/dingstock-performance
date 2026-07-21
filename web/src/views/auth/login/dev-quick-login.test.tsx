@@ -74,7 +74,7 @@ describe('开发快速登录后端开关', () => {
 
     render(<DevQuickLogin />)
 
-    const passwordInput = await screen.findByLabelText('32 位访问密码')
+    const passwordInput = await screen.findByLabelText('访问密码')
     const verifyButton = screen.getByRole('button', { name: '验证密码' })
 
     expect(verifyButton).toBeDisabled()
